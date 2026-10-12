@@ -15,7 +15,7 @@ This file is the **single source of truth** for client/server contracts. Backend
   "traceId": "…", "fieldErrors": [ { "field": "nickname", "message": "must be 2–20 characters" } ] }
 ```
 
-- Error codes: `VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_HOST, ROOM_NOT_FOUND, ROOM_FULL, ROOM_IN_PROGRESS, ROOM_CLOSED, NOT_ENOUGH_PLAYERS, ALREADY_IN_ROOM, NOT_IN_ROOM, GAME_NOT_FOUND, SESSION_NOT_FOUND, RESULTS_NOT_READY, RATE_LIMITED, PAYLOAD_TOO_LARGE, STALE_ACTION, DUPLICATE_ACTION, INVALID_PHASE, INVALID_ACTION, NOT_DRAWER, IS_DRAWER, SERVER_ERROR`.
+- Error codes: `VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_HOST, ROOM_NOT_FOUND, ROOM_FULL, ROOM_IN_PROGRESS, ROOM_CLOSED, NOT_ENOUGH_PLAYERS, ALREADY_IN_ROOM, NOT_IN_ROOM, GAME_NOT_FOUND, SESSION_NOT_FOUND, RESULTS_NOT_READY, RATE_LIMITED, PAYLOAD_TOO_LARGE, STALE_ACTION, DUPLICATE_ACTION, INVALID_PHASE, INVALID_ACTION, NOT_DRAWER, IS_DRAWER, SERVER_ERROR, NOT_FOUND, METHOD_NOT_ALLOWED, UNSUPPORTED_MEDIA_TYPE`. The last three are generic framework-level codes for unmapped paths, wrong HTTP methods and wrong content types.
 - Rate-limit responses: `429` + `Retry-After`.
 - Idempotency: mutating room endpoints accept optional `Idempotency-Key` header (join/leave/start).
 
@@ -23,7 +23,7 @@ This file is the **single source of truth** for client/server contracts. Backend
 
 | Method & path | Auth | Request | Success | Errors |
 |---|---|---|---|---|
-| `GET /health` | no | — | `200 {status, version, db:"UP\|DOWN", time}` | 503 if DB down |
+| `GET /health` | no | — | `200 {status:"UP", version, db:"UP", time}` | `503` with the same body shape (`status:"DOWN"`, `db:"DOWN"`) if the DB is unreachable (not problem+json) |
 | `POST /guests` | no | `{nickname, avatarKey, avatarColor?}` | `201 {guest: GuestDto, token, expiresAt}` | 400, 429 |
 | `GET /guests/me` | yes | — | `200 GuestDto` (also renews sliding expiry) | 401 |
 | `PATCH /guests/me` | yes | `{nickname?, avatarKey?, avatarColor?}` | `200 GuestDto` | 400, 409 (`INVALID_PHASE` while locked in a playing room) |
