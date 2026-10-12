@@ -1,5 +1,6 @@
 import type { RouteObject } from 'react-router'
 
+import { GamesPage } from '@/pages/GamesPage'
 import { HomePage } from '@/pages/HomePage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
@@ -12,7 +13,7 @@ export const routes: RouteObject[] = [
     element: <Layout />,
     children: [
       { index: true, element: <HomePage /> },
-      { path: 'games', element: <PlaceholderPage title="Games" phase={2} /> },
+      { path: 'games', element: <GamesPage /> },
       { path: 'games/:gameKey', element: <PlaceholderPage title="Game info" phase={2} /> },
       { path: 'rooms/new', element: <PlaceholderPage title="Create room" phase={2} /> },
       { path: 'join/:code?', element: <PlaceholderPage title="Join room" phase={2} /> },

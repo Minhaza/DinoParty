@@ -52,3 +52,8 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 .idea/
+
+# Kandev local workspace
+.kandev/
+
+.claude/

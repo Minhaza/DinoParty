@@ -40,10 +40,18 @@ describe('routes', () => {
   })
 
   it('labels unbuilt pages as coming in a later phase', () => {
+    renderAt('/settings')
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByText('Coming in Phase 2')).toBeInTheDocument()
+  })
+
+  it('renders the games catalog with game titles and rules', () => {
     renderAt('/games')
 
-    expect(screen.getByRole('heading', { name: 'Games' })).toBeInTheDocument()
-    expect(screen.getByText('Coming in Phase 2')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Our Games' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Draw & Guess' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Dino Telephone' })).toBeInTheDocument()
   })
 
   it('accepts an invite code in the join route', () => {
