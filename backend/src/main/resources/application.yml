@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: dinoparty
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/dinoparty}
+    username: ${DB_USER:dinoparty}
+    password: ${DB_PASSWORD:}
+    hikari:
+      # Fail fast so the health endpoint answers 503 quickly when the database is unreachable.
+      connection-timeout: 3000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  port: 8080
+  error:
+    include-stacktrace: never
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+app:
+  version: "@project.version@"
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

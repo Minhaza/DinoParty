@@ -1,0 +1,25 @@
+# Development services. Usage (from repo root):
+#   docker compose --env-file .env -f deploy/compose.dev.yml up -d db
+name: dinoparty-dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dinoparty}
+      POSTGRES_USER: ${POSTGRES_USER:-dinoparty}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (copy .env.example)}
+    ports:
+      # Host port 5433 avoids clashing with a local PostgreSQL on 5432 (decision D11).
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - dinoparty-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dinoparty-db-data:
