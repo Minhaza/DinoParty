@@ -1,0 +1,120 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* DinoParty brighter theme tokens (sunny ivory background, crisp white cards, vivid emerald primary, warm tangerine accent). */
+:root {
+  --radius: 1.25rem;
+  --background: oklch(0.985 0.012 85); /* Bright warm sunny ivory / cream (#FAF6EF) */
+  --foreground: oklch(0.2 0.02 260); /* Crisp dark charcoal/slate (#1E293B) */
+  --card: oklch(1 0 0); /* Pure bright white (#FFFFFF) */
+  --card-foreground: oklch(0.2 0.02 260); /* Crisp dark charcoal (#1E293B) */
+  --primary: oklch(0.62 0.19 152); /* Vibrant bright emerald green (#10B981 / #059669) */
+  --primary-foreground: oklch(1 0 0); /* Pure white */
+  --secondary: oklch(0.96 0.015 85); /* Soft warm ivory pill (#F5EFE6) */
+  --secondary-foreground: oklch(0.22 0.02 260);
+  --muted: oklch(0.95 0.012 85); /* Subtle warm tint */
+  --muted-foreground: oklch(0.48 0.02 260); /* Soft slate for descriptions */
+  --accent: oklch(0.68 0.2 46); /* Bright sunny tangerine/coral (#F97316) */
+  --accent-foreground: oklch(1 0 0); /* Pure white */
+  --destructive: oklch(0.6 0.22 27);
+  --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.65 0.19 150);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.78 0.18 78);
+  --warning-foreground: oklch(0.22 0.04 78);
+  --border: oklch(0.92 0.012 85); /* Delicate warm border (#EAE2D7) */
+  --input: oklch(0.9 0.012 85);
+  --ring: oklch(0.62 0.19 152);
+
+  /* Dinosaur Archetype Colors */
+  --dino-rex: oklch(0.65 0.19 150); /* Cheerful bright green */
+  --dino-tricera: oklch(0.68 0.2 46); /* Sunny orange */
+  --dino-ptera: oklch(0.65 0.2 305); /* Playful lavender purple */
+  --dino-stego: oklch(0.68 0.16 215); /* Sky cyan / turquoise */
+  --dino-mite: oklch(0.76 0.19 135); /* Lime green */
+  --dino-lizard: oklch(0.62 0.22 28); /* Fiery coral red */
+}
+
+.dark {
+  --background: oklch(0.21 0.035 262); /* Navy slate, lifted from near-black */
+  --foreground: oklch(0.98 0.01 90); /* Crisp white */
+  --card: oklch(0.27 0.04 262); /* Elevated slate card */
+  --card-foreground: oklch(0.98 0.01 90);
+  --primary: oklch(0.68 0.19 152); /* Glowing emerald */
+  --primary-foreground: oklch(0.12 0.03 260);
+  --secondary: oklch(0.32 0.04 262); /* Elevated slate pill */
+  --secondary-foreground: oklch(0.96 0.01 90);
+  --muted: oklch(0.3 0.035 262);
+  --muted-foreground: oklch(0.78 0.02 260);
+  --accent: oklch(0.72 0.19 46); /* Bright glowing orange */
+  --accent-foreground: oklch(0.12 0.03 260);
+  --destructive: oklch(0.7 0.18 25);
+  --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.72 0.19 150);
+  --success-foreground: oklch(0.12 0.03 260);
+  --warning: oklch(0.82 0.17 78);
+  --warning-foreground: oklch(0.16 0.03 78);
+  --border: oklch(0.36 0.04 262); /* Soft slate border */
+  --input: oklch(0.36 0.04 262);
+  --ring: oklch(0.68 0.19 152);
+
+  --dino-rex: oklch(0.7 0.19 150);
+  --dino-tricera: oklch(0.72 0.19 46);
+  --dino-ptera: oklch(0.72 0.18 305);
+  --dino-stego: oklch(0.74 0.15 215);
+  --dino-mite: oklch(0.8 0.18 135);
+  --dino-lizard: oklch(0.68 0.21 28);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 3px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 12px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-dino-rex: var(--dino-rex);
+  --color-dino-tricera: var(--dino-tricera);
+  --color-dino-ptera: var(--dino-ptera);
+  --color-dino-stego: var(--dino-stego);
+  --color-dino-mite: var(--dino-mite);
+  --color-dino-lizard: var(--dino-lizard);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased min-h-screen;
+    /* Sunny sky wash: soft blue overhead fading into warm peach, echoing the hero art. */
+    background-image:
+      radial-gradient(at 15% 0%, oklch(0.93 0.05 230 / 0.55) 0px, transparent 520px),
+      radial-gradient(at 85% 5%, oklch(0.93 0.06 60 / 0.6) 0px, transparent 560px);
+  }
+  .dark body {
+    background-image: radial-gradient(at 50% 0%, oklch(0.45 0.12 265 / 0.3) 0px, transparent 650px);
+  }
+}

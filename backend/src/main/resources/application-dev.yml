@@ -1,0 +1,4 @@
+spring:
+  config:
+    # Optional dotenv-style file at the repo root (copy .env.example to .env). Real env vars still win.
+    import: "optional:file:../.env[.properties]"
