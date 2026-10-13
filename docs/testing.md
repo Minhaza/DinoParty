@@ -100,12 +100,30 @@ STOMP integration tests start the application on a random port (`@RealtimeIntegr
 
 ### Phase 3 verification record
 
-Run on Windows 11, JDK 21.0.3, Docker Desktop. `./backend/mvnw -f backend verify` passed twice in a row: 58 unit tests, 113 integration tests, Spotless check. Not run: Linux/CI, any browser client.
+Run on Windows 11, JDK 21.0.3, Node 22.18, Docker Desktop, Edge (headless, driven by `playwright-core`). Not run: Linux/CI.
+
+| Check | Result |
+|---|---|
+| `./backend/mvnw -f backend verify` | passed: 58 unit tests, 113 integration tests, Spotless check (also passed earlier on the backend branch) |
+| `npm --prefix frontend run lint` / `typecheck` / `test` / `build` | passed; 75 tests (3 added in the integration pass) |
+| Live multi-browser run: separate browser contexts, real backend + Vite proxy, throw-away scripts outside the repo (**not** committed E2E) | passed after the fixes below; details next |
+
+Live run, observed after the fixes: host and joiner both show "Live"; a join appears in the other browser within milliseconds; ready toggles show in both lists and the host sees "All players ready"; a refresh restores guest and lobby with exactly one open socket and 3 subscriptions; closing the socket from the page reconnects with one open socket and 3 subscriptions, and later events apply once; raw frames sent from a browser socket: malformed JSON and a non-UUID `actionId` -> `VALIDATION_FAILED`, repeated `actionId` -> `DUPLICATE_ACTION`, `START_GAME` -> `INVALID_ACTION`, a 100 kB frame -> close 1009 and the client recovers; SUBSCRIBE to a room the guest is not in -> `ERROR NOT_IN_ROOM` and the socket is closed; closing the host's browser context -> others see "Disconnected" during grace, then after 30 s the host is removed and the longest-standing connected player becomes host; killing the backend shows the reconnect banner and, after restart, every client recovers without a reload and ready toggles propagate again; concurrent ready clicks from two browsers left both views with the same state (compared by eye, not asserted).
+
+#### Integration defects found and fixed (frontend)
+
+1. **Duplicate STOMP connections.** `RealtimeClient.connect()` had no guard and the provider effect calls it repeatedly (StrictMode, token change, `online` event). Each page opened 2-3 sockets, the server replaced and closed them, and other players saw the guest flap to "Disconnected" (observed in the first live run). `connect()` now does nothing while a client is active, a dead client is dropped before backoff, and callbacks of a superseded client are ignored (a late `SESSION_REPLACED` close could otherwise terminate the live client). Unit tests added; they were not run against the unfixed code, the defect itself was observed live.
+2. **Snapshot dropped after a server restart.** `ROOM_SNAPSHOT` went through the seq dedupe check, so after a restart (counters restart at 1) the snapshot and every later event were ignored: the lobby showed "Live" but never updated. Snapshots now bypass dedupe/gap checks and replace `lastSeq`, as the contract says. Unit test added; the live restart scenario passes after the fix.
 
 ### Not verified / known limitations (Phase 3)
 
 - **Heartbeat timeout** (server noticing a silent client after ~20 s) is configured (`heart-beat:10000,10000` is asserted in `CONNECTED`) but not exercised end to end; tests simulate lost clients by aborting the TCP connection.
-- **Browser clients and the frontend were not run against this layer** (Phase 3.4/3.5 are Antigravity's). Origin handling was tested with a non-browser client sending an `Origin` header.
+- **No committed Playwright E2E** (Phase 8): the browser run used throw-away scripts, Edge only; no Firefox/WebKit, mobile, axe or keyboard walk-through. Cross-origin handshake rejection was tested with a non-browser client sending an `Origin` header, not from a real foreign-origin page.
+- **Network interruption was simulated** by closing the socket from the page and by stopping the backend, not by an OS-level cut or the browser `offline` event; heartbeat timeout is still unexercised.
+- **Host permissions over WebSocket** can only be partly tested: Phase 3 has no host-only WS command (`START_GAME`, kick, close answer `INVALID_ACTION` for everyone). `NOT_HOST` is enforced and tested on REST (settings, start); WS host commands arrive in Phase 4.
+- The lobby "Start game" button calls REST start, which has no game behind it yet.
+- **Task 3.6** (CI contract tests with shared JSON schemas) is not implemented.
+- `npm run format:check` reports 51 frontend files (pre-existing, not introduced here); lint and typecheck are clean.
 - **Presence is in memory**: after a backend restart nobody is tracked until they reconnect, and members who never reconnect are not timed out. REST-only members (never opened a socket) are by design never timed out.
 - **`ROOM_CLOSED` has no recipient yet**: rooms only close when the last member leaves; it becomes observable with host-initiated close.
 - **No `START_GAME`, `kick`, `close`** (Phase 4); game commands are answered `INVALID_ACTION`.

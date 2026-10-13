@@ -256,4 +256,34 @@ describe('roomStore', () => {
     useRoomStore.getState().applyEnvelope(errorEnvelope)
     expect(useRoomStore.getState().lastError).toBe('Unknown command')
   })
+  it('accepts a snapshot whose seq is lower than the remembered one (server restart)', () => {
+    useRoomStore.getState().applySnapshot(BASE_SNAPSHOT)
+
+    const restarted: EventEnvelope<SnapshotDto> = {
+      type: 'ROOM_SNAPSHOT',
+      roomId: 'room-1',
+      roomCode: 'AB3D7K',
+      ts: '2026-01-01T00:05:00.000Z',
+      seq: 1,
+      stream: 'PRIVATE',
+      actionId: null,
+      payload: { ...BASE_SNAPSHOT, seq: { room: 2, private: 1 } },
+    }
+
+    expect(useRoomStore.getState().applyEnvelope(restarted)).toBe('applied')
+    expect(useRoomStore.getState().lastSeq).toEqual({ room: 2, private: 1 })
+
+    const next: EventEnvelope<{ guestId: string; ready: boolean }> = {
+      type: 'READY_UPDATED',
+      roomId: 'room-1',
+      roomCode: 'AB3D7K',
+      ts: '2026-01-01T00:05:01.000Z',
+      seq: 3,
+      stream: 'ROOM',
+      actionId: null,
+      payload: { guestId: 'guest-1', ready: true },
+    }
+    expect(useRoomStore.getState().applyEnvelope(next)).toBe('applied')
+    expect(useRoomStore.getState().room?.players[0].ready).toBe(true)
+  })
 })

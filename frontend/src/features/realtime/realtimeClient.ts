@@ -100,8 +100,17 @@ export class RealtimeClient {
       return
     }
 
+    // One live client per RealtimeClient: the provider effect runs twice under StrictMode and on
+    // token/online changes, and a second socket would make the server replace (and close) the first.
+    if (this.client?.active) {
+      return
+    }
+
     this.intentionalDisconnect = false
     this.clearReconnectTimer()
+
+    let created: Client | null = null
+    const isCurrent = () => created !== null && this.client === created
 
     const isReconnecting = useConnectionStore.getState().reconnectAttempt > 0
     this.updateStatus(isReconnecting ? 'RECONNECTING' : 'CONNECTING')
@@ -119,6 +128,7 @@ export class RealtimeClient {
       reconnectDelay: 0, // Managed manually with backoff and terminal check
 
       onConnect: () => {
+        if (!isCurrent()) return
         this.lastStompErrorCode = null
         this.updateStatus('CONNECTED')
         useConnectionStore.getState().setReconnectAttempt(0)
@@ -131,6 +141,7 @@ export class RealtimeClient {
       },
 
       onStompError: (frame: { headers: Record<string, string> }) => {
+        if (!isCurrent()) return
         const code = frame.headers.code || ''
         this.lastStompErrorCode = code
         const message = frame.headers.message || 'STOMP error'
@@ -142,6 +153,8 @@ export class RealtimeClient {
       },
 
       onWebSocketClose: (event: { code: number; reason?: string }) => {
+        // A late close from a client we already replaced or deactivated must not affect the new one.
+        if (!isCurrent()) return
         this.clearSubscriptions()
 
         if (this.intentionalDisconnect) {
@@ -170,18 +183,22 @@ export class RealtimeClient {
           return
         }
 
+        // Backoff is ours (reconnectDelay 0), so drop the dead client; a stale `active` flag would
+        // make connect() think a socket is still live.
+        void created?.deactivate()
+        this.client = null
         this.scheduleReconnect()
       },
 
       onWebSocketError: () => {
+        if (!isCurrent()) return
         useConnectionStore.getState().setLastError('WebSocket error occurred')
       },
     }
 
-    this.client = this.clientFactory ? this.clientFactory(config) : new Client(config)
-
-
-    this.client.activate()
+    created = this.clientFactory ? this.clientFactory(config) : new Client(config)
+    this.client = created
+    created.activate()
   }
 
   public disconnect(): void {

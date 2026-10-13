@@ -71,13 +71,11 @@ class FakeStompClient {
     })
   }
 
-
   // Helper for tests to simulate close
   public emitClose(code = 1000, reason = ''): void {
     this.connected = false
     const onClose = this.options.onWebSocketClose as
-      | ((event: { code: number; reason: string }) => void)
-      | undefined
+      ((event: { code: number; reason: string }) => void) | undefined
     onClose?.({ code, reason })
   }
 }
@@ -106,7 +104,6 @@ describe('RealtimeClient', () => {
 
     return client
   }
-
 
   it('subscribes to public room topic, private queue, and errors queue on connect', () => {
     const client = createTestClient()
@@ -150,7 +147,6 @@ describe('RealtimeClient', () => {
     const fake = fakeClient!
     fake.activate()
     client.subscribeToRoom('AB3D7K')
-
 
     // Initial snapshot at seq 10
     useRoomStore.getState().applySnapshot({
@@ -227,4 +223,41 @@ describe('RealtimeClient', () => {
     expect(fake.subscriptions.size).toBe(0)
   })
 
+  it('does not open a second socket when connect() is called while one is active', () => {
+    const created: FakeStompClient[] = []
+    const client = new RealtimeClient({
+      token: 'valid-token',
+      clientFactory: (cfg) => {
+        const stub = new FakeStompClient(cfg)
+        created.push(stub)
+        return stub as unknown as import('@stomp/stompjs').Client
+      },
+    })
+    client.connect()
+    client.connect()
+    client.setToken('valid-token')
+    client.connect()
+    expect(created).toHaveLength(1)
+  })
+
+  it('ignores a late close from a client that was already replaced', () => {
+    const created: FakeStompClient[] = []
+    const client = new RealtimeClient({
+      token: 'valid-token',
+      clientFactory: (cfg) => {
+        const stub = new FakeStompClient(cfg)
+        created.push(stub)
+        return stub as unknown as import('@stomp/stompjs').Client
+      },
+    })
+    client.connect()
+    client.disconnect()
+    client.connect()
+    expect(created).toHaveLength(2)
+
+    created[0].emitClose(1008, 'SESSION_REPLACED')
+
+    expect(useConnectionStore.getState().terminalReason).toBeNull()
+    expect(useConnectionStore.getState().status).toBe('CONNECTED')
+  })
 })

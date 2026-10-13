@@ -69,6 +69,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       return 'applied'
     }
 
+    // A snapshot replaces the remembered seq wholesale (contract §3.2), so it is exempt from the
+    // dedupe/gap checks: after a server restart the counters start again at 1 and a snapshot at
+    // seq 1 would otherwise be dropped as a duplicate, leaving the client deaf to every later event.
+    if (envelope.type === 'ROOM_SNAPSHOT') {
+      state.applySnapshot(envelope.payload as SnapshotDto)
+      return 'applied'
+    }
+
     const streamKey = envelope.stream === 'ROOM' ? 'room' : 'private'
     const currentSeq = state.lastSeq[streamKey]
 
@@ -92,12 +100,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     // Dispatch event to update room state
     const currentRoom = state.room
     if (!currentRoom) {
-      // If we don't have a room yet and this is ROOM_SNAPSHOT, apply it
-      if (envelope.type === 'ROOM_SNAPSHOT') {
-        state.applySnapshot(envelope.payload as SnapshotDto)
-        return 'applied'
-      }
-      // Otherwise ignore until snapshot arrives
+      // Ignore until a snapshot arrives
       set({ lastSeq: nextSeq })
       return 'applied'
     }

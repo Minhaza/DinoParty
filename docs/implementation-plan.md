@@ -83,6 +83,8 @@ Exit: two browsers can create/join a room via REST; all REST ITs and frontend te
 
 Exit: lobby changes propagate in real time; refresh/reconnect restores state; disconnected-host scenario handled (host transfer).
 
+**Status (verified 2026-10-13; evidence in `testing.md` "Phase 3 verification record"):** 3.1–3.5 done and verified by backend `verify`, frontend lint/typecheck/test/build and a live multi-browser run; two frontend integration defects (duplicate sockets, snapshot dropped after a server restart) were fixed. **3.6 is not done.** Carried forward: committed Playwright E2E (Phase 8), cross-browser/mobile/axe, heartbeat-timeout test, trusted-proxy rate limiting, WS host commands (Phase 4).
+
 ## Phase 4 — Shared game engine
 
 | ID | Task | Owner | Depends | Acceptance |
