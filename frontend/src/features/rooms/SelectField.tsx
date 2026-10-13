@@ -25,7 +25,7 @@ export function SelectField({ label, value, options, onChange, disabled }: Selec
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-9 rounded-xl border border-input bg-background px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+        className="h-10 rounded-xl border-2 border-input bg-secondary/60 px-3 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
       >
         {all.map((o) => (
           <option key={o.value} value={o.value}>

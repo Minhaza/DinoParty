@@ -6,7 +6,12 @@ import { describeError, fieldError } from '@/api/errors'
 import { createGuest, guestQueryKey, updateMe } from '@/api/guests'
 import type { GuestDto } from '@/api/types'
 import { DinoAvatar } from '@/components/DinoAvatar'
-import { DEFAULT_AVATAR_KEY, DINO_AVATARS } from '@/components/dinoAvatars'
+import {
+  DEFAULT_AVATAR_KEY,
+  DINO_AVATARS,
+  DINO_BLURBS,
+  type DinoAvatarKey,
+} from '@/components/dinoAvatars'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -71,19 +76,37 @@ export function GuestProfileForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
-      <div className="flex flex-col items-center gap-2 rounded-2xl bg-secondary/50 p-4">
-        <DinoAvatar avatarKey={avatarKey} size="xl" className="shadow-md" />
-        <div className="text-center">
-          <p className="text-lg font-bold text-foreground">{nickname.trim() || 'Your Nickname'}</p>
-          <p className="text-xs text-muted-foreground">{label}</p>
+      {/* Selected character: large portrait, name and personality */}
+      <div
+        aria-live="polite"
+        className="flex items-center gap-5 rounded-[22px] bg-[linear-gradient(135deg,var(--secondary),var(--peach))] p-5 shadow-inner"
+      >
+        <div key={avatarKey} className="shrink-0 animate-pop">
+          <DinoAvatar
+            avatarKey={avatarKey}
+            alt={`${label ?? 'Dino'} portrait`}
+            border={false}
+            className="size-28 rounded-[28px] shadow-card sm:size-36"
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="font-display text-2xl font-semibold leading-tight text-foreground">
+            {DINO_AVATARS.find((d) => d.key === avatarKey)?.name}
+          </p>
+          <p className="truncate text-sm font-bold text-primary">
+            {nickname.trim() || 'Your nickname'}
+          </p>
+          <p className="mt-1 text-sm font-semibold leading-snug text-muted-foreground">
+            {DINO_BLURBS[avatarKey as DinoAvatarKey] ?? ''}
+          </p>
         </div>
       </div>
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
           Select dinosaur
         </legend>
-        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-6">
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
           {DINO_AVATARS.map((dino) => {
             const selected = dino.key === avatarKey
             return (
@@ -93,25 +116,32 @@ export function GuestProfileForm({
                 onClick={() => setAvatarKey(dino.key)}
                 aria-label={`Select ${dino.label}`}
                 aria-pressed={selected}
-                className={cn(
-                  'relative flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl p-2 outline-none transition-all focus-visible:ring-[3px] focus-visible:ring-ring/50',
-                  selected
-                    ? 'scale-105 bg-primary/15 shadow-xs ring-2 ring-primary'
-                    : 'bg-muted/40 hover:bg-muted/80',
-                )}
+                className="group flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl p-1 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60"
               >
-                <DinoAvatar avatarKey={dino.key} size="md" border={false} alt="" />
-                <span className="max-w-full truncate text-[11px] font-medium text-foreground">
+                <span
+                  className={cn(
+                    'relative rounded-full p-0.5 transition-all group-hover:scale-110',
+                    selected ? 'bg-primary shadow-tactile' : 'bg-transparent',
+                  )}
+                >
+                  <DinoAvatar avatarKey={dino.key} size="lg" border={false} alt="" />
+                  {selected && (
+                    <span
+                      aria-hidden
+                      className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-card"
+                    >
+                      <Check className="size-3 stroke-[3]" />
+                    </span>
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    'max-w-full truncate text-xs font-bold',
+                    selected ? 'text-primary' : 'text-muted-foreground',
+                  )}
+                >
                   {dino.name}
                 </span>
-                {selected && (
-                  <span
-                    aria-hidden
-                    className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground"
-                  >
-                    <Check className="size-2.5 stroke-[3]" />
-                  </span>
-                )}
               </button>
             )
           })}
@@ -121,7 +151,7 @@ export function GuestProfileForm({
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor="guest-nickname"
-          className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
+          className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground"
         >
           Party nickname
         </label>
@@ -156,7 +186,7 @@ export function GuestProfileForm({
           {generalError}
         </p>
       )}
-      <p aria-live="polite" className="min-h-4 text-sm font-medium text-emerald-600">
+      <p aria-live="polite" className="min-h-4 text-sm font-bold text-primary">
         {saved && guest ? 'Profile saved.' : ''}
       </p>
 

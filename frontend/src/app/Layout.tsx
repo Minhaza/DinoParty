@@ -1,8 +1,9 @@
 import { ChevronDown, Menu, Monitor, Moon, Sun, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useMatch } from 'react-router'
 
 import { DinoAvatar } from '@/components/DinoAvatar'
+import { PageBackdrop } from '@/components/art/HeroScene'
 import { DinoLogo } from '@/components/DinoLogo'
 import { AboutModal } from '@/components/modals/AboutModal'
 import { HowToPlayModal } from '@/components/modals/HowToPlayModal'
@@ -38,6 +39,7 @@ export function Layout() {
   const theme = usePrefsStore((s) => s.theme)
   const setTheme = usePrefsStore((s) => s.setTheme)
   useApplyTheme(theme)
+  const isHome = useMatch({ path: '/', end: true }) !== null
   const ThemeIcon = THEME_ICON[theme]
 
   const guestState = useGuest()
@@ -56,15 +58,16 @@ export function Layout() {
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     cn(
-      'rounded-full px-4 py-2 text-sm font-semibold transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+      'rounded-full px-4 py-2 text-sm font-bold transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60',
       isActive
-        ? 'bg-primary/15 text-primary'
-        : 'text-foreground/75 hover:bg-muted/70 hover:text-foreground',
+        ? 'bg-primary/15 text-primary dark:text-primary'
+        : 'text-foreground/80 hover:bg-foreground/8 hover:text-foreground',
     )
 
   return (
     <RealtimeProvider>
-      <div className="flex min-h-screen flex-col text-foreground antialiased selection:bg-primary/20">
+      <div className="relative isolate flex min-h-screen flex-col text-foreground antialiased selection:bg-primary/20">
+        {!isHome && <PageBackdrop />}
         <a
           href="#main"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-card focus:px-4 focus:py-2 focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-primary"
@@ -73,12 +76,12 @@ export function Layout() {
         </a>
 
         {/* Shared Header Navigation */}
-        <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur-md transition-colors">
+        <header className="sticky top-0 z-40 border-b-2 border-border/70 bg-background/80 backdrop-blur-md transition-colors">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
             {/* Brand Logo */}
             <NavLink
               to="/"
-              className="flex items-center gap-2 rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="flex items-center gap-2 rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60"
               aria-label="DinoParty home"
             >
               <DinoLogo size="md" />
@@ -92,14 +95,14 @@ export function Layout() {
               <button
                 type="button"
                 onClick={() => setHowToPlayModalOpen(true)}
-                className="rounded-full px-4 py-2 text-sm font-semibold text-foreground/75 transition-all hover:bg-muted/70 hover:text-foreground cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="rounded-full px-4 py-2 text-sm font-bold text-foreground/80 transition-all hover:bg-foreground/8 hover:text-foreground cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60"
               >
                 How to Play
               </button>
               <button
                 type="button"
                 onClick={() => setAboutModalOpen(true)}
-                className="rounded-full px-4 py-2 text-sm font-semibold text-foreground/75 transition-all hover:bg-muted/70 hover:text-foreground cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="rounded-full px-4 py-2 text-sm font-bold text-foreground/80 transition-all hover:bg-foreground/8 hover:text-foreground cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60"
               >
                 About
               </button>
@@ -127,7 +130,7 @@ export function Layout() {
                     ? `Profile: ${nickname}. Click to edit avatar and name.`
                     : 'Set up your guest profile'
                 }
-                className="flex items-center gap-2 rounded-full border border-border/80 bg-card px-2.5 py-1.5 shadow-2xs transition-all hover:border-primary/50 hover:bg-secondary/40 active:scale-95 cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="flex items-center gap-2 rounded-full border-2 border-border bg-card px-2.5 py-1 transition-all hover:border-primary/60 active:scale-95 cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60"
               >
                 <DinoAvatar avatarKey={avatarKey} size="sm" border={false} />
                 <span className="hidden text-xs font-bold text-foreground sm:inline max-w-[100px] truncate">
@@ -187,7 +190,10 @@ export function Layout() {
         </header>
 
         {/* Main Content Area */}
-        <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">
+        <main
+          id="main"
+          className={cn('flex-1', !isHome && 'mx-auto w-full max-w-6xl px-4 py-8 sm:px-6')}
+        >
           <Outlet />
         </main>
 

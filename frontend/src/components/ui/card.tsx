@@ -6,7 +6,7 @@ function Card({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       className={cn(
-        'flex flex-col rounded-3xl border border-border/80 bg-card text-card-foreground shadow-sm transition-all',
+        'flex flex-col rounded-[22px] border-2 border-border bg-card text-card-foreground shadow-card transition-all',
         className,
       )}
       {...props}
@@ -25,7 +25,10 @@ function CardTitle({
 }: React.ComponentProps<'h2'> & { as?: 'h1' | 'h2' | 'h3' }) {
   return (
     <Heading
-      className={cn('text-xl font-bold tracking-tight text-foreground sm:text-2xl', className)}
+      className={cn(
+        'font-display text-xl font-semibold tracking-tight text-foreground sm:text-2xl',
+        className,
+      )}
       {...props}
     />
   )

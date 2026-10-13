@@ -55,3 +55,13 @@ export const DINO_AVATARS: DinoAvatarMeta[] = [
 ]
 
 export const DEFAULT_AVATAR_KEY: DinoAvatarKey = 'dino-rex'
+
+/** One-line personalities shown in the character picker. */
+export const DINO_BLURBS: Record<DinoAvatarKey, string> = {
+  'dino-rex': 'A confident artist with a big smile and an even bigger paintbrush.',
+  'dino-tricera': 'Warm, loyal and always first to cheer on a great guess.',
+  'dino-ptera': 'Playful sky-gazer who spots the funniest doodles from above.',
+  'dino-stego': 'Calm and clever, with a plan for every round.',
+  'dino-mite': 'Tiny, quick and full of mischief.',
+  'dino-lizard': 'Fiery competitor who loves a close finish.',
+}

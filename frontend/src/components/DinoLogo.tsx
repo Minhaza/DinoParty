@@ -6,62 +6,49 @@ export interface DinoLogoProps {
   className?: string
 }
 
+const ICON_SIZES = { sm: 'size-8', md: 'size-10', lg: 'size-14' } as const
+const TEXT_SIZES = { sm: 'text-xl', md: 'text-2xl', lg: 'text-4xl' } as const
+
 export function DinoLogo({ size = 'md', showText = true, className }: DinoLogoProps) {
-  const iconSizes = {
-    sm: 'size-7',
-    md: 'size-9',
-    lg: 'size-12',
-  }
-
-  const textSizes = {
-    sm: 'text-lg',
-    md: 'text-xl',
-    lg: 'text-3xl',
-  }
-
   return (
     <div
-      className={cn(
-        'inline-flex items-center gap-2.5 font-black tracking-tight select-none',
-        className,
-      )}
+      className={cn('inline-flex items-center gap-2 font-display font-bold select-none', className)}
     >
-      {/* Playful Cyan/Teal Dino Mascot Icon */}
-      <div
-        className={cn(
-          'relative flex shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 via-teal-400 to-emerald-500 p-1 text-white shadow-xs transition-transform hover:scale-105',
-          iconSizes[size],
-        )}
+      {/* Rex's head with beret: the brand mark */}
+      <svg
+        aria-hidden="true"
+        viewBox="90 8 225 185"
+        className={cn('shrink-0 drop-shadow-sm', ICON_SIZES[size])}
+        fill="none"
       >
-        <svg
-          viewBox="0 0 100 100"
-          className="size-full"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          {/* Head & Snout */}
-          <path
-            d="M26 26 C26 14, 52 14, 68 18 C80 22, 90 32, 90 46 C90 60, 78 66, 64 66 L48 66 C36 66, 26 76, 26 90 L20 90 C18 70, 20 42, 26 26 Z"
-            fill="#FFFFFF"
-          />
-          {/* Yellow Spikes */}
-          <polygon points="22,22 14,28 24,32" fill="#FDE047" />
-          <polygon points="18,40 10,46 20,50" fill="#FDE047" />
-          <polygon points="16,58 8,64 18,68" fill="#FDE047" />
-          {/* Cute Eye */}
-          <circle cx="62" cy="34" r="8" fill="#0F172A" />
-          <circle cx="65" cy="32" r="3" fill="#FFFFFF" />
-          {/* Smile & Cheek */}
-          <path d="M68 56 Q76 56 80 50" stroke="#0F172A" strokeWidth="3" strokeLinecap="round" />
-          <ellipse cx="56" cy="46" rx="5" ry="3.5" fill="#FB7185" opacity="0.8" />
-        </svg>
-      </div>
-
-      {/* Two-Tone Brand Wordmark: "Dino" in slate, "Party" in vibrant bright orange */}
+        <path
+          d="M100 108 C98 52 152 28 202 42 C252 54 304 90 304 130 C304 170 266 182 228 180 C190 182 126 176 108 146 Z"
+          fill="#2cb8a2"
+          stroke="#10213d"
+          strokeWidth="9"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M214 146 Q262 184 300 140 Q262 160 214 146 Z"
+          fill="#7a2e3b"
+          stroke="#10213d"
+          strokeWidth="7"
+          strokeLinejoin="round"
+        />
+        <circle cx="214" cy="96" r="19" fill="#fff" stroke="#10213d" strokeWidth="7" />
+        <circle cx="220" cy="98" r="10" fill="#10213d" />
+        <path
+          d="M112 70 C112 26 196 14 226 42 C206 56 150 70 112 70 Z"
+          fill="#2f4f8f"
+          stroke="#10213d"
+          strokeWidth="9"
+          strokeLinejoin="round"
+        />
+      </svg>
       {showText && (
-        <span className={cn('font-black tracking-tight', textSizes[size])}>
+        <span className={cn('leading-none tracking-tight', TEXT_SIZES[size])}>
           <span className="text-foreground">Dino</span>
-          <span className="text-orange-500 dark:text-orange-400">Party</span>
+          <span className="text-accent">Party</span>
         </span>
       )}
     </div>

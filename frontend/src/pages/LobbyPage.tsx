@@ -28,13 +28,14 @@ import { RequireGuest } from '@/features/guest/RequireGuest'
 import { useRealtimeRoom } from '@/features/realtime/useRealtimeRoom'
 import { GAME_CONFIGS } from '@/features/rooms/gameConfig'
 import { RoomSettingsForm } from '@/features/rooms/RoomSettingsForm'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useRoomStore } from '@/stores/roomStore'
 
 export function LobbyPage() {
   const { code = '' } = useParams()
   return (
-    <section className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <section className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       <RequireGuest>{(guest) => <Lobby code={code.toUpperCase()} guest={guest} />}</RequireGuest>
     </section>
   )
@@ -313,188 +314,192 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
         </div>
       )}
 
-      {/* Lobby Header Card */}
-      <Card>
-        <CardHeader className="gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{game.name}</Badge>
-            <Badge variant="muted">
-              {currentRoom.status === 'WAITING' ? 'Waiting for players' : currentRoom.status}
-            </Badge>
-            {connectionStatus === 'CONNECTED' && (
-              <Badge
-                variant="outline"
-                className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
-              >
-                Live
-              </Badge>
-            )}
-          </div>
-          <CardTitle as="h1" className="flex flex-wrap items-baseline gap-3">
-            <span>Lobby</span>
-            <span
-              aria-label={`Room code ${currentRoom.code.split('').join(' ')}`}
-              className="font-mono text-3xl font-extrabold tracking-widest text-primary"
-            >
-              {currentRoom.code}
-            </span>
-          </CardTitle>
-          <CardDescription>Share the code or invite link with your friends.</CardDescription>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void copyInvite()}>
-              {copied ? (
-                <Check className="size-3.5 text-emerald-600" aria-hidden />
-              ) : (
-                <Copy className="size-3.5" aria-hidden />
-              )}
-              Copy invite link
-            </Button>
-            <span aria-live="polite" className="text-xs font-medium text-emerald-600">
-              {copied ? 'Invite link copied.' : ''}
-            </span>
-          </div>
-        </CardHeader>
-      </Card>
-
-      {/* Action Controls: Ready Toggle & Host Start */}
-      <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
-          <div className="flex items-center gap-3">
-            <Button
-              variant={isReady ? 'outline' : 'default'}
-              size="lg"
-              onClick={() => void toggleReady()}
-              disabled={isTogglingReady || currentRoom.status !== 'WAITING'}
-              className="gap-2 font-bold"
-              aria-pressed={isReady}
-            >
-              {isTogglingReady ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : isReady ? (
-                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-              ) : (
-                <Check className="size-4" />
-              )}
-              {isReady ? 'Cancel ready' : 'Ready up'}
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              {isReady ? 'You are marked ready!' : 'Click ready when you are set.'}
-            </span>
-          </div>
-
-          {isHost && (
-            <div className="flex flex-col items-end gap-1">
-              <Button
-                variant="default"
-                size="lg"
-                onClick={() => void startGame()}
-                disabled={!canStart}
-                className="gap-2 font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {isStartingGame ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Play className="size-4 fill-current" />
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        <div className="flex flex-col gap-5">
+          {/* Lobby header: room identity */}
+          <Card>
+            <CardHeader className="gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={currentRoom.gameKey === 'draw-guess' ? 'default' : 'accent'}>
+                  {game.name}
+                </Badge>
+                <Badge variant="muted">
+                  {currentRoom.status === 'WAITING' ? 'Waiting for players' : currentRoom.status}
+                </Badge>
+                {connectionStatus === 'CONNECTED' && (
+                  <Badge variant="success">
+                    <span className="size-2 rounded-full bg-success" aria-hidden />
+                    Live
+                  </Badge>
                 )}
-                {currentRoom.status === 'STARTING' ? 'Starting…' : 'Start game'}
-              </Button>
-              {missing > 0 ? (
-                <span className="text-xs text-muted-foreground">
-                  Needs at least {currentRoom.minPlayers} players
+              </div>
+              <CardTitle as="h1" className="flex flex-wrap items-center gap-3 text-3xl sm:text-4xl">
+                <span>Lobby</span>
+                <span
+                  aria-label={`Room code ${currentRoom.code.split('').join(' ')}`}
+                  className="rounded-2xl border-2 border-dashed border-primary/60 bg-primary/10 px-4 py-1 font-display text-2xl font-bold tracking-[0.25em] text-primary sm:text-3xl"
+                >
+                  {currentRoom.code}
                 </span>
-              ) : !allReady ? (
-                <span className="text-xs text-amber-600 dark:text-amber-400">
-                  Waiting for players to ready up
+              </CardTitle>
+              <CardDescription>Share the code or invite link with your friends.</CardDescription>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => void copyInvite()}>
+                  {copied ? (
+                    <Check className="size-3.5 text-primary" aria-hidden />
+                  ) : (
+                    <Copy className="size-3.5" aria-hidden />
+                  )}
+                  Copy invite link
+                </Button>
+                <span aria-live="polite" className="text-xs font-bold text-primary">
+                  {copied ? 'Invite link copied.' : ''}
                 </span>
-              ) : (
-                <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                  All players ready!
-                </span>
+              </div>
+            </CardHeader>
+          </Card>
+
+          {/* Players */}
+          <Card>
+            <CardHeader>
+              <CardTitle as="h2" className="flex items-center gap-2">
+                <Users className="size-5 text-primary" aria-hidden />
+                Players ({currentRoom.players.length}/{currentRoom.maxPlayers})
+              </CardTitle>
+              {missing > 0 && (
+                <CardDescription>
+                  {game.name} needs at least {currentRoom.minPlayers} players; waiting for {missing}{' '}
+                  more.
+                </CardDescription>
               )}
-            </div>
+            </CardHeader>
+            <CardContent>
+              <ul aria-label="Players" className="grid gap-3 sm:grid-cols-2">
+                {currentRoom.players.map((player) => (
+                  <PlayerListItem
+                    key={player.guestId}
+                    player={player}
+                    isCurrentGuest={player.guestId === guest.id}
+                    canKick={isHost && player.guestId !== guest.id}
+                    isKicking={kickTarget === player.guestId}
+                    onKick={() => void handleKick(player.guestId)}
+                  />
+                ))}
+              </ul>
+              {currentRoom.players.length < currentRoom.maxPlayers && (
+                <p className="mt-3 rounded-2xl border-2 border-dashed border-border px-4 py-3 text-center text-sm font-bold text-muted-foreground">
+                  Waiting for players…
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {startError && (
+            <p role="alert" className="text-sm font-bold text-destructive">
+              {startError}
+            </p>
           )}
-        </CardContent>
-      </Card>
+        </div>
 
-      {startError && (
-        <p role="alert" className="text-sm font-medium text-destructive">
-          {startError}
-        </p>
-      )}
+        <aside className="flex flex-col gap-5">
+          {/* Ready toggle and host start */}
+          <Card>
+            <CardContent className="flex flex-col gap-4 pt-6">
+              <Button
+                variant={isReady ? 'outline' : 'default'}
+                size="lg"
+                onClick={() => void toggleReady()}
+                disabled={isTogglingReady || currentRoom.status !== 'WAITING'}
+                aria-pressed={isReady}
+              >
+                {isTogglingReady ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : isReady ? (
+                  <CheckCircle2 className="size-4 text-primary" />
+                ) : (
+                  <Check className="size-4" />
+                )}
+                {isReady ? 'Cancel ready' : 'Ready up'}
+              </Button>
+              <p className="text-center text-sm font-semibold text-muted-foreground">
+                {isReady ? 'You are marked ready!' : 'Click ready when you are set.'}
+              </p>
 
-      {/* Players List Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle as="h2" className="flex items-center gap-2">
-            <Users className="size-5" aria-hidden />
-            Players ({currentRoom.players.length}/{currentRoom.maxPlayers})
-          </CardTitle>
-          {missing > 0 && (
-            <CardDescription>
-              {game.name} needs at least {currentRoom.minPlayers} players; waiting for {missing}{' '}
-              more.
-            </CardDescription>
-          )}
-        </CardHeader>
-        <CardContent>
-          <ul aria-label="Players" className="flex flex-col gap-2.5">
-            {currentRoom.players.map((player) => (
-              <PlayerListItem
-                key={player.guestId}
-                player={player}
-                isCurrentGuest={player.guestId === guest.id}
-                canKick={isHost && player.guestId !== guest.id}
-                isKicking={kickTarget === player.guestId}
-                onKick={() => void handleKick(player.guestId)}
-              />
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+              {isHost && (
+                <div className="flex flex-col gap-2 border-t-2 border-dashed border-border pt-4">
+                  <Button
+                    variant="accent"
+                    size="lg"
+                    onClick={() => void startGame()}
+                    disabled={!canStart}
+                  >
+                    {isStartingGame ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Play className="size-4 fill-current" />
+                    )}
+                    {currentRoom.status === 'STARTING' ? 'Starting…' : 'Start game'}
+                  </Button>
+                  {missing > 0 ? (
+                    <span className="text-center text-xs font-bold text-muted-foreground">
+                      Needs at least {currentRoom.minPlayers} players
+                    </span>
+                  ) : !allReady ? (
+                    <span className="text-center text-xs font-bold text-muted-foreground">
+                      Waiting for players to ready up
+                    </span>
+                  ) : (
+                    <span className="text-center text-xs font-bold text-primary">
+                      All players ready!
+                    </span>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-      {/* Settings Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle as="h2">Settings</CardTitle>
-          <CardDescription>
-            {isHost
-              ? 'You are the host. Changes apply to everyone in the lobby.'
-              : 'Only the host can change these.'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isHost ? (
-            <RoomSettingsForm room={currentRoom} />
-          ) : (
-            <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Max players</dt>
-              <dd className="font-semibold">{currentRoom.maxPlayers}</dd>
-              {game.fields.map((field) => (
-                <React.Fragment key={field.key}>
-                  <dt className="text-muted-foreground">{field.label}</dt>
-                  <dd className="font-semibold">
-                    {String(currentRoom.settings[field.key] ?? '–')}
-                  </dd>
-                </React.Fragment>
-              ))}
-            </dl>
-          )}
-        </CardContent>
-      </Card>
+          {/* Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle as="h2">Settings</CardTitle>
+              <CardDescription>
+                {isHost
+                  ? 'You are the host. Changes apply to everyone in the lobby.'
+                  : 'Only the host can change these.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isHost ? (
+                <RoomSettingsForm room={currentRoom} />
+              ) : (
+                <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
+                  <dt className="font-semibold text-muted-foreground">Max players</dt>
+                  <dd className="font-bold">{currentRoom.maxPlayers}</dd>
+                  {game.fields.map((field) => (
+                    <React.Fragment key={field.key}>
+                      <dt className="font-semibold text-muted-foreground">{field.label}</dt>
+                      <dd className="font-bold">
+                        {String(currentRoom.settings[field.key] ?? '–')}
+                      </dd>
+                    </React.Fragment>
+                  ))}
+                </dl>
+              )}
+            </CardContent>
+          </Card>
 
-      <p aria-live="polite" role="status" className="min-h-5 text-sm font-medium text-foreground">
-        {hostNotice}
-      </p>
+          <p aria-live="polite" role="status" className="min-h-5 text-sm font-bold text-foreground">
+            {hostNotice}
+          </p>
 
-      {/* Leave Button */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          Gather players and tune settings. Once ready, the host can start the game!
-        </p>
-        <Button variant="outline" onClick={() => leave.mutate()} disabled={leave.isPending}>
-          <LogOut className="size-4" aria-hidden />
-          Leave room
-        </Button>
+          <Button variant="outline" onClick={() => leave.mutate()} disabled={leave.isPending}>
+            <LogOut className="size-4" aria-hidden />
+            Leave room
+          </Button>
+          <p className="text-center text-xs font-semibold text-muted-foreground">
+            Gather players and tune settings. Once ready, the host can start the game!
+          </p>
+        </aside>
       </div>
       {leave.isError && (
         <p role="alert" className="text-sm font-medium text-destructive">
@@ -522,22 +527,36 @@ function PlayerListItem({
 
   return (
     <li
-      className={`flex items-center justify-between gap-3 rounded-2xl border p-3 transition-colors ${
+      className={cn(
+        'flex items-center justify-between gap-3 rounded-2xl border-2 p-3 transition-all',
         isDisconnected
-          ? 'border-dashed border-amber-500/40 bg-amber-500/5 opacity-80'
-          : 'border-border/70 bg-background/70'
-      }`}
+          ? 'border-dashed border-warning/70 bg-warning/10 opacity-80'
+          : player.ready
+            ? 'border-primary/60 bg-primary/10'
+            : 'border-border bg-secondary/60',
+      )}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <DinoAvatar
-          avatarKey={player.avatarKey}
-          color={player.avatarColor ?? undefined}
-          size="md"
-          alt=""
-        />
-        <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-semibold text-foreground">{player.nickname}</span>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="relative shrink-0">
+          <DinoAvatar
+            avatarKey={player.avatarKey}
+            color={player.avatarColor ?? undefined}
+            size="lg"
+            alt=""
+            className={cn(isDisconnected && 'grayscale')}
+          />
+          {player.isHost && (
+            <Crown
+              className="absolute -right-1.5 -top-2 size-5 fill-warning text-foreground drop-shadow"
+              aria-hidden
+            />
+          )}
+        </div>
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="truncate font-display text-base font-semibold text-foreground">
+            {player.nickname}
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
             {isCurrentGuest && <Badge variant="outline">You</Badge>}
             {player.isHost && (
               <Badge variant="warning">
@@ -545,57 +564,46 @@ function PlayerListItem({
                 Host
               </Badge>
             )}
+            {isDisconnected ? (
+              <Badge variant="outline" className="gap-1 border-warning/70 text-xs">
+                <WifiOff className="size-3" aria-hidden />
+                Offline
+              </Badge>
+            ) : player.ready ? (
+              <Badge variant="success" className="text-xs">
+                <Check className="size-3" aria-hidden />
+                Ready
+              </Badge>
+            ) : (
+              <Badge variant="muted" className="text-xs">
+                Not ready
+              </Badge>
+            )}
           </div>
           {isDisconnected && (
-            <span className="text-xs text-amber-600 dark:text-amber-400">
+            <span className="text-xs font-semibold text-muted-foreground">
               Disconnected (reconnecting…)
             </span>
           )}
         </div>
       </div>
 
-      <div className="flex items-center gap-2 shrink-0">
-        {/* Connection status badge */}
-        {isDisconnected ? (
-          <Badge
-            variant="outline"
-            className="border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1 text-xs"
-          >
-            <WifiOff className="size-3" />
-            Offline
-          </Badge>
-        ) : player.ready ? (
-          <Badge
-            variant="outline"
-            className="border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 gap-1 text-xs font-semibold"
-          >
-            <Check className="size-3" />
-            Ready
-          </Badge>
-        ) : (
-          <Badge variant="muted" className="text-xs">
-            Not ready
-          </Badge>
-        )}
-
-        {/* Kick player control */}
-        {canKick && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onKick}
-            disabled={isKicking}
-            aria-label={`Kick ${player.nickname}`}
-            className="h-8 px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-          >
-            {isKicking ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <UserX className="size-3.5" />
-            )}
-          </Button>
-        )}
-      </div>
+      {canKick && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onKick}
+          disabled={isKicking}
+          aria-label={`Kick ${player.nickname}`}
+          className="h-8 shrink-0 px-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        >
+          {isKicking ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <UserX className="size-3.5" />
+          )}
+        </Button>
+      )}
     </li>
   )
 }

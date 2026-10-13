@@ -153,7 +153,7 @@ export function DialogContent({
     >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-[#10213d]/55 backdrop-blur-xs transition-opacity animate-in fade-in"
         onClick={() => setOpen(false)}
         aria-hidden="true"
       />
@@ -166,7 +166,7 @@ export function DialogContent({
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
         className={cn(
-          'relative z-50 flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-3xl border bg-card p-6 text-card-foreground shadow-2xl transition-all sm:p-8 animate-in zoom-in-95',
+          'relative z-50 flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-[26px] border-2 border-border bg-card p-6 text-card-foreground shadow-card transition-all sm:p-8 animate-in zoom-in-95',
           className,
         )}
         onClick={(e) => e.stopPropagation()}
@@ -209,7 +209,10 @@ export function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHe
   return (
     <h2
       id={titleId}
-      className={cn('text-xl font-bold tracking-tight text-foreground sm:text-2xl', className)}
+      className={cn(
+        'font-display text-xl font-semibold tracking-tight text-foreground sm:text-2xl',
+        className,
+      )}
       {...props}
     />
   )
