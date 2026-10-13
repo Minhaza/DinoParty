@@ -78,3 +78,38 @@ Run on Windows 11, JDK 21.0.3, Node 22, Docker Desktop, Edge (headless).
 - `PlayerDto.ready/connection/score` are fixed placeholders until Phase 3+.
 - Guest sessions are never purged (cleanup job is planned); expired rows stay in `guest_session`.
 - CI was not run for this branch; the Linux path is unverified.
+
+## Phase 3 coverage (real-time lobby and reconnection)
+
+STOMP integration tests start the application on a random port (`@RealtimeIntegrationTest`: `RANDOM_PORT` + Testcontainers PostgreSQL) and talk to it with `StompTestClient`, a minimal raw STOMP 1.2 client on `java.net.http.WebSocket`. It is raw on purpose: tests must send malformed frames, forged headers and oversized messages, and read exact `ERROR` frames and close codes. The `test` profile shortens the grace period (1.5 s), sweep (100 ms) and session recheck (200 ms).
+
+| Area | Tests |
+|---|---|
+| Sequencing and envelopes | `RoomEventPublisherTest` (envelope fields, independent gapless streams, 16 threads x 200 events arrive in `seq` order, offline guests consume no `seq`, failed send does not throw), `RealtimeLobbyIT` (events carry roomId/roomCode/ts/stream, gapless `1..n`, ordering of leave/host-change) |
+| Authentication | `RealtimeSecurityIT`: invalid/missing/malformed/oversized/expired/revoked token -> `ERROR UNAUTHENTICATED` and close; frame before `CONNECT` refused; token absent from logs and frames at DEBUG framework logging; revoked session closes a live socket (`SESSION_EXPIRED`); newer connection replaces the older (`SESSION_REPLACED`) without a disconnect event |
+| Subscribe/send authorization | `RealtimeSecurityIT`: non-members and members of other rooms cannot subscribe to public or private streams; only the three contract destinations are allowed (wildcards, lowercase codes, other users' queues refused); 8-subscription cap; clients cannot publish to `/topic/**` or any non-command destination; unsupported frames; non-member and cross-room commands answered `NOT_IN_ROOM` without changing state; Origin allowlist at the handshake |
+| Secrecy | `RealtimeLobbyIT`: no events of other rooms, private snapshots not seen by other members, members who left stop receiving the public stream (found a real bug: the outbound guard originally inspected the wrong header type) |
+| Validation, duplicates, size | `RealtimeCommandIT`: malformed envelopes and payloads -> `VALIDATION_FAILED` without echoing input, reserved/unknown commands -> `INVALID_ACTION`, client-supplied identity/role fields and spoofed STOMP headers ignored, repeated `actionId` not re-applied, same id from another guest is not a duplicate, 70 kB frame closes the connection (1009) |
+| Rate limits | `RealtimeLimitsIT` (command flood limited and not executed, per-guest buckets, failed-auth throttling with valid tokens still working), `RealtimeHandshakeLimitIT` (429 + `Retry-After`) |
+| Presence | `PresenceTrackerTest` (manual clock: grace start/cancel, replaced socket, reorder-safe reconcile, expiry, retry after failure, member moved rooms), `RealtimePresenceIT` (disconnect -> `PLAYER_DISCONNECTED` -> reconnect -> `PLAYER_RECONNECTED`; grace expiry -> `PLAYER_LEFT TIMEOUT`; host transfer prefers connected players; last player closes the room; REST-only members never time out; 6 flapping reconnects alternate strictly; 8-socket reconnect storm ends consistent) |
+| Snapshots | `RealtimeLobbyIT`: STOMP snapshot equals REST snapshot, `seq.room` equals the last public event, `seq.private` equals its own envelope, catching up after a gap yields `snapshot.seq + 1`, snapshot consistent with state after every event |
+| Concurrency | `RealtimeConcurrencyIT`: 9 concurrent joins -> 9 `PLAYER_JOINED` in a gapless sequence; 12 joiners into 3 free seats -> exactly 3 events; replaying the public stream after concurrent ready toggles and a leave reproduces the authoritative state; concurrent host leave and joins; 8 sockets x 10 concurrent commands each get exactly one ack |
+| Room events and ready | `RoomEventsIT` (`@RecordApplicationEvents`): join/idempotent join, rejected join publishes nothing, ready only on real change and reset on rejoin, leave -> left/host-changed/closed order, settings, membership lookups |
+| REST | `RealtimeLobbyIT`: `POST /rooms/{code}/ready` and `GET /rooms/{code}/snapshot` incl. 401/403 `NOT_IN_ROOM`/404/400 |
+| Architecture | `ArchitectureTest`: `realtime` does not depend on `web`/`health` or persistence; `common`, `guest`, `room` do not depend on `realtime` |
+
+### Phase 3 verification record
+
+Run on Windows 11, JDK 21.0.3, Docker Desktop. `./backend/mvnw -f backend verify` passed twice in a row: 58 unit tests, 113 integration tests, Spotless check. Not run: Linux/CI, any browser client.
+
+### Not verified / known limitations (Phase 3)
+
+- **Heartbeat timeout** (server noticing a silent client after ~20 s) is configured (`heart-beat:10000,10000` is asserted in `CONNECTED`) but not exercised end to end; tests simulate lost clients by aborting the TCP connection.
+- **Browser clients and the frontend were not run against this layer** (Phase 3.4/3.5 are Antigravity's). Origin handling was tested with a non-browser client sending an `Origin` header.
+- **Presence is in memory**: after a backend restart nobody is tracked until they reconnect, and members who never reconnect are not timed out. REST-only members (never opened a socket) are by design never timed out.
+- **`ROOM_CLOSED` has no recipient yet**: rooms only close when the last member leaves; it becomes observable with host-initiated close.
+- **No `START_GAME`, `kick`, `close`** (Phase 4); game commands are answered `INVALID_ACTION`.
+- **Rate limits and the handshake limit use `remoteAddr`** (no forwarded headers), like REST: behind Caddy all clients share one bucket until a trusted-proxy setting exists (deployment phase).
+- **STOMP `TRACE` logging prints raw headers** including `Authorization`. The default configuration pins the framework loggers to `INFO`; do not enable `TRACE` for `org.springframework.messaging` in production. Tests prove tokens are absent at `DEBUG`.
+- Sequence counters and duplicate-action windows are per process and restart at 1 after a restart; clients must replace their remembered `lastSeq` with `snapshot.seq` (documented in the contract).
+- Telemetry (spans/metrics) was checked by compiling and by the code path being exercised in tests, not by viewing the Aspire dashboard.

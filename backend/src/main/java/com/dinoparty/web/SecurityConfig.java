@@ -1,5 +1,6 @@
 package com.dinoparty.web;
 
+import com.dinoparty.common.CorsProperties;
 import com.dinoparty.guest.GuestService;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
@@ -38,6 +39,10 @@ class SecurityConfig {
         .authorizeHttpRequests(
             auth ->
                 auth.requestMatchers(HttpMethod.GET, "/api/v1/health")
+                    .permitAll()
+                    // The WebSocket upgrade cannot carry an Authorization header; the STOMP
+                    // CONNECT frame is authenticated by the realtime module instead.
+                    .requestMatchers(HttpMethod.GET, "/ws")
                     .permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/v1/guests")
                     .permitAll()

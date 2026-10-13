@@ -24,7 +24,8 @@ class ArchitectureTest {
               "com.dinoparty.health..",
               "com.dinoparty.web..",
               "com.dinoparty.guest..",
-              "com.dinoparty.room..");
+              "com.dinoparty.room..",
+              "com.dinoparty.realtime..");
 
   @ArchTest
   static final ArchRule guestDependsOnlyOnCommon =
@@ -34,13 +35,27 @@ class ArchitectureTest {
           .should()
           .dependOnClassesThat()
           .resideInAnyPackage(
-              "com.dinoparty.room..", "com.dinoparty.web..", "com.dinoparty.health..");
+              "com.dinoparty.room..",
+              "com.dinoparty.web..",
+              "com.dinoparty.health..",
+              "com.dinoparty.realtime..");
 
   @ArchTest
   static final ArchRule roomDoesNotDependOnWebOrHealth =
       noClasses()
           .that()
           .resideInAPackage("com.dinoparty.room..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.web..", "com.dinoparty.health..", "com.dinoparty.realtime..");
+
+  /** realtime sits on top of room and guest and must not reach into the REST layer. */
+  @ArchTest
+  static final ArchRule realtimeDoesNotDependOnWebOrHealth =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.realtime..")
           .should()
           .dependOnClassesThat()
           .resideInAnyPackage("com.dinoparty.web..", "com.dinoparty.health..");
@@ -62,6 +77,15 @@ class ArchitectureTest {
           .should()
           .dependOnClassesThat()
           .resideInAPackage("com.dinoparty.room.persistence..");
+
+  @ArchTest
+  static final ArchRule realtimeDoesNotTouchPersistence =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.realtime..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage("..persistence..", "jakarta.persistence..");
 
   @ArchTest
   static final ArchRule healthDoesNotDependOnWeb =

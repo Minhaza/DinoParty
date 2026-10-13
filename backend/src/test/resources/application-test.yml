@@ -5,3 +5,9 @@ app:
     create-limit-per-minute: 100000
   join-limit-per-minute: 100000
   public-url: http://app.test
+  realtime:
+    disconnect-grace: 1500ms
+    sweep-interval: 100ms
+    session-recheck-interval: 200ms
+    connect-limit-per-minute: 100000
+    auth-failure-limit-per-minute: 100000

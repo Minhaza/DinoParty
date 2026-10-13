@@ -25,6 +25,9 @@ public class RoomParticipantEntity {
   @Column(name = "left_at")
   private Instant leftAt;
 
+  @Column(nullable = false)
+  private boolean ready;
+
   protected RoomParticipantEntity() {}
 
   public RoomParticipantEntity(UUID id, UUID roomId, UUID guestId, Instant joinedAt) {
@@ -52,10 +55,20 @@ public class RoomParticipantEntity {
 
   public void leave(Instant now) {
     this.leftAt = now;
+    this.ready = false;
+  }
+
+  public boolean isReady() {
+    return ready;
+  }
+
+  public void setReady(boolean ready) {
+    this.ready = ready;
   }
 
   public void rejoin(Instant now) {
     this.joinedAt = now;
     this.leftAt = null;
+    this.ready = false;
   }
 }

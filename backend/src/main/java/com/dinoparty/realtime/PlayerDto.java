@@ -1,13 +1,10 @@
-package com.dinoparty.web;
+package com.dinoparty.realtime;
 
 import com.dinoparty.room.RoomMember;
 import java.util.UUID;
 
-/**
- * {@code ready}, {@code connection} and {@code score} are fixed placeholders until presence and
- * games exist (docs/api-contracts.md §2.2).
- */
-record PlayerDto(
+/** Wire shape of a room member, shared by REST ({@code RoomDto}) and STOMP events. */
+public record PlayerDto(
     UUID guestId,
     String nickname,
     String avatarKey,
@@ -17,14 +14,14 @@ record PlayerDto(
     boolean isHost,
     Integer score) {
 
-  static PlayerDto from(RoomMember member, UUID hostGuestId) {
+  public static PlayerDto from(RoomMember member, UUID hostGuestId, boolean disconnected) {
     return new PlayerDto(
         member.guestId(),
         member.nickname(),
         member.avatarKey(),
         member.avatarColor(),
-        false,
-        "CONNECTED",
+        member.ready(),
+        disconnected ? "DISCONNECTED" : "CONNECTED",
         member.guestId().equals(hostGuestId),
         null);
   }

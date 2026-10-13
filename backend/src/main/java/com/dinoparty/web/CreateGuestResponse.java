@@ -1,5 +1,6 @@
 package com.dinoparty.web;
 
+import com.dinoparty.common.Timestamps;
 import com.dinoparty.guest.GuestRegistration;
 
 record CreateGuestResponse(GuestDto guest, String token, String expiresAt) {

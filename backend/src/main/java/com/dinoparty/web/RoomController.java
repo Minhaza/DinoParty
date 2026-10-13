@@ -1,7 +1,11 @@
 package com.dinoparty.web;
 
 import com.dinoparty.guest.AuthenticatedGuest;
+import com.dinoparty.realtime.RoomDto;
+import com.dinoparty.realtime.SnapshotDto;
+import com.dinoparty.realtime.SnapshotService;
 import com.dinoparty.room.CreateRoomCommand;
+import com.dinoparty.room.MemberPresence;
 import com.dinoparty.room.RoomDetails;
 import com.dinoparty.room.RoomPreview;
 import com.dinoparty.room.RoomProperties;
@@ -28,10 +32,22 @@ class RoomController {
 
   private final RoomService roomService;
   private final RoomProperties properties;
+  private final MemberPresence presence;
+  private final SnapshotService snapshots;
 
-  RoomController(RoomService roomService, RoomProperties properties) {
+  RoomController(
+      RoomService roomService,
+      RoomProperties properties,
+      MemberPresence presence,
+      SnapshotService snapshots) {
     this.roomService = roomService;
     this.properties = properties;
+    this.presence = presence;
+    this.snapshots = snapshots;
+  }
+
+  private RoomDto dto(RoomDetails room) {
+    return RoomDto.from(room, properties.publicUrl(), presence);
   }
 
   @PostMapping
@@ -43,7 +59,7 @@ class RoomController {
         roomService.create(
             caller.guestId(),
             new CreateRoomCommand(request.gameKey(), request.settings(), request.maxPlayers()));
-    return RoomDto.from(room, properties.publicUrl());
+    return dto(room);
   }
 
   @GetMapping("/{roomCode}")
@@ -51,14 +67,14 @@ class RoomController {
       @AuthenticationPrincipal AuthenticatedGuest caller, @PathVariable String roomCode) {
     RoomView view = roomService.get(caller.guestId(), roomCode);
     return switch (view) {
-      case RoomDetails details -> ResponseEntity.ok(RoomDto.from(details, properties.publicUrl()));
+      case RoomDetails details -> ResponseEntity.ok(dto(details));
       case RoomPreview preview -> ResponseEntity.ok(RoomPreviewDto.from(preview));
     };
   }
 
   @PostMapping("/{roomCode}/join")
   RoomDto join(@AuthenticationPrincipal AuthenticatedGuest caller, @PathVariable String roomCode) {
-    return RoomDto.from(roomService.join(caller.guestId(), roomCode), properties.publicUrl());
+    return dto(roomService.join(caller.guestId(), roomCode));
   }
 
   @PostMapping("/{roomCode}/leave")
@@ -78,6 +94,20 @@ class RoomController {
             roomCode,
             new UpdateRoomSettingsCommand(
                 request.gameKey(), request.settings(), request.maxPlayers()));
-    return RoomDto.from(room, properties.publicUrl());
+    return dto(room);
+  }
+
+  @PostMapping("/{roomCode}/ready")
+  RoomDto setReady(
+      @AuthenticationPrincipal AuthenticatedGuest caller,
+      @PathVariable String roomCode,
+      @Valid @RequestBody SetReadyRequest request) {
+    return dto(roomService.setReady(caller.guestId(), roomCode, request.ready()));
+  }
+
+  @GetMapping("/{roomCode}/snapshot")
+  SnapshotDto snapshot(
+      @AuthenticationPrincipal AuthenticatedGuest caller, @PathVariable String roomCode) {
+    return snapshots.snapshot(caller.guestId(), roomCode);
   }
 }

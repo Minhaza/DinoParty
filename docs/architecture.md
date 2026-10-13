@@ -62,6 +62,7 @@ Rules: controllers and STOMP handlers contain **no** business logic; they valida
 - `RoomRegistry` (`ConcurrentHashMap<RoomCode, RoomRuntime>`) creates/looks up runtimes. Room creation checks code uniqueness against the DB unique index (insert-then-retry).
 - A `Clock` bean is injected everywhere; tests use a manual clock and a fake scheduler.
 - Idle runtimes (CLOSED, or no connections for N minutes) are evicted.
+- **Phase 3 implementation:** membership and the ready flag stay DB-backed (`room_participant.ready`, migration `V3`); `RoomService` publishes `RoomEvent`s (after commit, inside the mailbox) and exposes `inRoom(code, action)` so realtime work (presence, snapshots, command handling, sequence numbers) runs in the same per-room serialization. Presence, sequence counters and duplicate-action windows are in-memory in `realtime`.
 - **Phase 2 implementation:** membership is still DB-backed. `RoomMailbox` serializes commands per room code (keyed lock, reference-counted), each command runs in one transaction holding the room row lock (`SELECT ... FOR UPDATE`), and the partial unique index above guards cross-room races. The in-memory `RoomRuntime` replaces the DB reads when realtime state arrives (Phase 3/4).
 
 ### 3.3 Room state machine
@@ -147,6 +148,20 @@ Old data cleanup: scheduled job purges expired sessions and old closed rooms (re
 - `seq`: monotonically increasing **per stream**: `ROOM` stream is per room; `PRIVATE` stream is per (room, recipient). Clients detect gaps and call `GET /rooms/{code}/snapshot` (or send `REQUEST_SNAPSHOT`) to resync.
 - `ts`: server time; the client derives a clock offset for countdown rendering. **Deadlines are sent as absolute server timestamps** (`deadlineAt`) plus `serverNow` in snapshots.
 - Commands carry a client-generated `actionId` (UUID) and the `phaseId` they target; the server deduplicates by `(guest, actionId)` over a bounded window and rejects stale `phaseId`.
+
+### 4.2.1 Phase 3 realtime components (`com.dinoparty.realtime`)
+
+| Component | Role |
+|---|---|
+| `WebSocketConfig`, `HandshakeGuard`, `WebSocketSessionRegistry` | `/ws` endpoint, Origin allowlist, handshake rate limit, first-frame check, ability to close a socket on purpose |
+| `StompSecurityInterceptor` | CONNECT authentication (token header removed immediately), SUBSCRIBE/SEND authorization, safe ERROR frames |
+| `SubscriptionRegistry`, `OutboundSubscriptionGuard` | records membership-checked subscriptions; stops delivery to members who left |
+| `RoomEventBridge`, `RoomEventPublisher` | maps `RoomEvent`s to envelopes; per-stream gapless `seq`, published in order |
+| `PresenceTracker`, `RealtimeMaintenance` | connected/disconnected state, grace period, host transfer via `RoomService.leave(..., TIMEOUT)`, stale-session cleanup |
+| `CommandController`, `CommandRouter`, `ActionDeduper` | single `/app/rooms/{code}/command` entry, validation, rate limit, duplicate detection, dispatch to `RoomService` |
+| `SnapshotService` | viewer-specific snapshots built inside the room mailbox (REST and STOMP) |
+
+`realtime` depends on `room`, `guest` and `common` only (ArchUnit-enforced); `web` uses its `RoomDto`/`SnapshotService`.
 
 ### 4.3 Connection/presence lifecycle
 
