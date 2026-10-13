@@ -89,11 +89,11 @@ Stroke            { strokeId, tool:"PENCIL|ERASER", color:"#RRGGBB", size:int(1-
 ### 3.1 Connection
 
 - Endpoint `wss://<api-host>/ws` (native WebSocket, no SockJS). The HTTP upgrade is unauthenticated (browsers cannot set headers on a WebSocket) but is **Origin-checked** against `CORS_ALLOWED_ORIGINS`: a disallowed `Origin` gets `403`, and more than `app.realtime.connect-limit-per-minute` handshakes per client address get `429` + `Retry-After`. Authentication happens in the STOMP `CONNECT` frame.
-- `CONNECT` headers: `accept-version:1.2`, `heart-beat:10000,10000`, `Authorization: Bearer <token>`. The server answers `heart-beat:10000,10000`. Invalid, missing, expired or revoked token ⇒ STOMP `ERROR` frame (`message: Authentication failed`, `code: UNAUTHENTICATED`) and the connection is closed; repeated failures from one client address answer `code: RATE_LIMITED`. The token is never echoed, logged or forwarded after `CONNECT`. Any frame other than `CONNECT`/`STOMP` sent before authenticating is rejected the same way.
-- Principal name = the guest id (`GuestDto.id`).
-- One live connection per guest: a new authenticated `CONNECT` replaces the previous one. The old connection receives private `SESSION_REPLACED` (when it is subscribed) and is closed with WebSocket close code 1008 (reason `SESSION_REPLACED`); its disconnect does **not** mark the guest disconnected.
+- `CONNECT` headers: `accept-version:1.2`, `heart-beat:10000,10000`, `Authorization: Bearer <token>`. The server answers `heart-beat:10000,10000`. Invalid, missing, expired or revoked token ⇒ STOMP `ERROR` frame (`message: Authentication failed`, `code: UNAUTHENTICATED`) and the server closes the connection right after (close code 1002 or 1008; clients must treat any close that follows an `ERROR` frame as final); repeated failures from one client address answer `code: RATE_LIMITED`. The token is never echoed, logged or forwarded after `CONNECT`. The first frame of a socket must be `CONNECT`/`STOMP`; anything else is answered with `ERROR` `UNAUTHENTICATED` and the socket is closed with 1008 without being processed.
+- Authorization identity = the guest id (`GuestDto.id`). The STOMP user name is `<guestId>_<connectionId>` (returned as `user-name` in `CONNECTED`); it is unique per connection, opaque to clients, and is why private events reach exactly one socket. Clients never address user destinations themselves.
+- One live connection per guest: a new authenticated `CONNECT` replaces the previous one. The old connection receives private `SESSION_REPLACED` (if it subscribed to its private queue; sent while the new `CONNECT` is still being processed, so the new connection cannot receive it) and is closed about 0.5 s later with WebSocket close code 1008, reason `SESSION_REPLACED`; its disconnect does **not** mark the guest disconnected. Clients must not auto-reconnect after `SESSION_REPLACED`.
 - Server-side limits: STOMP frame ≤ `app.realtime.max-message-bytes` (default 65536; larger frames close the connection with 1009), ≤ 8 subscriptions per connection.
-- A connection whose guest session expires or is revoked is closed by the server (checked every `app.realtime.session-recheck-interval`, default 30 s).
+- A connection whose guest session expires or is revoked is closed by the server with close code 1008, reason `SESSION_EXPIRED` (checked every `app.realtime.session-recheck-interval`, default 30 s).
 - Subscriptions (allowed only for **current members** of the room, checked against the database at `SUBSCRIBE` time; everything else is refused with an `ERROR` frame and the connection is closed):
   - `/topic/rooms/{code}` — public stream (`stream: "ROOM"`).
   - `/user/queue/rooms/{code}` — private stream (`stream: "PRIVATE"`).
@@ -157,7 +157,7 @@ Public stream (`/topic/rooms/{code}`):
 | `ROOM_SETTINGS_UPDATED` | `{gameKey, settings, minPlayers, maxPlayers}` | 3 |
 | `PLAYER_DISCONNECTED` | `{guestId, graceEndsAt}` | 3 |
 | `PLAYER_RECONNECTED` | `{guestId}` | 3 |
-| `ROOM_CLOSED` | `{reason:"EMPTY"|"HOST_CLOSED"}` (Phase 3 only emits `EMPTY`) | 3 |
+| `ROOM_CLOSED` | `{reason:"EMPTY"|"HOST_CLOSED"}`. Phase 3 only closes a room when its last member leaves (`EMPTY`), so nobody is subscribed any more and no client receives it yet; it becomes observable with host-initiated close | 3 |
 | `ROOM_STATUS_CHANGED` | `{status}` (`STARTING` includes `startsAt`) | 4 |
 | `GAME_STARTED` | `{sessionId, gameKey, settings, order:[guestId]}` | 4 |
 | `PHASE_STARTED` | `{phase, phaseId, round, deadlineAt, … game-specific public data}` (e.g. `drawerGuestId`, `hint`) | 5 |
@@ -196,7 +196,7 @@ Private stream (`/user/queue/rooms/{code}`):
 - **Snapshot consistency**: a snapshot (REST or WS) is built inside the room mailbox, so it is exactly the state after the last event with `seq ≤ snapshot.seq.room` (and `≤ snapshot.seq.private` for the private stream). A reconnecting client resubscribes, sends `REQUEST_SNAPSHOT`, applies the snapshot, then processes stream events with `seq > snapshot.seq` for that stream.
 - `SnapshotDto.serverNow` is the server clock in ISO-8601 UTC millis; clients derive a clock offset from it.
 - Secret data (`DRAWER_WORD`, `WORD_CHOICES`, `TELEPHONE_TASK`, snapshot fields marked viewer-only) never appears on the public stream or in another viewer's snapshot (contract-tested).
-- Error responses and logs never contain tokens, stack traces or echoed client input.
+- Error responses and logs never contain tokens, stack traces or echoed client input. (Spring logs raw STOMP headers, including `Authorization`, when `org.springframework.messaging` is set to `TRACE`; the default configuration pins it to `INFO` and it must never be enabled in production.)
 
 ### 3.6 Extension rule for new games
 
