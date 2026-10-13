@@ -138,8 +138,8 @@ Implemented in Phase 3: `SET_READY`, `REQUEST_SNAPSHOT`, `PING`. Every other `ty
 
 Command handling rules:
 
-- **Authorization** always comes from the authenticated principal and the database membership, never from client data. A non-member (or a member of a different room) gets `GAME_ERROR` `NOT_IN_ROOM` on `/user/queue/errors`.
-- **Rate limit**: `app.realtime.command-limit-per-10s` (default 60) commands per guest per 10 s; excess ⇒ `GAME_ERROR` `RATE_LIMITED` (`retryable:true`), command not executed and not recorded for duplicate detection. Rate limits for high-frequency game commands (strokes, guesses) are added with those commands.
+- **Authorization** always comes from the authenticated principal and the database membership, never from client data. A non-member (or a member of a different room) gets `NOT_IN_ROOM` on `/user/queue/errors`, as does a malformed room code (`ROOM_NOT_FOUND`, `roomCode: null`). Failures that need no membership knowledge — `RATE_LIMITED`, `PAYLOAD_TOO_LARGE` — are also sent there; every failure of a *member's* command is a private-stream `GAME_ERROR` carrying the `actionId`.
+- **Rate limit**: `app.realtime.command-limit-per-10s` (default 60) commands per guest per 10 s; excess ⇒ `RATE_LIMITED` (`retryable:true`) delivered on `/user/queue/errors` (it is decided before any database lookup so a flood stays cheap), command not executed and not recorded for duplicate detection. Rate limits for high-frequency game commands (strokes, guesses) are added with those commands.
 - **Duplicates**: `actionId`s are remembered per guest and room for the last 256 commands / 5 minutes. A repeated `actionId` is **not** executed again and is answered with `GAME_ERROR` `DUPLICATE_ACTION` (`retryable:false`); clients that did not see the ack should rely on events/snapshot, or retry with a new `actionId`.
 - **Validation**: malformed JSON, bad `type`/`actionId`, or a bad payload ⇒ `GAME_ERROR` `VALIDATION_FAILED` (`retryable:false`; the message never echoes client data). Frames larger than the limit close the connection (1009).
 - Accepted commands are acknowledged with private `ACTION_ACK` after their events were published.
@@ -179,7 +179,7 @@ Private stream (`/user/queue/rooms/{code}`):
 |---|---|---|
 | `ROOM_SNAPSHOT` | `SnapshotDto` | 3 |
 | `ACTION_ACK` | `{actionId, accepted:true}` (envelope `actionId` echoes it) | 3 |
-| `GAME_ERROR` | `{actionId?, code, message, retryable}` — rejected command (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `NOT_IN_ROOM`, `RATE_LIMITED`, `DUPLICATE_ACTION`, `PAYLOAD_TOO_LARGE`, `STALE_ACTION`, `SERVER_ERROR`) | 3 |
+| `GAME_ERROR` | `{actionId?, code, message, retryable}` — rejected command of a member (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `DUPLICATE_ACTION`, `STALE_ACTION`; `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `NOT_IN_ROOM` and `SERVER_ERROR` arrive as `ERROR` on `/user/queue/errors` with the same payload) | 3 |
 | `PONG` | `{serverNow}` | 3 |
 | `SESSION_REPLACED` | `{}` then the connection is closed | 3 |
 | `WORD_CHOICES` | `{phaseId, choices:[string×3], deadlineAt}` — drawer only | 5 |
@@ -191,7 +191,7 @@ Private stream (`/user/queue/rooms/{code}`):
 
 ### 3.5 Ordering and delivery guarantees
 
-- Events within a stream are ordered by `seq`; the server publishes in `seq` order (`preservePublishOrder`), and room events are produced inside the room's serialized mailbox after the state change has committed.
+- Events within a stream are ordered by `seq`; the server publishes in `seq` order (`preservePublishOrder`), and room events are produced inside the room's serialized mailbox after the state change has committed. Frames from one connection are processed in the order they were sent (`preserveReceiveOrder`).
 - No exactly-once delivery: clients dedupe by `seq`; commands dedupe by `actionId` server-side.
 - **Snapshot consistency**: a snapshot (REST or WS) is built inside the room mailbox, so it is exactly the state after the last event with `seq ≤ snapshot.seq.room` (and `≤ snapshot.seq.private` for the private stream). A reconnecting client resubscribes, sends `REQUEST_SNAPSHOT`, applies the snapshot, then processes stream events with `seq > snapshot.seq` for that stream.
 - `SnapshotDto.serverNow` is the server clock in ISO-8601 UTC millis; clients derive a clock offset from it.
