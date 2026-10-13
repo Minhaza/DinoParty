@@ -22,6 +22,40 @@ server:
     include-message: never
 
 management:
+  observations:
+    enable:
+      # Per-filter Security spans drown the request trace; the HTTP server span is enough.
+      spring:
+        security: false
+  # Optional OTLP export (to the Collector in deploy/compose.observability.yml, see docs/observability.md).
+  # Off unless OTEL_ENABLED=true.
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLING_PROBABILITY:1.0}
+    export:
+      otlp:
+        enabled: ${OTEL_ENABLED:false}
+  opentelemetry:
+    resource-attributes:
+      service.name: ${OTEL_SERVICE_NAME:dinoparty-backend}
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+  logging:
+    export:
+      otlp:
+        enabled: ${OTEL_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        enabled: ${OTEL_ENABLED:false}
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+        step: ${OTEL_METRICS_EXPORT_INTERVAL:15s}
   endpoints:
     web:
       exposure:

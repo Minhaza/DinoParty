@@ -9,6 +9,8 @@ import com.dinoparty.room.persistence.RoomEntity;
 import com.dinoparty.room.persistence.RoomParticipantEntity;
 import com.dinoparty.room.persistence.RoomParticipantRepository;
 import com.dinoparty.room.persistence.RoomRepository;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -16,9 +18,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -49,6 +53,7 @@ public class RoomService {
   private final RoomProperties properties;
   private final TransactionTemplate tx;
   private final TransactionTemplate readOnlyTx;
+  private final ObservationRegistry observations;
 
   RoomService(
       RoomRepository rooms,
@@ -61,7 +66,8 @@ public class RoomService {
       RateLimiter rateLimiter,
       Clock clock,
       RoomProperties properties,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      ObservationRegistry observations) {
     this.rooms = rooms;
     this.participants = participants;
     this.games = games;
@@ -72,12 +78,17 @@ public class RoomService {
     this.rateLimiter = rateLimiter;
     this.clock = clock;
     this.properties = properties;
+    this.observations = observations;
     this.tx = new TransactionTemplate(transactionManager);
     this.readOnlyTx = new TransactionTemplate(transactionManager);
     this.readOnlyTx.setReadOnly(true);
   }
 
   public RoomDetails create(UUID guestId, CreateRoomCommand command) {
+    return observed("create", null, () -> doCreate(guestId, command));
+  }
+
+  private RoomDetails doCreate(UUID guestId, CreateRoomCommand command) {
     GameInfo game = games.require(command.gameKey());
     Map<String, Object> settings =
         SettingsSchema.resolve(game.key(), game.defaultSettings(), command.settings());
@@ -103,19 +114,24 @@ public class RoomService {
   public RoomDetails join(UUID guestId, String rawCode) {
     String code = requireCode(rawCode);
     rateLimiter.check("room-join:" + guestId, properties.joinLimitPerMinute(), 60);
-    return mailbox.run(code, () -> tx.execute(status -> joinInTx(guestId, code)));
+    return observed(
+        "join", code, () -> mailbox.run(code, () -> tx.execute(status -> joinInTx(guestId, code))));
   }
 
   public void leave(UUID guestId, String rawCode) {
     String code = requireCode(rawCode);
-    mailbox.run(
+    observed(
+        "leave",
         code,
         () ->
-            tx.execute(
-                status -> {
-                  leaveInTx(guestId, code);
-                  return null;
-                }));
+            mailbox.run(
+                code,
+                () ->
+                    tx.execute(
+                        status -> {
+                          leaveInTx(guestId, code);
+                          return null;
+                        })));
   }
 
   /** Members get full details; any other authenticated guest gets a preview. */
@@ -136,7 +152,28 @@ public class RoomService {
   public RoomDetails updateSettings(
       UUID guestId, String rawCode, UpdateRoomSettingsCommand command) {
     String code = requireCode(rawCode);
-    return mailbox.run(code, () -> tx.execute(status -> updateInTx(guestId, code, command)));
+    return observed(
+        "update-settings",
+        code,
+        () -> mailbox.run(code, () -> tx.execute(status -> updateInTx(guestId, code, command))));
+  }
+
+  /**
+   * Wraps a room operation in an observation (a timer metric plus a trace span) and puts the room
+   * code in the log MDC. Only the operation name is a metric tag; the room code is a span attribute
+   * so metric cardinality stays bounded. Guest ids, tokens and settings are deliberately not
+   * recorded.
+   */
+  private <T> T observed(String operation, String roomCode, Supplier<T> body) {
+    Observation observation =
+        Observation.createNotStarted("dinoparty.room." + operation, observations);
+    if (roomCode != null) {
+      observation.highCardinalityKeyValue("room.code", roomCode);
+    }
+    try (MDC.MDCCloseable ignored =
+        roomCode == null ? null : MDC.putCloseable("roomCode", roomCode)) {
+      return observation.observe(body);
+    }
   }
 
   private RoomDetails insertRoom(
