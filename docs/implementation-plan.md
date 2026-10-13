@@ -87,16 +87,22 @@ Exit: lobby changes propagate in real time; refresh/reconnect restores state; di
 
 ## Phase 4 — Shared game engine
 
+Design: `docs/game-engine.md`; contract: `api-contracts.md` §3.7–§3.8, §4; rules `game-rules.md` `[C-4]…[C-12]`; decisions D13–D23 (`decisions-and-risks.md` §5) must be approved or amended **before task 4.1 starts**. No Draw & Guess or Telephone gameplay is built in this phase; the engine is proven with a test-scope game module.
+
 | ID | Task | Owner | Depends | Acceptance |
 |---|---|---|---|---|
-| 4.1 | Engine SPI (`GameModule`, `GameState`, `Transition`, `GameContext`), registry | CC | P3 | Unit tests with a trivial test-only game module (in test scope only) |
-| 4.2 | Phase/timer scheduler through room mailbox; deadline dedupe; `Clock` injection | CC | 4.1 | Timer vs action race tests with manual clock: late action → `STALE_ACTION` |
-| 4.3 | Action dedupe (`actionId`), stale `phaseId` rejection, rate limiter hooks | CC | 4.1 | Unit tests |
-| 4.4 | Turn order utility, score ledger, vote service (rematch), finish → `history` persistence (`game_session`, `game_round`, `game_submission`, `game_result` migrations) | CC | 4.1 | PostgreSQL IT: session persisted with results; persistence failure doesn't crash live game |
-| 4.5 | Start flow: `STARTING` countdown, `GAME_STARTED`, rematch loop to `WAITING` | CC | 4.1–4.4 | WS IT with test game: start → finish → rematch |
-| 4.6 | Frontend game plugin registry + generic session shell (countdown, scoreboard, reconnect snapshot, phase banner) | AG | 4.5 contract | Component tests; shell shows data from test game fixture |
+| 4.0 | Approve D13–D23; merge the `docs(contract)` commits of this design | Lead/user | — | Written approval or amendments; if D13/D20 change, `game-engine.md`/`api-contracts.md` updated first |
+| 4.1 | `engine` package: SPI (`GameModule`, `GameDefinition`, `CommandSpec`, `Transition`, `GameContext`, `ActionRejected`), `GameRegistry` with startup consistency checks against `game_definition`; move settings schema behind the registry (`room.SettingsSchema` becomes an adapter); implement `GET /games`, `GET /games/{key}`; ArchUnit rules for `engine`/`games`/`session` | CC | 4.0 | Unit tests with a test-only game module (test scope + test-only Flyway location for its row); all Phase 2 REST ITs unchanged and green; startup fails on duplicate key / row without module |
+| 4.2 | `ActiveSession` core: phase identity, deadline book, `drainDue`, `DeadlineScheduler` port (`ScheduledThreadPoolExecutor` + `ManualScheduler`), watchdog, fair mailbox lock, mailbox hold-time metric | CC | 4.1 | Race tests of `game-engine.md` §5.2 with a manual clock: late action → `STALE_ACTION`; exactly-at-deadline; replaced/cancelled/duplicate wake-ups no-ops; 200-thread storm; no leaked `ActiveSessions` |
+| 4.3 | Action pipeline: `ActionGate` (roster membership, dedupe, phase guard), typed payload binding, per-type rate/size from `CommandSpec`, router change to roster authorization, `NOT_IN_ROOM`/`STALE_ACTION`/`INVALID_PHASE` mapping | CC | 4.1 | Unit tests per pipeline step and order; WS IT: wrong role/room/stale phase/duplicate/oversize/rate-limited; Hibernate statistics prove zero DB statements per game command |
+| 4.4 | Engine services: `TurnOrder`, `ScoreLedger` + `Ranking`, `RematchVotes`, audience-aware `SessionEventSink`, public/private declaration checks, secrecy harness | CC | 4.1 | Unit + property tests (competition ranking, ledger invariants, permutation order); secrecy test with host/member/outsider recorders on the test game |
+| 4.5 | Lifecycle in `session` + room: `RoomService` lifecycle methods, `RoomEvent.StatusChanged`, REST `start`/`kick`/`close` + WS `START_GAME`, `STARTING` countdown/cancel, `GAME_STARTED`, finish → `RESULTS`, abort paths, `REMATCH_VOTE`, `RESULTS_TIMEOUT`, in-game disconnect grace, `PATCH /guests/me` lock | CC | 4.2–4.4 | WS IT with the test game: start → phases → finish → rematch → second session; every transition-table row (positive and forbidden) tested; concurrent start requests → exactly one `STARTING`; kick/close in each status; authorization tests (non-host, non-member) |
+| 4.6 | Snapshot: `GameSnapshot` header + `view`, results/rematch in snapshot, `lastSession` | CC | 4.5 | IT: reconnect in `STARTING`/`PLAYING`/`RESULTS`/after reset; property test: snapshot + later events ≡ uninterrupted event stream for every viewer |
+| 4.7 | `history`: migration `V4`, `SessionRecorder` (bounded queue, retry, never-drop results), `SessionHistoryQuery`, `GET /sessions/{id}/results`; `RestartRecovery` + graceful-shutdown abort; optional orphan-room sweep | CC | 4.5 | PostgreSQL IT: constraints (one `RUNNING` per room), session/rounds/results persisted; database stopped mid-session → game continues, results appear after it returns; startup on a database seeded with `RUNNING`/`PLAYING` rows → `INTERRUPTED`/`WAITING`; results endpoint states |
+| 4.8 | Frontend game plugin registry + generic session shell: countdown, scoreboard, phase banner, reconnect via snapshot, rematch vote UI, "game interrupted" banner, kick/close host controls; types mirror §2.1/§3.4/§3.7 | AG | 4.5 contract (fixtures until backend slice lands) | Component tests; shell renders a test-game fixture; wholesale store replacement on snapshot; `aria-live` phase announcements |
+| 4.9 | Docs and test-record update: `testing.md` Phase 4 coverage, README, `architecture.md` status, known limitations | CC (+AG frontend part) | 4.1–4.8 | Docs match behavior; limitations listed honestly |
 
-Exit: a test-scope game runs end to end through the real engine, including reconnect snapshot and rematch.
+Exit: a test-scope game runs end to end through the real engine over real STOMP, including start countdown and cancel, stale/duplicate/unauthorized actions, deadline races, reconnect snapshots in every room status, results persistence, rematch loop, and restart recovery; ArchUnit rules green; `backend verify` and frontend lint/typecheck/test/build green. The SPI is declared stable for Phases 5–6 only after this exit (R21).
 
 ## Phase 5 — Draw & Guess  (parallel with Phase 6)
 
@@ -113,7 +119,7 @@ Exit: a test-scope game runs end to end through the real engine, including recon
 | ID | Task | Owner | Depends | Acceptance |
 |---|---|---|---|---|
 | 6.1 | Chain allocator + invariants | CC | 4.1 | Property tests n=3…12, all E: `[TP-1]` invariants |
-| 6.2 | Telephone module: phases, private tasks, submissions persistence, timeout placeholders, disconnect handling | CC | 6.1, 4.4 | Unit + WS IT: 4-player full game; each player sees only previous entry |
+| 6.2 | Telephone module: phases, private tasks, submissions persistence, timeout placeholders, disconnect handling | CC | 6.1, 4.7 | Unit + WS IT: 4-player full game; each player sees only previous entry |
 | 6.3 | Album API + reveal flow (host-driven) | CC | 6.2 | IT: albums contain exactly E entries each |
 | 6.4 | Telephone UI: text/draw submission, waiting screen, album viewer, reveal controls | AG | 6.2, 5.4 | Playwright: complete a telephone album with 4 contexts |
 

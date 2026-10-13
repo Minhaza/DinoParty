@@ -4,14 +4,26 @@ All values marked *(default)* are configurable within the stated bounds. The ser
 
 ## Common rules
 
-- Players are authenticated guests in a room. Games start only from `WAITING` by the host when `minPlayers ≤ connectedPlayers ≤ maxPlayers`.
+- Players are authenticated guests in a room. Games start only from `WAITING` by the host when `minPlayers ≤ connectedPlayers ≤ maxPlayers` (members whose connection is in its grace period do not count as connected; the `ready` flag is advisory and never blocks a start `[C-4]`).
 - Every phase has a server `deadlineAt`. Client clocks are display-only.
 - Actions carry `actionId` and `phaseId`; duplicates are ignored (idempotent ack), stale ones rejected.
-- A disconnected player has a reconnection grace period (30 s lobby / 60 s in-game, default). After it, the player is `LEFT` for the current session (they may rejoin only after the game ends, in the lobby).
-- If connected players fall below the game's minimum during play, the game ends early with results computed from completed rounds `[C-1]`.
+- A disconnected player has a reconnection grace period (30 s lobby / 60 s in-game, default). After it, the player is `LEFT` for the current session (they may rejoin only after the game ends, in the lobby). The in-game value needs its own setting (`app.realtime.in-game-disconnect-grace`, default 60 s); Phase 3 has only the lobby value.
+- If the number of players not `LEFT` falls below the game's `minActivePlayers` during play (draw-guess 2, telephone 3), the game ends early `[C-1]`: with results computed from the completed rounds if there is at least one, otherwise it is aborted with no results and the room returns to `WAITING`. A player who is merely `DISCONNECTED` (inside the grace period) still counts as active, so a network blip never ends a game.
 - Host leaving permanently transfers hosting to the longest-connected remaining player `[C-2]`.
 - Text input: trimmed, 1–N chars, control characters stripped, HTML never rendered. Nicknames 2–20 chars.
-- Rematch: in `RESULTS`, players vote; when the host confirms or all connected players vote yes, the room returns to `WAITING` with the same players and settings `[C-3]`.
+- Rematch: in `RESULTS`, players vote; the host voting yes, or every connected member voting yes, returns the room to `WAITING` with the same members, host, game and settings `[C-3]`. Details and the other engine-level rules are below.
+
+### Engine-level rules (all games)
+
+- **`[C-4]` Start.** Host start moves the room `WAITING → STARTING` and begins a 3 s server countdown. If connected members drop below `minPlayers` before it ends, the room returns to `WAITING` (`START_CANCELLED`). When it ends, the roster is frozen: every current member, in a shuffled order (`order`) drawn once from the session's random source. Nobody joins mid-session (`ROOM_IN_PROGRESS`).
+- **`[C-5]` One phase at a time.** A session has exactly one current phase with a fresh `phaseId`. Changing phase invalidates every deadline and every command of the previous phase.
+- **`[C-6]` Deadline wins.** A deadline that is due (`deadlineAt ≤ now`) is applied before any command is looked at. A command processed at or after the deadline of its phase is `STALE_ACTION`, even if it was sent earlier; clients never get a grace period from the engine (a game that wants one schedules its closing deadline later than the `deadlineAt` it advertises).
+- **`[C-7]` Commands are serialized per room.** Two commands for one room never run concurrently; commands from one connection run in the order sent, commands from different players in the order the server dequeued them. "Simultaneous" correct guesses are therefore ranked by that order.
+- **`[C-8]` Scores are integers owned by the engine's ledger.** Games return score deltas with a reason; clients and games never write totals. Ranking: highest total first, equal totals share a rank and the next rank is skipped (1, 1, 3); a game supplies the display tie-break order. Unscored games (telephone) have no standings and `score: null`.
+- **`[C-9]` Leaving mid-game.** A player who leaves, is kicked or times out is `LEFT` for the rest of the session: their score stays in the results, they get no further turns, and the game's own rules decide what happens to the turn they held (`[DG-10]`, `[TP-5]`). Rejoining happens only in the next `WAITING`.
+- **`[C-10]` Results.** The engine publishes `GAME_FINISHED` and moves the room to `RESULTS` once the game reports it is done. `RESULTS` lasts until the room resets (rematch vote, host close, everyone leaving) or 15 minutes pass (`RESULTS_TIMEOUT`, then `WAITING`). Results stay available through `GET /sessions/{id}/results` after the reset.
+- **`[C-11]` Rematch reset.** Resets the room, not the people: members, host, game key and settings are kept; `ready` flags, scores, votes and the in-memory session are cleared; the next start creates a new session (`session_number + 1`) with a new shuffle. Settings are editable again.
+- **`[C-12]` Server restart.** A restart ends any running session (`INTERRUPTED`); the room returns to `WAITING` with its members. See `docs/game-engine.md` §9 (decision D13).
 
 ---
 
@@ -61,7 +73,7 @@ Players: 2–10 (default max 8). Rounds: one turn per player per "cycle"; `cycle
 |---|---|
 | Drawer disconnects mid-round | Grace period runs; if they return, round continues with current deadline. If grace expires: round aborted `[DG-10]`. |
 | Guesser disconnects | Their eligibility removed after grace expires; may end the round early if all remaining have guessed. |
-| Guess arrives at/after deadline | Accepted only if its server receive time ≤ `deadlineAt` and still within the round phase; else `STALE_ACTION`. |
+| Guess arrives at/after deadline | Accepted only if the server processes it before `deadlineAt` (the engine's `[C-6]`: due deadlines are applied first, so the phase has already changed and the command is `STALE_ACTION`). "Processes" means the room-mailbox time, not network arrival. |
 | Simultaneous correct guesses | Serialized by the room mailbox; earlier processed = better `order`. |
 | Same word twice in a session | Prevented by the used-words set; pool exhaustion falls back to repeats. |
 

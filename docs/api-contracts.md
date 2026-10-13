@@ -1,6 +1,6 @@
 # DinoParty — API Contracts (REST + STOMP)
 
-This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: REST (Phase 2) and the lobby STOMP layer (Phase 3) are implemented as written; rows marked *Phase 4+* are still design. Fields may be refined, but only via edits to this file.
+This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: REST (Phase 2) and the lobby STOMP layer (Phase 3) are implemented as written; rows marked *Phase 4+* are still design. Fields may be refined, but only via edits to this file. The Phase 4 additions (game lifecycle, generic game events, snapshot `game`, rematch) are **design pending approval** (`docs/decisions-and-risks.md` D13–D23); the engine behind them is specified in `docs/game-engine.md`. Phase 4 changes to existing Phase 2/3 contract text are listed in §4.
 
 ## 1. Conventions
 
@@ -26,7 +26,7 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `GET /health` | no | — | `200 {status:"UP", version, db:"UP", time}` | `503` with the same body shape (`status:"DOWN"`, `db:"DOWN"`) if the DB is unreachable (not problem+json) |
 | `POST /guests` | no | `{nickname, avatarKey, avatarColor?}` — nickname 2–20 chars (letters, digits, single spaces, `_ . ' -`; must start with a letter/digit), `avatarKey` from the fixed catalog, `avatarColor` `#RRGGBB` | `201 {guest: GuestDto, token, expiresAt}` | 400, 429 (per client IP) |
 | `GET /guests/me` | yes | — | `200 GuestDto` (also renews sliding expiry) | 401 |
-| `PATCH /guests/me` | yes | `{nickname?, avatarKey?, avatarColor?}` (absent/null = unchanged) | `200 GuestDto` | 400, 401, 409 (`INVALID_PHASE` while locked in a playing room — enforced from Phase 4) |
+| `PATCH /guests/me` | yes | `{nickname?, avatarKey?, avatarColor?}` (absent/null = unchanged) | `200 GuestDto` | 400, 401, 409 (`INVALID_PHASE` while the guest's room is `STARTING` or `PLAYING` — enforced from Phase 4; allowed again in `RESULTS`/`WAITING`) |
 | `GET /games` | no | — | `200 GameSummaryDto[]` | |
 | `GET /games/{gameKey}` | no | — | `200 GameDetailDto` (rules text, settings schema, bounds) | 404 |
 | `POST /rooms` | yes | `{gameKey, settings?, maxPlayers?}` (defaults from the game; see §2.2) | `201 RoomDto` (+ `inviteUrl`) | 400, 404 `GAME_NOT_FOUND`, 409 (`ALREADY_IN_ROOM`) |
@@ -35,11 +35,11 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `POST /rooms/{roomCode}/leave` | yes | — | `204`. Idempotent: a non-member (or already-left) caller is a no-op. If the host leaves, the longest-standing remaining player becomes host; the last player leaving closes the room | 404 |
 | `PATCH /rooms/{roomCode}/settings` | host | `{gameKey?, settings?, maxPlayers?}` | `200 RoomDto` | 400, 403 `NOT_HOST` (also for non-members), 404, 409 `INVALID_PHASE` (room not in `WAITING`) |
 | `POST /rooms/{roomCode}/ready` | member | `{ready: boolean}` | `200 RoomDto`. Same effect as the WS `SET_READY` command; only while `WAITING` | 403 `NOT_IN_ROOM`, 404, 409 `INVALID_PHASE` |
-| `POST /rooms/{roomCode}/start` | host | `{}` | `202 RoomDto` (status `STARTING`) | 403, 409 `NOT_ENOUGH_PLAYERS` |
-| `POST /rooms/{roomCode}/kick` | host | `{guestId}` | `204` | 403 |
-| `POST /rooms/{roomCode}/close` | host | — | `204` | 403 |
-| `GET /rooms/{roomCode}/snapshot` | member | — | `200 SnapshotDto` (viewer-specific; `game` is `null` until Phase 4) | 403 `NOT_IN_ROOM`, 404 `ROOM_NOT_FOUND` |
-| `GET /sessions/{sessionId}/results` | member of the session's room | — | `200 ResultsDto` | 404, 409 `RESULTS_NOT_READY` |
+| `POST /rooms/{roomCode}/start` | host | `{}` | `202 RoomDto` (status `STARTING`; the 3 s countdown runs on the server, see §3.7). Idempotent while already `STARTING` (returns the room unchanged). Same effect as the WS `START_GAME` command | 403 `NOT_HOST` (also non-members), 404, 409 `INVALID_PHASE` (room not `WAITING`/`STARTING`), 409 `NOT_ENOUGH_PLAYERS` (connected members `< minPlayers`) |
+| `POST /rooms/{roomCode}/kick` | host | `{guestId}` | `204`. Same effect as a `PLAYER_LEFT reason:"KICKED"`; allowed in every room status except `CLOSED`; the kicked guest is removed from the active session like a player who left | 400 (host kicks self), 403 `NOT_HOST`, 404 (room, or target not a member) |
+| `POST /rooms/{roomCode}/close` | host | — | `204`. Emits `ROOM_CLOSED {reason:"HOST_CLOSED"}`; an active session ends `ABORTED` | 403 `NOT_HOST`, 404. Idempotent on an already-closed room |
+| `GET /rooms/{roomCode}/snapshot` | member | — | `200 SnapshotDto` (viewer-specific; `game` is `null` unless a session is `RUNNING`/`FINISHED`) | 403 `NOT_IN_ROOM`, 404 `ROOM_NOT_FOUND` |
+| `GET /sessions/{sessionId}/results` | member of the session's room | — | `200 ResultsDto` (read from the database only) | 404 `SESSION_NOT_FOUND`, 403 `NOT_IN_ROOM`, 409 `RESULTS_NOT_READY` (session `RUNNING`, or `FINISHED` but its result rows are not persisted yet; `Retry-After: 2`). `ABORTED`/`INTERRUPTED` sessions answer `200` with empty `standings` |
 | `GET /sessions/{sessionId}/albums/{chainIndex}` | member | — | `200 AlbumDto` (telephone, after reveal) | 404 |
 
 ### 2.1 DTOs (shape summaries)
@@ -50,13 +50,19 @@ GameSummaryDto  { key, name, tagline, minPlayers, maxPlayers, iconKey, enabled }
 GameDetailDto   { …GameSummaryDto, description, howToPlay[], settingsSchema: SettingField[], defaultSettings }
 SettingField    { key, label, type:"int|bool|enum", min?, max?, step?, options?, default }
 RoomDto         { id, code, inviteUrl, status, gameKey, hostGuestId, minPlayers, maxPlayers,
-                  settings, players:PlayerDto[], sessionId|null, createdAt }
+                  settings, players:PlayerDto[], sessionId|null, createdAt,
+                  lastSession: LastSessionDto|null /* Phase 4, additive */ }
+LastSessionDto  { sessionId, status:"FINISHED|ABORTED|INTERRUPTED", endReason, finishedAt }
+                  /* newest session of this room that is no longer running; null before the first game and
+                     cleared when the next session starts. INTERRUPTED/SERVER_RESTART is how clients learn that
+                     a restart ended their game (game-engine.md §9) */
 RoomPreviewDto  { code, gameKey, status, playerCount, maxPlayers, hostNickname }
 PlayerDto       { guestId, nickname, avatarKey, avatarColor, ready, connection:"CONNECTED|DISCONNECTED|LEFT",
                   isHost, score|null }
-SnapshotDto     { room:RoomDto, serverNow, seq:{room:int, private:int}, game: GameSnapshot|null /* null until Phase 4 */ }
-ResultsDto      { sessionId, gameKey, startedAt, finishedAt, standings:[{rank, guestId, nickname, score, detail}],
-                  rounds:[{roundNo, drawerGuestId?, word?, …}] }
+SnapshotDto     { room:RoomDto, serverNow, seq:{room:int, private:int}, game: GameSnapshot|null /* null when no session is RUNNING/FINISHED */ }
+ResultsDto      { sessionId, gameKey, status:"FINISHED|ABORTED|INTERRUPTED", endReason, startedAt, finishedAt,
+                  standings:[{rank, guestId, nickname, score, detail}] /* empty for unscored games (telephone) */,
+                  rounds:[{roundNo, startedAt, endedAt, endReason, scoreDeltas:{guestId:int}, meta}] /* meta: game-specific, e.g. drawerGuestId, word */ }
 AlbumDto        { chainIndex, ownerGuestId, entries:[{step, kind:"TEXT|DRAWING", authorGuestId, text?, strokes?, timedOut}] }
 ```
 
@@ -65,14 +71,25 @@ AlbumDto        { chainIndex, ownerGuestId, entries:[{step, kind:"TEXT|DRAWING",
 - A guest may be an active member of at most one room (`ALREADY_IN_ROOM` on create/join of another room). Leaving or the room closing frees them.
 - `maxPlayers` defaults to 8 clamped to the game's bounds (`draw-guess` 2–10, `telephone` 4–8) and must stay within them; it cannot be set below the current player count (400).
 - `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|mixed|hard`; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `allowSkipTimeout` bool). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
-- `players[]` lists active members ordered by join time. `score` and `sessionId` are `null` until games exist (Phase 4+).
+- `players[]` lists active members ordered by join time. `score` is the engine's running total while a session is `RUNNING`/`FINISHED` (after `RESULTS`→`WAITING` it is `null` again) and always `null` for unscored games; `sessionId` is the current session (`RUNNING` or awaiting rematch) or `null`. Members who left or timed out during a session are no longer in `players[]`; their final score stays in the results.
 - `ready` (Phase 3) is server-authoritative and persisted per membership: `false` on join/rejoin, changed only by `SET_READY` / `POST …/ready` while the room is `WAITING`.
 - `connection` (Phase 3): `DISCONNECTED` while a member's STOMP connection is gone and the grace period (`app.realtime.disconnect-grace`, default 30 s) has not expired; otherwise `CONNECTED`. A member who has never opened a STOMP connection (REST-only client) is reported `CONNECTED` and is never timed out. `LEFT` is not used in `players[]` (left members are removed).
 - When the host leaves or is removed on timeout, the new host is the longest-standing remaining player who is not currently `DISCONNECTED`; if everyone left is disconnected, the longest-standing one.
 - `inviteUrl` = `{APP_PUBLIC_URL}/join/{CODE}`.
 - Rate limits: `POST /guests` per client IP and join per guest answer `429 RATE_LIMITED` with `Retry-After`.
 
-`GameSnapshot` is game-specific and viewer-specific:
+`GameSnapshot` is viewer-specific. Every game's snapshot starts with the engine-owned common header (Phase 4) followed by the game's own fields, flat in the same object:
+
+```
+GameSnapshotHeader { sessionId, gameKey, status:"RUNNING|FINISHED", order:[guestId],
+                     phase:string, phaseId, phaseStartedAt, deadlineAt|null,
+                     scores:{guestId:int}|null /* null for unscored games */,
+                     players:[{guestId, status:"ACTIVE|DISCONNECTED|LEFT"}] /* session roster incl. members who left */,
+                     results:{standings:[…]}|null /* only when status = FINISHED */,
+                     rematch:{votes:{guestId:boolean}}|null /* only when status = FINISHED */ }
+```
+
+`phase` is the game's phase name; the engine adds no phases of its own inside a session (`STARTING` and `RESULTS` are room statuses). `deadlineAt` is the absolute server time at which the phase ends (the advertised deadline; a game may close the phase slightly later, never earlier). The game-specific parts, for reference:
 
 ```
 DrawGuessSnapshot { phase:"WORD_CHOICE|DRAWING|ROUND_END|…", phaseId, round, totalRounds, drawerGuestId,
@@ -118,14 +135,14 @@ Client commands use `{ "type": "…", "actionId": "uuid", "phaseId": "uuid|null"
 
 ### 3.3 Client → server commands
 
-Implemented in Phase 3: `SET_READY`, `REQUEST_SNAPSHOT`, `PING`. Every other `type` in the table is reserved for later phases and is currently answered with `GAME_ERROR` `INVALID_ACTION` (`retryable:false`), as is an unknown `type`.
+Implemented in Phase 3: `SET_READY`, `REQUEST_SNAPSHOT`, `PING`. Phase 4 adds `START_GAME` and `REMATCH_VOTE` (engine-level, game independent). Every other `type` in the table is reserved for the game phases and is answered with `GAME_ERROR` `INVALID_ACTION` (`retryable:false`) until its game module is registered, as is an unknown `type`. From Phase 4 the set of accepted game command types is the union of the `CommandSpec`s declared by registered game modules (`docs/game-engine.md` §5); a command type that belongs to a game other than the room's is `INVALID_ACTION`.
 
 | `type` | Who | Payload | Notes |
 |---|---|---|---|
 | `SET_READY` | member (`WAITING`) | `{ready:boolean}` | Idempotent (setting the current value emits no event but is acknowledged). `INVALID_PHASE` if the room is not `WAITING` |
 | `REQUEST_SNAPSHOT` | member | `{}` | Reply: private `ROOM_SNAPSHOT` (consumes one private `seq`; `snapshot.seq.private` equals that envelope's `seq`) |
 | `PING` | any member | `{}` | Reply: private `PONG {serverNow}`; no `actionId` required |
-| `START_GAME` | host | `{}` | *Phase 4+*. Same effect as REST start |
+| `START_GAME` | host (`WAITING`) | `{}` | *Phase 4*. Same effect as REST start; no `phaseId`. `NOT_HOST`, `INVALID_PHASE` (not `WAITING`/`STARTING`), `NOT_ENOUGH_PLAYERS`. Repeating it while `STARTING` is acknowledged without effect |
 | `CHOOSE_WORD` | drawer (WORD_CHOICE) | `{wordIndex:0-2}` | *Phase 5*. Index only; server holds words |
 | `DRAW_STROKE` | drawer (DRAWING) | `{strokeId, tool, color, size, points:[[x,y]…], final}` | *Phase 5*. ≤200 points, normalized |
 | `DRAW_UNDO` | drawer | `{}` | *Phase 5*. Removes last stroke |
@@ -134,7 +151,14 @@ Implemented in Phase 3: `SET_READY`, `REQUEST_SNAPSHOT`, `PING`. Every other `ty
 | `TELEPHONE_SUBMIT_TEXT` | active player | `{text}` | *Phase 6*. prompt or description |
 | `TELEPHONE_SUBMIT_DRAWING` | active player | `{strokes:Stroke[]}` | *Phase 6*. one-shot |
 | `REVEAL_NEXT` / `REVEAL_PREV` | host (REVEAL) | `{}` | *Phase 6* |
-| `REMATCH_VOTE` | member (RESULTS) | `{vote:true|false}` | *Phase 4* |
+| `REMATCH_VOTE` | member (`RESULTS`) | `{vote:true|false}` | *Phase 4*. No `phaseId`. A voter may change their vote until the room resets. The host's `true` resets the room to `WAITING`; so does the last connected member's `true` once every connected member voted `true` (game-engine.md §10). `INVALID_PHASE` outside `RESULTS` |
+
+Game command rules (Phase 4, apply to every row from `CHOOSE_WORD` down except `REMATCH_VOTE`):
+
+- `phaseId` is **required** and must equal the current phase's id; otherwise `GAME_ERROR` `STALE_ACTION` (`retryable:false`). A command that arrives after its phase's deadline is therefore `STALE_ACTION` too: the server applies every due deadline before it looks at a command, so there is no window in which a late action is accepted. A missing `phaseId` is `VALIDATION_FAILED`.
+- A command for a game phase that is valid in no phase of the game (wrong role, wrong kind) is `INVALID_ACTION`/`NOT_DRAWER`/`IS_DRAWER`; one valid in some phase but not the current one **with the current `phaseId`** is `INVALID_PHASE`.
+- Rate limits are per command type and declared by the game module (e.g. strokes allow bursts, guesses do not); they replace the generic `command-limit-per-10s` bucket for game commands and answer `RATE_LIMITED` (`retryable:true`) like it does. Payload byte caps are per type as well (`PAYLOAD_TOO_LARGE`), bounded above by the transport frame limit (§3.1).
+- While a session exists the room's in-memory roster is the membership source for game commands (no database lookup per stroke); a guest who left the session gets `NOT_IN_ROOM`.
 
 Command handling rules:
 
@@ -158,18 +182,19 @@ Public stream (`/topic/rooms/{code}`):
 | `PLAYER_DISCONNECTED` | `{guestId, graceEndsAt}` | 3 |
 | `PLAYER_RECONNECTED` | `{guestId}` | 3 |
 | `ROOM_CLOSED` | `{reason:"EMPTY"|"HOST_CLOSED"}`. Phase 3 only closes a room when its last member leaves (`EMPTY`), so nobody is subscribed any more and no client receives it yet; it becomes observable with host-initiated close | 3 |
-| `ROOM_STATUS_CHANGED` | `{status}` (`STARTING` includes `startsAt`) | 4 |
-| `GAME_STARTED` | `{sessionId, gameKey, settings, order:[guestId]}` | 4 |
-| `PHASE_STARTED` | `{phase, phaseId, round, deadlineAt, … game-specific public data}` (e.g. `drawerGuestId`, `hint`) | 5 |
-| `DRAWING_UPDATED` | `{kind:"STROKE|UNDO|CLEAR", stroke?, strokeId?}` (not sent to the drawer) | 5 |
+| `ROOM_STATUS_CHANGED` | `{status, reason, startsAt?}` — `reason`: `HOST_STARTED` (→`STARTING`, with `startsAt`), `COUNTDOWN_DONE` (→`PLAYING`), `GAME_FINISHED` (→`RESULTS`), `START_CANCELLED` (→`WAITING`, fewer than `minPlayers` connected), `REMATCH`, `RESULTS_TIMEOUT`, `GAME_ABORTED` (→`WAITING`), `SERVER_RESTART` (→`WAITING`, see §3.8). Its position relative to `GAME_STARTED`/`GAME_FINISHED`/`GAME_ABORTED` is fixed in §3.7 | 4 |
+| `GAME_STARTED` | `{sessionId, gameKey, settings, order:[guestId]}` — `order` is the engine's shuffled play order (roster, fixed for the session) | 4 |
+| `PHASE_STARTED` | `{phase, phaseId, round, deadlineAt, … game-specific public data}` (e.g. `drawerGuestId`, `hint`). Emitted by the engine for **every** phase change of every game, always after the state change and never carrying secrets; `phaseId` is fresh for every phase | 4 (engine), 5 (content) |
+| `DRAWING_UPDATED` | `{kind:"STROKE|UNDO|CLEAR", stroke?, strokeId?}`. Delivered on the public stream, therefore **also to the drawer**, whose client must ignore it (it is its own echo). Changed from "not sent to the drawer": per-recipient delivery would consume one private `seq` per member per stroke | 5 |
 | `HINT_UPDATED` | `{hint}` | 5 |
 | `GUESS_ACCEPTED` | `{guestId, scoreDelta, totalScore}` (no word) | 5 |
 | `GUESS_REJECTED_PUBLIC`/chat | `{guestId, text}` shown as chat | 5 |
 | `ROUND_ENDED` | `{round, word, reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}, scores:{guestId:int}}` | 5 |
 | `TELEPHONE_PROGRESS` | `{submittedCount, total}` | 6 |
 | `ALBUM_REVEALED` | `{chainIndex, entryIndex, entry}` | 6 |
-| `GAME_FINISHED` | `{sessionId, standings:[…]}` | 4 |
-| `REMATCH_VOTES_UPDATED` | `{votes:{guestId:boolean}}` | 4 |
+| `GAME_FINISHED` | `{sessionId, endReason:"COMPLETED|INSUFFICIENT_PLAYERS", standings:[{rank, guestId, score, detail}], resultsReady}` — nicknames are not repeated, clients use the roster. `standings` is empty for unscored games. `resultsReady:false` means `GET …/results` may still answer `RESULTS_NOT_READY` | 4 |
+| `GAME_ABORTED` | `{sessionId, reason:"NO_COMPLETED_ROUND|INTERNAL_ERROR|SERVER_RESTART|SERVER_SHUTDOWN|ROOM_CLOSED"}`. The session ended without results; the room goes to `WAITING` (or `CLOSED`). `SERVER_RESTART` is never emitted live (only `lastSession` shows it, §3.8) | 4 |
+| `REMATCH_VOTES_UPDATED` | `{votes:{guestId:boolean}}` (full tally; only connected roster members appear) | 4 |
 
 Ordering of the events produced by one operation: leaving ⇒ `PLAYER_LEFT`, then `HOST_CHANGED` (if the host left), then `ROOM_CLOSED` (if the room emptied). A joining member produces `PLAYER_JOINED` only when the join is new (idempotent re-joins emit nothing). Disconnect/reconnect produce `PLAYER_DISCONNECTED` / `PLAYER_RECONNECTED` once per transition.
 
@@ -200,4 +225,45 @@ Private stream (`/user/queue/rooms/{code}`):
 
 ### 3.6 Extension rule for new games
 
-New games add command and event `type` values with a game prefix (e.g. `FAKEARTIST_*`) and a `GameSnapshot` variant; they must not change the envelope, common events, or existing game payloads.
+New games add command and event `type` values with a game prefix (e.g. `FAKEARTIST_*`) and a `GameSnapshot` variant; they must not change the envelope, common events, or existing game payloads. (Draw & Guess and Telephone keep their unprefixed names from §3.3/§3.4; they are the reference games.)
+
+### 3.7 Game session lifecycle events (Phase 4)
+
+Room status and session events, in the order they are published (all inside one room-mailbox command, so each group is gapless in `seq`):
+
+| Moment | Events (public stream unless noted) |
+|---|---|
+| Host starts | `ROOM_STATUS_CHANGED {STARTING, HOST_STARTED, startsAt}` |
+| Countdown cancelled (connected members `< minPlayers`) | `ROOM_STATUS_CHANGED {WAITING, START_CANCELLED}` |
+| Countdown done | `ROOM_STATUS_CHANGED {PLAYING, COUNTDOWN_DONE}`, `GAME_STARTED`, then the first phase: `PHASE_STARTED` and the game's own events (private secrets after the public `PHASE_STARTED`) |
+| Phase change | the game's closing events of the old phase (e.g. `ROUND_ENDED`), `PHASE_STARTED` of the new phase, the new phase's private events |
+| Game ends | closing events of the last phase, `GAME_FINISHED`, `ROOM_STATUS_CHANGED {RESULTS, GAME_FINISHED}` |
+| Game aborted | `GAME_ABORTED`, `ROOM_STATUS_CHANGED {WAITING, GAME_ABORTED}` (or `ROOM_CLOSED`) |
+| Rematch | `ROOM_STATUS_CHANGED {WAITING, REMATCH}` only. The reset clears every `ready` flag and score server-side without per-member `READY_UPDATED` events; clients clear them on `reason: REMATCH|RESULTS_TIMEOUT|GAME_ABORTED|SERVER_RESTART` |
+
+Rules: every game event is produced by the room mailbox command that changed the state, after the change is committed in memory; a client never sees an event for state a snapshot taken at that `seq` would not contain. `PHASE_STARTED.phaseId` is the value commands must carry from that moment on. A `ROOM_STATUS_CHANGED` always carries the full new `status`; clients do not infer status from other events.
+
+### 3.8 Server restart (Phase 4, pending approval D13)
+
+Active games are in memory and do not survive a restart (see `docs/game-engine.md` §9). On the next start the server marks every session left `RUNNING` as `INTERRUPTED`/`SERVER_RESTART` and moves rooms stuck in `STARTING`/`PLAYING`/`RESULTS` back to `WAITING` (members and settings kept, `ready` cleared). Observable contract:
+
+- Clients reconnect as usual (sequence counters restart at 1; they replace `lastSeq` with `snapshot.seq`). The first snapshot after a restart has `room.status:"WAITING"`, `game:null` and `room.lastSession.status:"INTERRUPTED"`, `endReason:"SERVER_RESTART"`. That, not a live event, is how a client learns the game was lost; it shows a notice until the next `GAME_STARTED`.
+- Commands for the lost session (`phaseId` of a phase that no longer exists) are answered `STALE_ACTION`.
+- Before a *graceful* shutdown the server publishes `GAME_ABORTED {SERVER_SHUTDOWN}` and `ROOM_STATUS_CHANGED {WAITING, GAME_ABORTED}` to every active session, then closes sockets; the room is `WAITING` in the database when it comes back.
+
+## 4. Phase 4 changes to existing contract text
+
+Everything below is additive unless stated.
+
+| Where | Change |
+|---|---|
+| §2 `start`, `kick`, `close`, `results` rows | Behavior and error codes specified; `kick` and `close` are implemented in Phase 4 (they were contract-only in Phases 2–3) |
+| §2 `PATCH /guests/me` | `INVALID_PHASE` while the room is `STARTING`/`PLAYING` |
+| `RoomDto` | New nullable `lastSession` |
+| `SnapshotDto.game` | Now populated; common `GameSnapshotHeader` fields precede the game-specific fields |
+| `ResultsDto` | `status`, `endReason`; `rounds[]` generalized (`meta` holds `drawerGuestId`/`word`) |
+| §3.3 | `phaseId` required and `STALE_ACTION` semantics for game commands; per-type rate limits |
+| §3.4 `DRAWING_UPDATED` | **Behavior change (Phase 5, unimplemented so far):** also delivered to the drawer, who ignores it |
+| §3.4 `GAME_FINISHED` | Payload fixed (`endReason`, `resultsReady`; no nicknames) |
+| §3.4 | New event `GAME_ABORTED` |
+| §3.2 | No change: envelope, `seq`, `actionId` semantics are untouched |
