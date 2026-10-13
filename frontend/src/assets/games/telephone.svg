@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" fill="none">
+  <defs>
+    <linearGradient id="dtBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ede9fe" />
+      <stop offset="50%" stop-color="#fdf4ff" />
+      <stop offset="100%" stop-color="#ffedd5" />
+    </linearGradient>
+    <filter id="dtShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#10213d" flood-opacity="0.15" />
+    </filter>
+  </defs>
+
+  <rect width="1200" height="700" fill="url(#dtBg)" />
+
+  <!-- Dotted Whisper Soundwave Trail -->
+  <path
+    d="M480 320 C540 280 620 280 680 320 C740 360 820 360 880 320"
+    stroke="#7565e8"
+    stroke-width="5"
+    stroke-dasharray="10 14"
+    stroke-linecap="round"
+    opacity="0.5"
+  />
+
+  <!-- Speech bubble with funny scribbles -->
+  <g filter="url(#dtShadow)">
+    <path
+      d="M520 180 C520 130 580 110 650 110 C720 110 780 130 780 180 C780 220 740 240 680 245 L670 275 L640 245 C570 245 520 220 520 180 Z"
+      fill="#fff9f0"
+      stroke="#10213d"
+      stroke-width="4"
+    />
+    <!-- Secret word / whisper symbol inside -->
+    <path d="M570 180 Q590 160 610 180 Q630 200 650 180" stroke="#f36b36" stroke-width="4" stroke-linecap="round" fill="none" />
+    <path d="M665 180 Q685 160 705 180 Q725 200 745 180" stroke="#7565e8" stroke-width="4" stroke-linecap="round" fill="none" />
+    <circle cx="560" cy="150" r="4" fill="#11956b" />
+    <circle cx="730" cy="150" r="5" fill="#f59e0b" />
+  </g>
+
+  <!-- Tricera on the Left Passing Note -->
+  <g filter="url(#dtShadow)">
+    <!-- Frill / Crest -->
+    <path
+      d="M260 220 C240 130 320 80 400 80 C480 80 540 130 520 220 C540 180 480 110 400 95 C320 110 260 180 260 220 Z"
+      fill="#ea580c"
+      stroke="#10213d"
+      stroke-width="5"
+    />
+    <!-- Frill Knobs -->
+    <circle cx="280" cy="170" r="14" fill="#fdba74" stroke="#10213d" stroke-width="3" />
+    <circle cx="340" cy="115" r="14" fill="#fdba74" stroke="#10213d" stroke-width="3" />
+    <circle cx="400" cy="95" r="15" fill="#fdba74" stroke="#10213d" stroke-width="3" />
+    <circle cx="460" cy="115" r="14" fill="#fdba74" stroke="#10213d" stroke-width="3" />
+    <circle cx="510" cy="170" r="14" fill="#fdba74" stroke="#10213d" stroke-width="3" />
+
+    <!-- Head -->
+    <ellipse cx="390" cy="280" rx="95" ry="85" fill="#f97316" stroke="#10213d" stroke-width="5" />
+
+    <!-- Horns -->
+    <path d="M330 220 L310 140 Q340 170 350 200 Z" fill="#fef08a" stroke="#10213d" stroke-width="3" />
+    <path d="M450 220 L470 140 Q440 170 430 200 Z" fill="#fef08a" stroke="#10213d" stroke-width="3" />
+    <path d="M390 320 L395 270 Q405 295 400 320 Z" fill="#fef08a" stroke="#10213d" stroke-width="3" />
+
+    <!-- Eyes (Giggling squint) -->
+    <path d="M340 260 Q355 245 370 260" stroke="#10213d" stroke-width="5" stroke-linecap="round" fill="none" />
+    <path d="M410 260 Q425 245 440 260" stroke="#10213d" stroke-width="5" stroke-linecap="round" fill="none" />
+
+    <!-- Smile -->
+    <path d="M365 315 Q390 345 415 315" stroke="#7c2d12" stroke-width="5" stroke-linecap="round" fill="#7c2d12" />
+
+    <!-- Body -->
+    <ellipse cx="320" cy="460" rx="130" ry="120" fill="#f97316" stroke="#10213d" stroke-width="5" />
+    <ellipse cx="340" cy="480" rx="80" ry="80" fill="#ffedd5" opacity="0.8" />
+
+    <!-- Arm reaching right holding scroll -->
+    <path d="M400 430 Q460 410 520 400" stroke="#f97316" stroke-width="26" stroke-linecap="round" />
+  </g>
+
+  <!-- Drawing Sheet / Telephone Note in Middle -->
+  <g filter="url(#dtShadow)" transform="rotate(8 580 400)">
+    <rect x="500" y="340" width="160" height="210" rx="10" fill="#fff9f0" stroke="#10213d" stroke-width="4" />
+    <!-- Doodled Dinosaur on note -->
+    <circle cx="580" cy="410" r="32" fill="#11956b" opacity="0.8" />
+    <circle cx="590" cy="405" r="5" fill="#ffffff" />
+    <circle cx="592" cy="405" r="2.5" fill="#10213d" />
+    <path d="M570 425 Q585 435 600 425" stroke="#10213d" stroke-width="3" stroke-linecap="round" fill="none" />
+    <!-- Wavy text lines on note -->
+    <line x1="525" y1="465" x2="635" y2="465" stroke="#7565e8" stroke-width="4" stroke-linecap="round" />
+    <line x1="525" y1="485" x2="615" y2="485" stroke="#7565e8" stroke-width="4" stroke-linecap="round" />
+    <line x1="525" y1="505" x2="590" y2="505" stroke="#f36b36" stroke-width="4" stroke-linecap="round" />
+  </g>
+
+  <!-- Ptera on the Right Receiving Note -->
+  <g filter="url(#dtShadow)">
+    <!-- Right Wing -->
+    <path
+      d="M860 330 C940 240 1050 200 1130 220 C1080 300 980 380 860 370 Z"
+      fill="#7209b7"
+      stroke="#10213d"
+      stroke-width="5"
+    />
+    <!-- Left Wing (Reaching down for note) -->
+    <path
+      d="M740 360 C680 390 620 400 580 390 C620 350 690 320 760 320 Z"
+      fill="#9d4edd"
+      stroke="#10213d"
+      stroke-width="5"
+    />
+
+    <!-- Body -->
+    <ellipse cx="800" cy="360" rx="45" ry="60" fill="#9d4edd" stroke="#10213d" stroke-width="5" />
+    <ellipse cx="795" cy="370" rx="24" ry="34" fill="#f3c4fb" opacity="0.85" />
+
+    <!-- Head & Crest -->
+    <path
+      d="M840 280 C880 230 940 210 970 210 C930 250 880 280 840 280 Z"
+      fill="#ff70a6"
+      stroke="#10213d"
+      stroke-width="4"
+    />
+    <circle cx="800" cy="290" r="38" fill="#9d4edd" stroke="#10213d" stroke-width="5" />
+
+    <!-- Beak -->
+    <path
+      d="M770 290 C720 290 680 305 660 315 C690 330 730 325 765 315 Z"
+      fill="#f59e0b"
+      stroke="#10213d"
+      stroke-width="4"
+    />
+
+    <!-- Excited Happy Eye -->
+    <circle cx="785" cy="275" r="12" fill="#ffffff" stroke="#10213d" stroke-width="3.5" />
+    <circle cx="782" cy="275" r="6.5" fill="#10213d" />
+    <circle cx="780" cy="272" r="2.5" fill="#ffffff" />
+
+    <!-- Rosy Cheek -->
+    <ellipse cx="795" cy="300" rx="7" ry="5" fill="#ff70a6" opacity="0.8" />
+  </g>
+</svg>

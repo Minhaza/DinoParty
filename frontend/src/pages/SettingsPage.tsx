@@ -4,8 +4,8 @@ import { RequireGuest } from '@/features/guest/RequireGuest'
 
 export function SettingsPage() {
   return (
-    <section className="mx-auto w-full max-w-xl">
-      <Card>
+    <section className="mx-auto w-full max-w-xl pt-10">
+      <Card className="relative">
         <CardHeader>
           <CardTitle as="h1">Settings</CardTitle>
           <CardDescription>

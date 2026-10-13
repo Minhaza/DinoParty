@@ -1,71 +1,95 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import '@fontsource-variable/fredoka';
+@import '@fontsource-variable/nunito';
 
 @custom-variant dark (&:is(.dark *));
 
-/* DinoParty brighter theme tokens (sunny ivory background, crisp white cards, vivid emerald primary, warm tangerine accent). */
+/* DinoParty design tokens: warm ivory surfaces over illustrated scenery, deep navy type,
+   emerald primary, dino-orange accent. Game accents (--game-*) are used per game, never everywhere. */
 :root {
   --radius: 1.25rem;
-  --background: oklch(0.985 0.012 85); /* Bright warm sunny ivory / cream (#FAF6EF) */
-  --foreground: oklch(0.2 0.02 260); /* Crisp dark charcoal/slate (#1E293B) */
-  --card: oklch(1 0 0); /* Pure bright white (#FFFFFF) */
-  --card-foreground: oklch(0.2 0.02 260); /* Crisp dark charcoal (#1E293B) */
-  --primary: oklch(0.62 0.19 152); /* Vibrant bright emerald green (#10B981 / #059669) */
-  --primary-foreground: oklch(1 0 0); /* Pure white */
-  --secondary: oklch(0.96 0.015 85); /* Soft warm ivory pill (#F5EFE6) */
-  --secondary-foreground: oklch(0.22 0.02 260);
-  --muted: oklch(0.95 0.012 85); /* Subtle warm tint */
-  --muted-foreground: oklch(0.48 0.02 260); /* Soft slate for descriptions */
-  --accent: oklch(0.68 0.2 46); /* Bright sunny tangerine/coral (#F97316) */
-  --accent-foreground: oklch(1 0 0); /* Pure white */
-  --destructive: oklch(0.6 0.22 27);
-  --destructive-foreground: oklch(1 0 0);
-  --success: oklch(0.65 0.19 150);
-  --success-foreground: oklch(1 0 0);
-  --warning: oklch(0.78 0.18 78);
-  --warning-foreground: oklch(0.22 0.04 78);
-  --border: oklch(0.92 0.012 85); /* Delicate warm border (#EAE2D7) */
-  --input: oklch(0.9 0.012 85);
-  --ring: oklch(0.62 0.19 152);
+  --background: #fff9f0; /* warm ivory */
+  --foreground: #10213d; /* navy ink */
+  --card: #fffdf8;
+  --card-foreground: #10213d;
+  --primary: #087a58; /* deep green: AA contrast with white text */
+  --primary-foreground: #ffffff;
+  --secondary: #fff3e3; /* cream surface */
+  --secondary-foreground: #10213d;
+  --muted: #f8eddc;
+  --muted-foreground: #5b667a;
+  --accent: #f36b36; /* dino orange */
+  --accent-foreground: #10213d;
+  --destructive: #c8372d;
+  --destructive-foreground: #ffffff;
+  --success: #11956b;
+  --success-foreground: #ffffff;
+  --warning: #f5b335;
+  --warning-foreground: #4a3000;
+  --border: #ead9c0;
+  --input: #dcc8a8;
+  --ring: #11956b;
 
-  /* Dinosaur Archetype Colors */
-  --dino-rex: oklch(0.65 0.19 150); /* Cheerful bright green */
-  --dino-tricera: oklch(0.68 0.2 46); /* Sunny orange */
-  --dino-ptera: oklch(0.65 0.2 305); /* Playful lavender purple */
-  --dino-stego: oklch(0.68 0.16 215); /* Sky cyan / turquoise */
-  --dino-mite: oklch(0.76 0.19 135); /* Lime green */
-  --dino-lizard: oklch(0.62 0.22 28); /* Fiery coral red */
+  --brand-green: #11956b;
+  --sky: #cbeaff;
+  --peach: #ffd5b6;
+  --purple: #7565e8;
+
+  /* Game accents */
+  --game-draw: #11956b;
+  --game-draw-alt: #f36b36;
+  --game-phone: #f36b36;
+  --game-phone-alt: #7565e8;
+
+  /* Dinosaur archetype colors */
+  --dino-rex: #22b07d;
+  --dino-tricera: #f36b36;
+  --dino-ptera: #7565e8;
+  --dino-stego: #3aa6d8;
+  --dino-mite: #8cc63f;
+  --dino-lizard: #e0483d;
+
+  --ds-tactile: 0 3px 0 0 rgb(16 33 61 / 0.14), 0 8px 18px -6px rgb(16 33 61 / 0.25);
+  --ds-card: 0 2px 0 0 rgb(122 84 40 / 0.1), 0 14px 30px -14px rgb(76 49 18 / 0.35);
 }
 
 .dark {
-  --background: oklch(0.21 0.035 262); /* Navy slate, lifted from near-black */
-  --foreground: oklch(0.98 0.01 90); /* Crisp white */
-  --card: oklch(0.27 0.04 262); /* Elevated slate card */
-  --card-foreground: oklch(0.98 0.01 90);
-  --primary: oklch(0.68 0.19 152); /* Glowing emerald */
-  --primary-foreground: oklch(0.12 0.03 260);
-  --secondary: oklch(0.32 0.04 262); /* Elevated slate pill */
-  --secondary-foreground: oklch(0.96 0.01 90);
-  --muted: oklch(0.3 0.035 262);
-  --muted-foreground: oklch(0.78 0.02 260);
-  --accent: oklch(0.72 0.19 46); /* Bright glowing orange */
-  --accent-foreground: oklch(0.12 0.03 260);
-  --destructive: oklch(0.7 0.18 25);
-  --destructive-foreground: oklch(1 0 0);
-  --success: oklch(0.72 0.19 150);
-  --success-foreground: oklch(0.12 0.03 260);
-  --warning: oklch(0.82 0.17 78);
-  --warning-foreground: oklch(0.16 0.03 78);
-  --border: oklch(0.36 0.04 262); /* Soft slate border */
-  --input: oklch(0.36 0.04 262);
-  --ring: oklch(0.68 0.19 152);
+  --background: #0f1a30;
+  --foreground: #fff4e4;
+  --card: #172643;
+  --card-foreground: #fff4e4;
+  --primary: #2fc795;
+  --primary-foreground: #08201a;
+  --secondary: #1f3152;
+  --secondary-foreground: #fff4e4;
+  --muted: #1d2d4c;
+  --muted-foreground: #a9b6cc;
+  --accent: #ff8a57;
+  --accent-foreground: #1b0f08;
+  --destructive: #ff7a70;
+  --destructive-foreground: #1b0805;
+  --success: #2fc795;
+  --success-foreground: #08201a;
+  --warning: #ffc85c;
+  --warning-foreground: #2c1d00;
+  --border: #2c4066;
+  --input: #3a5080;
+  --ring: #2fc795;
 
-  --dino-rex: oklch(0.7 0.19 150);
-  --dino-tricera: oklch(0.72 0.19 46);
-  --dino-ptera: oklch(0.72 0.18 305);
-  --dino-stego: oklch(0.74 0.15 215);
-  --dino-mite: oklch(0.8 0.18 135);
-  --dino-lizard: oklch(0.68 0.21 28);
+  --sky: #1b3358;
+  --peach: #4a3340;
+  --purple: #a398ff;
+
+  --dino-rex: #3fd49f;
+  --dino-tricera: #ff8a57;
+  --dino-ptera: #a398ff;
+  --dino-stego: #5bc0ee;
+  --dino-mite: #a7dd5c;
+  --dino-lizard: #ff7468;
+
+  --ds-tactile: 0 3px 0 0 rgb(0 0 0 / 0.35), 0 8px 18px -6px rgb(0 0 0 / 0.5);
+  --ds-card: 0 2px 0 0 rgb(0 0 0 / 0.3), 0 14px 30px -14px rgb(0 0 0 / 0.6);
 }
 
 @theme inline {
@@ -95,26 +119,116 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sky: var(--sky);
+  --color-peach: var(--peach);
+  --color-purple: var(--purple);
+  --color-brand-green: var(--brand-green);
+  --color-game-draw: var(--game-draw);
+  --color-game-draw-alt: var(--game-draw-alt);
+  --color-game-phone: var(--game-phone);
+  --color-game-phone-alt: var(--game-phone-alt);
   --color-dino-rex: var(--dino-rex);
   --color-dino-tricera: var(--dino-tricera);
   --color-dino-ptera: var(--dino-ptera);
   --color-dino-stego: var(--dino-stego);
   --color-dino-mite: var(--dino-mite);
   --color-dino-lizard: var(--dino-lizard);
+  --font-display: 'Fredoka Variable', 'Nunito Variable', ui-rounded, system-ui, sans-serif;
+  --font-sans: 'Nunito Variable', ui-rounded, system-ui, sans-serif;
+  --shadow-tactile: var(--ds-tactile);
+  --shadow-card: var(--ds-card);
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-bob: bob 3.2s ease-in-out infinite;
+  --animate-sway: sway 5s ease-in-out infinite;
+  --animate-drift: drift 80s linear infinite;
+  --animate-pop: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-confetti: confetti 3.2s ease-in infinite;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(-1.2deg);
+  }
+}
+@keyframes sway {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}
+@keyframes drift {
+  from {
+    transform: translateX(-20vw);
+  }
+  to {
+    transform: translateX(120vw);
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes confetti {
+  0% {
+    transform: translateY(-20px) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(540deg);
+    opacity: 0.9;
+  }
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    font-family: var(--font-sans);
+  }
   body {
     @apply bg-background text-foreground antialiased min-h-screen;
-    /* Sunny sky wash: soft blue overhead fading into warm peach, echoing the hero art. */
-    background-image:
-      radial-gradient(at 15% 0%, oklch(0.93 0.05 230 / 0.55) 0px, transparent 520px),
-      radial-gradient(at 85% 5%, oklch(0.93 0.06 60 / 0.6) 0px, transparent 560px);
   }
-  .dark body {
-    background-image: radial-gradient(at 50% 0%, oklch(0.45 0.12 265 / 0.3) 0px, transparent 650px);
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

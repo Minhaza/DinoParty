@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 1200" width="2000" height="1200" fill="none">
+  <defs>
+    <linearGradient id="pageWash" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#e0f2fe" stop-opacity="0.8" />
+      <stop offset="40%" stop-color="#fff9f0" stop-opacity="0.9" />
+      <stop offset="80%" stop-color="#fed7aa" stop-opacity="0.5" />
+      <stop offset="100%" stop-color="#fde68a" stop-opacity="0.4" />
+    </linearGradient>
+    <linearGradient id="pageMount" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#93c5fd" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#fbcfe8" stop-opacity="0.25" />
+    </linearGradient>
+  </defs>
+
+  <rect width="2000" height="1200" fill="url(#pageWash)" />
+
+  <!-- Extremely soft distant ridge silhouettes -->
+  <path
+    d="M0 680 L250 620 L500 660 L800 590 L1100 670 L1450 600 L1750 650 L2000 610 L2000 1200 L0 1200 Z"
+    fill="url(#pageMount)"
+  />
+  <path
+    d="M0 760 L300 700 L650 740 L1000 680 L1350 750 L1700 690 L2000 730 L2000 1200 L0 1200 Z"
+    fill="url(#pageMount)"
+    opacity="0.8"
+  />
+
+  <!-- Faint prehistoric palms at far edges -->
+  <g fill="#11956b" opacity="0.08">
+    <path d="M-20 1200 C30 1000 120 900 240 850 C200 950 160 1050 80 1200 Z" />
+    <path d="M2020 1200 C1970 1000 1880 900 1760 850 C1800 950 1840 1050 1920 1200 Z" />
+  </g>
+</svg>
