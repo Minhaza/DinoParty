@@ -1,5 +1,6 @@
 package com.dinoparty.web;
 
+import com.dinoparty.common.DomainException;
 import java.net.URI;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,15 @@ final class ProblemFactory {
   private static final String TYPE_BASE = "https://dinoparty.app/errors/";
 
   private ProblemFactory() {}
+
+  static ProblemDetail from(DomainException e) {
+    ProblemDetail problem =
+        create(e.code().status(), e.code().name(), e.code().title(), e.getMessage());
+    if (!e.fieldErrors().isEmpty()) {
+      problem.setProperty("fieldErrors", e.fieldErrors());
+    }
+    return problem;
+  }
 
   static ProblemDetail create(HttpStatus status, String code, String title, String detail) {
     ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);

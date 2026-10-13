@@ -1,5 +1,6 @@
 package com.dinoparty.web;
 
+import com.dinoparty.guest.GuestService;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,29 +11,35 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * Deny-by-default skeleton: only health is public until the guest token filter lands in Phase 2.
- * CSRF is disabled on purpose: the API is stateless, uses Bearer tokens and sets no cookies.
+ * Deny-by-default: only health and guest creation are public; everything else needs a guest bearer
+ * token resolved by {@link GuestTokenAuthenticationFilter}. CSRF is disabled on purpose: the API is
+ * stateless, uses Bearer tokens and sets no cookies.
  */
 @Configuration(proxyBeanMethods = false)
 class SecurityConfig {
 
   @Bean
-  SecurityFilterChain securityFilterChain(HttpSecurity http, ProblemJsonWriter problems)
-      throws Exception {
+  SecurityFilterChain securityFilterChain(
+      HttpSecurity http, ProblemJsonWriter problems, GuestService guestService) throws Exception {
     return http.csrf(AbstractHttpConfigurer::disable)
         .cors(Customizer.withDefaults())
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .httpBasic(AbstractHttpConfigurer::disable)
         .formLogin(AbstractHttpConfigurer::disable)
         .logout(AbstractHttpConfigurer::disable)
+        .addFilterBefore(
+            new GuestTokenAuthenticationFilter(guestService), AuthorizationFilter.class)
         .authorizeHttpRequests(
             auth ->
                 auth.requestMatchers(HttpMethod.GET, "/api/v1/health")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/guests")
                     .permitAll()
                     .requestMatchers(HttpMethod.GET, "/actuator/health/**")
                     .permitAll()
