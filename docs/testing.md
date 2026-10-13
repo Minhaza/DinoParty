@@ -100,7 +100,7 @@ STOMP integration tests start the application on a random port (`@RealtimeIntegr
 
 ### Phase 3 verification record
 
-Run on Windows 11, JDK 21.0.3, Docker Desktop. `./backend/mvnw -f backend verify`: see the final summary of the Phase 3 change for the counts of that run.
+Run on Windows 11, JDK 21.0.3, Docker Desktop. `./backend/mvnw -f backend verify` passed twice in a row: 58 unit tests, 113 integration tests, Spotless check. Not run: Linux/CI, any browser client.
 
 ### Not verified / known limitations (Phase 3)
 
