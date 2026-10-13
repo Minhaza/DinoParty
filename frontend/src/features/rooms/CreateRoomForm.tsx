@@ -79,10 +79,7 @@ function CreateRoomFields({
       }}
     >
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Game
-        </legend>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 mt-2">
           {(Object.keys(GAME_CONFIGS) as GameKey[]).map((key) => {
             const { Icon, tint, ring } = GAME_ICONS[key]
             const selected = key === game
