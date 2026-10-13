@@ -1,6 +1,6 @@
 # DinoParty — Architecture
 
-Status: design document (no application code exists yet). Requirements source: `docs/MASTER_PROMPT.md`. Open decisions: `docs/decisions-and-risks.md`.
+Status: design document; Phases 1–3 are implemented, Phase 4 (engine) is specified in `docs/game-engine.md` and not yet built. Requirements source: `docs/MASTER_PROMPT.md`. Open decisions: `docs/decisions-and-risks.md`.
 
 ## 1. System overview
 
@@ -42,20 +42,22 @@ Single Maven module, strictly layered packages; boundaries enforced by **ArchUni
 |---|---|---|
 | `common` | error model, `Clock`/`IdGenerator` beans, validation helpers, rate-limit port | — |
 | `guest` | `GuestIdentity`, `GuestSession`, token issue/hash/verify, profile edit, `AuthenticatedGuest` principal (the Spring Security filter lives in `web`, next to the problem+json entry point) | `common` |
-| `room` | room lifecycle, codes, membership, capacity, ready, host transfer, settings, room mailbox runtime | `common`, `guest`, `engine` (api) |
-| `engine` | game SPI (`GameModule`, `GameDefinition`, `GameContext`), registry, phase/timer scheduler, scoring helpers, vote service, snapshot contract | `common` |
+| `room` | room lifecycle, codes, membership, capacity, ready, host transfer, settings, room mailbox, room status transitions (called by `session`) | `common`, `guest`, `engine` (api) |
+| `engine` | game SPI (`GameModule`, `GameDefinition`, `CommandSpec`, `GameContext`), registry, phase identity, deadline book + `DeadlineScheduler` port, action gate, score ledger/ranking, turn order, rematch votes — pure, no Spring Web/JPA | `common` |
+| `session` | Phase 4: one room's game lifecycle (start countdown, `ActiveSessions`, finish/abort/rematch/restart recovery); defines ports `SessionEventSink`, `SessionRecorder`, `SessionHistoryQuery` | `common`, `guest`, `room`, `engine` |
 | `games.drawguess` | Draw & Guess rules, words, scoring, stroke model | `engine`, `drawing` |
 | `games.telephone` | chain allocation, phases, album reveal | `engine`, `drawing` |
 | `drawing` | shared stroke model, validation/limits, bounded stroke buffer, (de)serialization | `common` |
-| `realtime` | STOMP config, auth interceptor, destination conventions, envelope, sequencing, presence tracking, command routing | `room`, `engine`, `guest` |
-| `history` | persistence of `GameSession`, `GameRound`, `GameSubmission`, `GameResult`; results query | `common`, `room`, `engine` |
+| `realtime` | STOMP config, auth interceptor, destination conventions, envelope, sequencing, presence tracking, command routing; implements `SessionEventSink` | `room`, `session`, `engine`, `guest` |
+| `history` | persistence of `game_session`, `game_round`, `game_submission`, `game_result`; implements `SessionRecorder`/`SessionHistoryQuery`; restart recovery SQL | `common`, `session`, `engine` |
 | `web` | REST controllers, DTOs, exception mapper, OpenAPI | all service APIs (never entities) |
 | `health` | `/api/v1/health` + Actuator customizations | `common` |
 
-Rules: controllers and STOMP handlers contain **no** business logic; they validate, map to commands, and call services. JPA entities never leave `*.persistence`. Game modules never import `room`, `realtime`, `web` or JPA.
+Rules: controllers and STOMP handlers contain **no** business logic; they validate, map to commands, and call services. JPA entities never leave `*.persistence`. Game modules never import `room`, `session`, `realtime`, `web` or JPA.
 
 ### 3.2 Room runtime and concurrency
 
+- **Phase 4 supersedes the `RoomRuntime` actor sketched here** (decision D14): the room mailbox below stays a keyed lock, and the game state lives in an `ActiveSession` owned by `session` and touched only inside that mailbox. Full design: `docs/game-engine.md` §2–§5. The bullets in this list describe the original intent and remain true for *serialization* and *commands*.
 - `RoomRuntime` = one per active room, holding the authoritative `RoomState` and (when playing) the `GameState`.
 - Each runtime owns a **mailbox**: a serialized command queue executed on virtual threads (Java 21) with one-at-a-time draining per room (e.g. a per-room `Semaphore(1)`-style drain loop). All of these enter as commands: REST join/leave/settings/start, STOMP actions, disconnect/reconnect, timer expirations.
 - Handlers return a `CommandResult` containing: new events (public and private), persistence intents, and scheduling intents (deadlines). The runtime dispatches after state is committed. State machines are pure functions where possible (`(state, command, clock) → (state', events)`) for fast unit tests.
@@ -68,12 +70,14 @@ Rules: controllers and STOMP handlers contain **no** business logic; they valida
 ### 3.3 Room state machine
 
 `WAITING → STARTING → PLAYING → RESULTS → (rematch) WAITING`, any state `→ CLOSED`.
-- `STARTING`: short server countdown (3 s) after host start; cancellable only by player count falling below minimum.
+- `STARTING`: short server countdown (3 s) after host start; cancellable only by player count falling below minimum. Full transition table, guards and effects: `docs/game-engine.md` §2.1.
 - Join allowed only in `WAITING` (reject `ROOM_IN_PROGRESS` otherwise; spectators out of MVP scope).
 - Capacity enforced inside the mailbox, so it cannot be bypassed by concurrent joins.
 - Host privileges (`settings`, `start`, `kick`, `close`) are checked against the authenticated guest id, never a client-sent id.
 
-### 3.4 Game engine SPI (summary)
+### 3.4 Game engine SPI (summary — superseded by `docs/game-engine.md` §1.3)
+
+The interface below is the original sketch; the refined SPI (`init`/`handle`/`onDeadline`/`onPlayerStatus`/`view`/`outcome`, `Transition` with phase, audiences, score deltas and record intents, `CommandSpec`) is in `docs/game-engine.md`.
 
 ```java
 public interface GameModule {
@@ -112,10 +116,12 @@ PostgreSQL, Flyway (`db/migration/V1__…`), `ddl-auto=validate`. UUID primary k
 | `game_definition` | `key` UNIQUE (`draw-guess`, `telephone`), `name`, `min_players`, `max_players`, `enabled`, `default_settings` JSONB |
 | `room` | `id`, `code` UNIQUE (case-normalized), `game_key` FK, `host_guest_id` FK, `status`, `max_players`, `settings` JSONB, `created_at`, `closed_at` |
 | `room_participant` | `id`, `room_id`, `guest_id`, `joined_at`, `left_at`, UNIQUE(`room_id`,`guest_id`); partial UNIQUE(`guest_id`) WHERE `left_at IS NULL` (one active room per guest). The host is `room.host_guest_id`; there is no separate role column |
-| `game_session` | `id`, `room_id`, `game_key`, `status`, `settings` JSONB, `started_at`, `finished_at`, `session_number` |
-| `game_round` | `id`, `session_id`, `round_no`, `phase`, `drawer_guest_id` NULL, `word` NULL, `started_at`, `ended_at`, `meta` JSONB |
-| `game_submission` | `id`, `session_id`, `round_id` NULL, `author_guest_id`, `kind` (`TEXT`/`DRAWING`/`GUESS`), `chain_index` NULL, `step_no` NULL, `text` NULL, `payload` JSONB/`bytea` NULL, `submitted_at` |
-| `game_result` | `id`, `session_id`, `guest_id`, `rank`, `score`, `detail` JSONB |
+| `game_session` | `id`, `room_id`, `game_key`, `status` (`RUNNING/FINISHED/ABORTED/INTERRUPTED`), `end_reason`, `settings` JSONB, `roster` JSONB, `seed`, `started_at`, `finished_at`, `session_number`; partial UNIQUE(`room_id`) WHERE `RUNNING` |
+| `game_round` | `id`, `session_id`, `round_no`, `started_at`, `ended_at`, `end_reason`, `score_deltas` JSONB, `meta` JSONB (game-specific, e.g. drawer, word; written at round end) |
+| `game_submission` | `id`, `session_id`, `round_id` NULL, `author_guest_id`, `kind` (`TEXT`/`DRAWING`), `chain_index` NULL, `step_no` NULL, `text` NULL, `payload` JSONB/`bytea` NULL, `timed_out`, `submitted_at` |
+| `game_result` | `id`, `session_id`, `guest_id`, `nickname`, `rank`, `score`, `detail` JSONB (no FK to `guest_identity`, D21) |
+
+Phase 4 persistence rules (what is written when, sync vs async, failure handling, restart recovery): `docs/game-engine.md` §8–§9; migration `V4` creates these four tables.
 
 Notes: live room state is **not** persisted every tick; the DB is updated at lifecycle boundaries (room create/close, session start/finish, round end, telephone submission, results). Persistence runs after the mailbox commits state, via an `@Async`/virtual-thread writer; failure to persist history must not crash the live game (logged + retried; documented).
 Indexes: unique on `room.code`, `guest_session.token_hash`; FK indexes; `game_result(session_id, rank)`.
@@ -162,6 +168,8 @@ Old data cleanup: scheduled job purges expired sessions and old closed rooms (re
 | `SnapshotService` | viewer-specific snapshots built inside the room mailbox (REST and STOMP) |
 
 `realtime` depends on `room`, `guest` and `common` only (ArchUnit-enforced); `web` uses its `RoomDto`/`SnapshotService`.
+
+Phase 4 changes in `realtime` (design: `docs/game-engine.md` §3–§5): `CommandRouter` validates game commands against the registry's `CommandSpec`s (type, typed payload, per-type byte cap and rate limit) and, while a session exists, authorizes them against the in-memory roster instead of the database; `PresenceTracker` forwards connection changes to `session` and picks the in-game grace; a `SessionEventSink` implementation turns engine events into published envelopes (public, private, private-to-set); `SnapshotService` adds the game part. `realtime` then also depends on `session` (and `engine` for the specs).
 
 ### 4.3 Connection/presence lifecycle
 
@@ -226,7 +234,7 @@ Structured logs with `roomCode`, `guestId`, `sessionId` MDC fields; Micrometer m
 
 ## 8. Known limitations (documented to users/devs)
 
-- Active rooms and games live in memory; a backend restart ends them.
+- Active games live in memory; a backend restart ends them: sessions become `INTERRUPTED` and rooms return to `WAITING` with their members (decision D13, `docs/game-engine.md` §9). Single instance only, and the old process must be stopped before a new one starts.
 - Single instance only; no horizontal scaling.
 - No accounts; guest identity is per browser token.
 
