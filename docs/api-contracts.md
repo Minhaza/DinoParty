@@ -1,6 +1,6 @@
 # DinoParty — API Contracts (REST + STOMP)
 
-This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: REST (Phase 2) and the lobby STOMP layer (Phase 3) are implemented as written; rows marked *Phase 4+* are still design. Fields may be refined, but only via edits to this file. The Phase 4 additions (game lifecycle, generic game events, snapshot `game`, rematch) are **design pending approval** (`docs/decisions-and-risks.md` D13–D22); the engine behind them is specified in `docs/game-engine.md`. Phase 4 changes to existing Phase 2/3 contract text are listed in §4.
+This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: REST (Phase 2) and the lobby STOMP layer (Phase 3) are implemented as written; rows marked *Phase 4+* are still design. Fields may be refined, but only via edits to this file. The Phase 4 additions (game lifecycle, generic game events, snapshot `game`, rematch) are **design pending approval** (`docs/decisions-and-risks.md` D13–D23); the engine behind them is specified in `docs/game-engine.md`. Phase 4 changes to existing Phase 2/3 contract text are listed in §4.
 
 ## 1. Conventions
 
@@ -39,7 +39,7 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `POST /rooms/{roomCode}/kick` | host | `{guestId}` | `204`. Same effect as a `PLAYER_LEFT reason:"KICKED"`; allowed in every room status except `CLOSED`; the kicked guest is removed from the active session like a player who left | 400 (host kicks self), 403 `NOT_HOST`, 404 (room, or target not a member) |
 | `POST /rooms/{roomCode}/close` | host | — | `204`. Emits `ROOM_CLOSED {reason:"HOST_CLOSED"}`; an active session ends `ABORTED` | 403 `NOT_HOST`, 404. Idempotent on an already-closed room |
 | `GET /rooms/{roomCode}/snapshot` | member | — | `200 SnapshotDto` (viewer-specific; `game` is `null` unless a session is `RUNNING`/`FINISHED`) | 403 `NOT_IN_ROOM`, 404 `ROOM_NOT_FOUND` |
-| `GET /sessions/{sessionId}/results` | member of the session's room | — | `200 ResultsDto` (read from the database only) | 404 `SESSION_NOT_FOUND`, 403 `NOT_IN_ROOM`, 409 `RESULTS_NOT_READY` (session still running, or its result rows are not persisted yet; `Retry-After: 2`) |
+| `GET /sessions/{sessionId}/results` | member of the session's room | — | `200 ResultsDto` (read from the database only) | 404 `SESSION_NOT_FOUND`, 403 `NOT_IN_ROOM`, 409 `RESULTS_NOT_READY` (session `RUNNING`, or `FINISHED` but its result rows are not persisted yet; `Retry-After: 2`). `ABORTED`/`INTERRUPTED` sessions answer `200` with empty `standings` |
 | `GET /sessions/{sessionId}/albums/{chainIndex}` | member | — | `200 AlbumDto` (telephone, after reveal) | 404 |
 
 ### 2.1 DTOs (shape summaries)
