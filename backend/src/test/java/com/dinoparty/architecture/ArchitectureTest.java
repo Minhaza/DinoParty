@@ -25,7 +25,10 @@ class ArchitectureTest {
               "com.dinoparty.web..",
               "com.dinoparty.guest..",
               "com.dinoparty.room..",
-              "com.dinoparty.realtime..");
+              "com.dinoparty.realtime..",
+              "com.dinoparty.engine..",
+              "com.dinoparty.session..",
+              "com.dinoparty.history..");
 
   @ArchTest
   static final ArchRule guestDependsOnlyOnCommon =
@@ -109,4 +112,107 @@ class ArchitectureTest {
           .areAnnotatedWith(jakarta.persistence.Entity.class)
           .should()
           .resideInAPackage("..persistence..");
+
+  /** The engine SPI is pure: games and the engine never reach into rooms, sockets or storage. */
+  @ArchTest
+  static final ArchRule engineDependsOnlyOnCommon =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.engine..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.room..",
+              "com.dinoparty.session..",
+              "com.dinoparty.history..",
+              "com.dinoparty.realtime..",
+              "com.dinoparty.web..",
+              "com.dinoparty.guest..",
+              "com.dinoparty.health..",
+              "..persistence..",
+              "jakarta.persistence..",
+              "org.springframework.web..",
+              "org.springframework.messaging..");
+
+  @ArchTest
+  static final ArchRule gamesDependOnlyOnTheEngine =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.games..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.room..",
+              "com.dinoparty.session..",
+              "com.dinoparty.history..",
+              "com.dinoparty.realtime..",
+              "com.dinoparty.web..",
+              "com.dinoparty.guest..",
+              "..persistence..",
+              "jakarta.persistence..")
+          .allowEmptyShould(true);
+
+  /** The session module talks to sockets and storage only through its ports. */
+  @ArchTest
+  static final ArchRule sessionUsesPortsOnly =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.session..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.realtime..",
+              "com.dinoparty.web..",
+              "com.dinoparty.history..",
+              "..persistence..",
+              "jakarta.persistence..");
+
+  @ArchTest
+  static final ArchRule historyDoesNotDependOnTransportOrRooms =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.history..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.realtime..",
+              "com.dinoparty.web..",
+              "com.dinoparty.room..",
+              "com.dinoparty.guest..");
+
+  @ArchTest
+  static final ArchRule roomKnowsNothingOfTheEngine =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.room..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.engine..", "com.dinoparty.session..", "com.dinoparty.history..");
+
+  /** Game state is computed from the injected clock and random source only. */
+  @ArchTest
+  static final ArchRule noAmbientTimeOrRandomnessInTheEngine =
+      noClasses()
+          .that()
+          .resideInAnyPackage(
+              "com.dinoparty.engine..", "com.dinoparty.session..", "com.dinoparty.games..")
+          .should()
+          .callMethod(java.time.Instant.class, "now")
+          .orShould()
+          .callConstructor(java.util.Random.class)
+          .orShould()
+          .callMethod(Math.class, "random")
+          .allowEmptyShould(true);
+
+  /** All room-state mutation goes through the room mailbox; no ad hoc locks in game code. */
+  @ArchTest
+  static final ArchRule noThreadsInEngineOrGames =
+      noClasses()
+          .that()
+          .resideInAnyPackage("com.dinoparty.engine..", "com.dinoparty.games..")
+          .should()
+          .dependOnClassesThat()
+          .haveFullyQualifiedName("java.lang.Thread")
+          .allowEmptyShould(true);
 }

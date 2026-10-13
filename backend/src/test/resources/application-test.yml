@@ -1,6 +1,12 @@
 # Integration tests share one client address and many guests, so relax the throttles;
 # dedicated tests lower them again to prove the limits work.
 app:
+  engine:
+    start-countdown: 300ms
+    results-timeout: 30s
+    recorder:
+      retry-initial: 100ms
+      retry-max: 500ms
   guest:
     create-limit-per-minute: 100000
   join-limit-per-minute: 100000
@@ -11,3 +17,16 @@ app:
     session-recheck-interval: 200ms
     connect-limit-per-minute: 100000
     auth-failure-limit-per-minute: 100000
+spring:
+  datasource:
+    hikari:
+      # Many cached test contexts share one PostgreSQL container; keep idle pools small so the
+      # server connection limit is never reached.
+      minimum-idle: 1
+      idle-timeout: 10000
+  flyway:
+    locations: classpath:db/migration,classpath:db/test-migration
+  # The engine test game runs fast rounds; countdown and results timeout are short as well.
+test-game:
+  round-millis: 600
+  rounds: 2

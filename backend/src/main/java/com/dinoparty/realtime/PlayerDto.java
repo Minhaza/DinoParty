@@ -15,6 +15,11 @@ public record PlayerDto(
     Integer score) {
 
   public static PlayerDto from(RoomMember member, UUID hostGuestId, boolean disconnected) {
+    return from(member, hostGuestId, disconnected, null);
+  }
+
+  public static PlayerDto from(
+      RoomMember member, UUID hostGuestId, boolean disconnected, Integer score) {
     return new PlayerDto(
         member.guestId(),
         member.nickname(),
@@ -23,6 +28,6 @@ public record PlayerDto(
         member.ready(),
         disconnected ? "DISCONNECTED" : "CONNECTED",
         member.guestId().equals(hostGuestId),
-        null);
+        score);
   }
 }

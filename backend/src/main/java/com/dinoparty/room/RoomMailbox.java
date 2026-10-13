@@ -8,13 +8,15 @@ import org.springframework.stereotype.Component;
 /**
  * Serializes every mutation of one room: commands for the same room code run one at a time, while
  * different rooms proceed in parallel (docs/architecture.md §3.2). Slots are reference counted and
- * removed when idle, so the map never grows with the number of rooms ever touched.
+ * removed when idle, so the map never grows with the number of rooms ever touched. The lock is
+ * fair: commands (and deadline wake-ups) are served in arrival order, so none can starve behind a
+ * flood.
  */
 @Component
 class RoomMailbox {
 
   private static final class Slot {
-    final ReentrantLock lock = new ReentrantLock();
+    final ReentrantLock lock = new ReentrantLock(true);
     int users;
   }
 

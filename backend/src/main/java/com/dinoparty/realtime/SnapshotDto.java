@@ -3,8 +3,8 @@ package com.dinoparty.realtime;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Viewer-specific authoritative state. {@code game} stays {@code null} until a game engine exists
- * (Phase 4); it is typed {@code Object} so game snapshots can slot in without changing this record.
+ * Viewer-specific authoritative state. {@code game} is {@code null} unless a session is running or
+ * finished; it is typed {@code Object} because its game-specific fields vary.
  */
 public record SnapshotDto(RoomDto room, String serverNow, Seq seq, Object game) {
 

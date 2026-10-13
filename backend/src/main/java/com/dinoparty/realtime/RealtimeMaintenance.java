@@ -1,6 +1,7 @@
 package com.dinoparty.realtime;
 
 import com.dinoparty.guest.GuestService;
+import com.dinoparty.session.SessionService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.concurrent.ScheduledFuture;
@@ -24,6 +25,7 @@ class RealtimeMaintenance implements SmartLifecycle {
   private final PresenceTracker presence;
   private final ActionDeduper deduper;
   private final GuestService guests;
+  private final SessionService games;
   private final WebSocketSessionRegistry sessions;
   private final ThreadPoolTaskScheduler scheduler;
   private final RealtimeProperties properties;
@@ -35,6 +37,7 @@ class RealtimeMaintenance implements SmartLifecycle {
       PresenceTracker presence,
       ActionDeduper deduper,
       GuestService guests,
+      SessionService games,
       WebSocketSessionRegistry sessions,
       @Qualifier("realtimeScheduler") ThreadPoolTaskScheduler scheduler,
       RealtimeProperties properties,
@@ -42,6 +45,7 @@ class RealtimeMaintenance implements SmartLifecycle {
     this.presence = presence;
     this.deduper = deduper;
     this.guests = guests;
+    this.games = games;
     this.sessions = sessions;
     this.scheduler = scheduler;
     this.properties = properties;
@@ -53,6 +57,7 @@ class RealtimeMaintenance implements SmartLifecycle {
     try {
       presence.sweep();
       deduper.purgeExpired();
+      games.watchdog();
       dropStaleSessions();
     } catch (RuntimeException e) {
       log.warn("Realtime maintenance failed", e);

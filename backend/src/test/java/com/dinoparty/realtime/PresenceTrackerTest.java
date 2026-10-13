@@ -11,6 +11,8 @@ import static org.mockito.Mockito.when;
 import com.dinoparty.room.LeaveReason;
 import com.dinoparty.room.RoomRef;
 import com.dinoparty.room.RoomService;
+import com.dinoparty.session.RoomSessionInfo;
+import com.dinoparty.session.SessionService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -51,6 +53,7 @@ class PresenceTrackerTest {
   }
 
   private final RoomService rooms = mock(RoomService.class);
+  private final SessionService sessions = mock(SessionService.class);
   private final RoomEventPublisher publisher = mock(RoomEventPublisher.class);
   private final ManualClock clock = new ManualClock();
   private final UUID roomId = UUID.randomUUID();
@@ -66,10 +69,11 @@ class PresenceTrackerTest {
   void setUp() {
     RealtimeProperties properties =
         new RealtimeProperties(
-            Duration.ofSeconds(30), null, null, null, null, null, null, null, null);
+            Duration.ofSeconds(30), null, null, null, null, null, null, null, null, null);
     presence =
         new PresenceTracker(
             rooms,
+            sessions,
             publisher,
             new ConnectionDirectory(),
             clock,
@@ -82,6 +86,7 @@ class PresenceTrackerTest {
               }
             });
     when(rooms.activeRoom(guest)).thenReturn(Optional.of(room));
+    when(sessions.info(any())).thenReturn(RoomSessionInfo.NONE);
     when(rooms.inRoom(eq("ABC234"), any()))
         .thenAnswer(inv -> ((Supplier<Object>) inv.getArgument(1)).get());
   }

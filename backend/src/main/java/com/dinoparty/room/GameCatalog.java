@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 
 /** Lookup of the seeded {@code game_definition} rows. */
 @Component
-class GameCatalog {
+public class GameCatalog {
 
   private final GameDefinitionRepository repository;
   private final SettingsCodec settingsCodec;
@@ -19,12 +19,20 @@ class GameCatalog {
   }
 
   /** Returns an enabled game or fails with {@code GAME_NOT_FOUND}. */
-  GameInfo require(String gameKey) {
+  public GameInfo require(String gameKey) {
     return repository
         .findById(gameKey)
         .filter(GameDefinitionEntity::isEnabled)
         .map(this::toInfo)
         .orElseThrow(() -> new DomainException(ErrorCode.GAME_NOT_FOUND, "Unknown game."));
+  }
+
+  /** Enabled games only; used by the startup consistency check against the game modules. */
+  public java.util.List<GameInfo> enabled() {
+    return repository.findAll().stream()
+        .filter(GameDefinitionEntity::isEnabled)
+        .map(this::toInfo)
+        .toList();
   }
 
   private GameInfo toInfo(GameDefinitionEntity e) {

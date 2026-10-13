@@ -3,6 +3,7 @@ package com.dinoparty.realtime;
 import com.dinoparty.common.Timestamps;
 import com.dinoparty.room.MemberPresence;
 import com.dinoparty.room.RoomDetails;
+import com.dinoparty.session.RoomSessionInfo;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -23,6 +24,11 @@ public record RoomDto(
     String createdAt) {
 
   public static RoomDto from(RoomDetails room, String publicUrl, MemberPresence presence) {
+    return from(room, publicUrl, presence, RoomSessionInfo.NONE);
+  }
+
+  public static RoomDto from(
+      RoomDetails room, String publicUrl, MemberPresence presence, RoomSessionInfo session) {
     String base =
         publicUrl.endsWith("/") ? publicUrl.substring(0, publicUrl.length() - 1) : publicUrl;
     return new RoomDto(
@@ -39,9 +45,12 @@ public record RoomDto(
             .map(
                 m ->
                     PlayerDto.from(
-                        m, room.hostGuestId(), presence.isDisconnected(room.code(), m.guestId())))
+                        m,
+                        room.hostGuestId(),
+                        presence.isDisconnected(room.code(), m.guestId()),
+                        session.scores() == null ? null : session.scores().get(m.guestId())))
             .toList(),
-        null,
+        session.sessionId(),
         Timestamps.format(room.createdAt()));
   }
 }
