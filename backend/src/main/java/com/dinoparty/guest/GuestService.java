@@ -87,6 +87,12 @@ public class GuestService {
         .map(s -> new AuthenticatedGuest(s.getGuestId(), s.getId()));
   }
 
+  /** True while the session is neither expired nor revoked; used to drop stale WebSocket links. */
+  @Transactional(readOnly = true)
+  public boolean isSessionActive(UUID sessionId) {
+    return sessions.findById(sessionId).filter(s -> s.isActiveAt(clock.instant())).isPresent();
+  }
+
   /** Sliding expiry: called when the client restores its identity (GET /guests/me). */
   @Transactional
   public void renewSession(UUID sessionId) {

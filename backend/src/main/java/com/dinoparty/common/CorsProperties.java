@@ -1,4 +1,4 @@
-package com.dinoparty.web;
+package com.dinoparty.common;
 
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;

@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 /** Room codes: 6 characters from an alphabet without look-alikes (0/O, 1/I/L). */
 @Component
-class RoomCodes {
+public class RoomCodes {
 
   static final String ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   static final int LENGTH = 6;
@@ -26,7 +26,7 @@ class RoomCodes {
   }
 
   /** Upper-cases and validates user input; empty when it cannot possibly be a room code. */
-  static java.util.Optional<String> normalize(String input) {
+  public static java.util.Optional<String> normalize(String input) {
     if (input == null || input.length() != LENGTH) {
       return java.util.Optional.empty();
     }

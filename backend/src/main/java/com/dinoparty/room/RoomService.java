@@ -23,6 +23,8 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -54,6 +56,8 @@ public class RoomService {
   private final TransactionTemplate tx;
   private final TransactionTemplate readOnlyTx;
   private final ObservationRegistry observations;
+  private final ApplicationEventPublisher events;
+  private final ObjectProvider<MemberPresence> presence;
 
   RoomService(
       RoomRepository rooms,
@@ -67,7 +71,9 @@ public class RoomService {
       Clock clock,
       RoomProperties properties,
       PlatformTransactionManager transactionManager,
-      ObservationRegistry observations) {
+      ObservationRegistry observations,
+      ApplicationEventPublisher events,
+      ObjectProvider<MemberPresence> presence) {
     this.rooms = rooms;
     this.participants = participants;
     this.games = games;
@@ -79,6 +85,8 @@ public class RoomService {
     this.clock = clock;
     this.properties = properties;
     this.observations = observations;
+    this.events = events;
+    this.presence = presence;
     this.tx = new TransactionTemplate(transactionManager);
     this.readOnlyTx = new TransactionTemplate(transactionManager);
     this.readOnlyTx.setReadOnly(true);
@@ -119,6 +127,14 @@ public class RoomService {
   }
 
   public void leave(UUID guestId, String rawCode) {
+    leave(guestId, rawCode, LeaveReason.LEFT);
+  }
+
+  /**
+   * Removes a member; {@code reason} is chosen by the caller (the REST leave endpoint, or the
+   * presence sweeper for {@link LeaveReason#TIMEOUT}), never by a client.
+   */
+  public void leave(UUID guestId, String rawCode, LeaveReason reason) {
     String code = requireCode(rawCode);
     observed(
         "leave",
@@ -129,9 +145,61 @@ public class RoomService {
                 () ->
                     tx.execute(
                         status -> {
-                          leaveInTx(guestId, code);
+                          leaveInTx(guestId, code, reason);
                           return null;
                         })));
+  }
+
+  /** Server-authoritative ready flag; only members of a waiting room may change it. */
+  public RoomDetails setReady(UUID guestId, String rawCode, boolean ready) {
+    String code = requireCode(rawCode);
+    return observed(
+        "set-ready",
+        code,
+        () -> mailbox.run(code, () -> tx.execute(status -> readyInTx(guestId, code, ready))));
+  }
+
+  /**
+   * Runs {@code action} inside the room's mailbox (one command at a time per room). Realtime code
+   * uses it so presence changes, snapshots and sequence numbers are ordered with room mutations.
+   */
+  public <T> T inRoom(String rawCode, Supplier<T> action) {
+    return mailbox.run(requireCode(rawCode), action);
+  }
+
+  /** Full details for an active member; {@code NOT_IN_ROOM} for everybody else. */
+  public RoomDetails getForMember(UUID guestId, String rawCode) {
+    String code = requireCode(rawCode);
+    return readOnlyTx.execute(
+        status -> {
+          RoomEntity room = rooms.findByCode(code).orElseThrow(RoomService::notFound);
+          if (!isActiveMember(room, guestId)) {
+            throw notInRoom();
+          }
+          return details(room);
+        });
+  }
+
+  public boolean isMember(UUID guestId, String rawCode) {
+    return RoomCodes.normalize(rawCode)
+        .flatMap(rooms::findByCode)
+        .map(room -> isActiveMember(room, guestId))
+        .orElse(false);
+  }
+
+  /** The room the guest is currently an active member of, if any. */
+  public Optional<RoomRef> activeRoom(UUID guestId) {
+    return participants
+        .findByGuestIdAndLeftAtIsNull(guestId)
+        .flatMap(p -> rooms.findById(p.getRoomId()))
+        .map(r -> new RoomRef(r.getId(), r.getCode()));
+  }
+
+  /** Looks a room up by code regardless of membership; used to address realtime events. */
+  public Optional<RoomRef> find(String rawCode) {
+    return RoomCodes.normalize(rawCode)
+        .flatMap(rooms::findByCode)
+        .map(r -> new RoomRef(r.getId(), r.getCode()));
   }
 
   /** Members get full details; any other authenticated guest gets a preview. */
@@ -140,12 +208,7 @@ public class RoomService {
     return readOnlyTx.execute(
         status -> {
           RoomEntity room = rooms.findByCode(code).orElseThrow(RoomService::notFound);
-          boolean member =
-              participants
-                  .findByRoomIdAndGuestId(room.getId(), guestId)
-                  .filter(RoomParticipantEntity::isActive)
-                  .isPresent();
-          return member ? details(room) : preview(room);
+          return isActiveMember(room, guestId) ? details(room) : preview(room);
         });
   }
 
@@ -235,10 +298,18 @@ public class RoomService {
       // The guest joined a different room between our check and the insert.
       throw alreadyInRoom();
     }
-    return details(room);
+    RoomDetails joined = details(room);
+    joined.members().stream()
+        .filter(m -> m.guestId().equals(guestId))
+        .findFirst()
+        .ifPresent(
+            member ->
+                events.publishEvent(
+                    new RoomEvent.MemberJoined(room.getId(), code, member, room.getHostGuestId())));
+    return joined;
   }
 
-  private void leaveInTx(UUID guestId, String code) {
+  private void leaveInTx(UUID guestId, String code, LeaveReason reason) {
     RoomEntity room = rooms.findByCodeForUpdate(code).orElseThrow(RoomService::notFound);
     Optional<RoomParticipantEntity> leaving =
         participants.findByRoomIdAndGuestId(room.getId(), guestId).filter(p -> p.isActive());
@@ -249,13 +320,46 @@ public class RoomService {
     leaving.get().leave(now);
     participants.flush();
 
+    events.publishEvent(new RoomEvent.MemberLeft(room.getId(), code, guestId, reason));
     List<RoomParticipantEntity> remaining =
         participants.findByRoomIdAndLeftAtIsNullOrderByJoinedAtAscIdAsc(room.getId());
     if (remaining.isEmpty()) {
       room.close(now);
+      events.publishEvent(new RoomEvent.Closed(room.getId(), code, "EMPTY"));
     } else if (room.getHostGuestId().equals(guestId)) {
-      room.transferHost(remaining.getFirst().getGuestId());
+      UUID newHost = nextHost(code, remaining);
+      room.transferHost(newHost);
+      events.publishEvent(new RoomEvent.HostChanged(room.getId(), code, newHost));
     }
+  }
+
+  /** Longest-standing player who is not currently disconnected; else the longest-standing. */
+  private UUID nextHost(String code, List<RoomParticipantEntity> remaining) {
+    MemberPresence view = presence.getIfAvailable();
+    return remaining.stream()
+        .map(RoomParticipantEntity::getGuestId)
+        .filter(g -> view == null || !view.isDisconnected(code, g))
+        .findFirst()
+        .orElseGet(() -> remaining.getFirst().getGuestId());
+  }
+
+  private RoomDetails readyInTx(UUID guestId, String code, boolean ready) {
+    RoomEntity room = rooms.findByCodeForUpdate(code).orElseThrow(RoomService::notFound);
+    RoomParticipantEntity member =
+        participants
+            .findByRoomIdAndGuestId(room.getId(), guestId)
+            .filter(RoomParticipantEntity::isActive)
+            .orElseThrow(RoomService::notInRoom);
+    if (room.getStatus() != RoomStatus.WAITING) {
+      throw new DomainException(
+          ErrorCode.INVALID_PHASE, "Ready can only be changed while the room is waiting.");
+    }
+    if (member.isReady() != ready) {
+      member.setReady(ready);
+      participants.flush();
+      events.publishEvent(new RoomEvent.ReadyChanged(room.getId(), code, guestId, ready));
+    }
+    return details(room);
   }
 
   private RoomDetails updateInTx(UUID guestId, String code, UpdateRoomSettingsCommand command) {
@@ -285,6 +389,9 @@ public class RoomService {
     }
     int maxPlayers = resolveMaxPlayers(game, requested, playerCount);
     room.configure(game.key(), settingsCodec.write(settings), maxPlayers);
+    events.publishEvent(
+        new RoomEvent.SettingsChanged(
+            room.getId(), code, game.key(), settings, game.minPlayers(), maxPlayers));
     return details(room);
   }
 
@@ -318,7 +425,12 @@ public class RoomService {
                 p -> {
                   Guest g = byId.get(p.getGuestId());
                   return new RoomMember(
-                      g.id(), g.nickname(), g.avatarKey(), g.avatarColor(), p.getJoinedAt());
+                      g.id(),
+                      g.nickname(),
+                      g.avatarKey(),
+                      g.avatarColor(),
+                      p.isReady(),
+                      p.getJoinedAt());
                 })
             .toList();
     return new RoomDetails(
@@ -342,6 +454,17 @@ public class RoomService {
         (int) participants.countByRoomIdAndLeftAtIsNull(room.getId()),
         room.getMaxPlayers(),
         guests.get(room.getHostGuestId()).nickname());
+  }
+
+  private boolean isActiveMember(RoomEntity room, UUID guestId) {
+    return participants
+        .findByRoomIdAndGuestId(room.getId(), guestId)
+        .filter(RoomParticipantEntity::isActive)
+        .isPresent();
+  }
+
+  private static DomainException notInRoom() {
+    return new DomainException(ErrorCode.NOT_IN_ROOM, "You are not a member of this room.");
   }
 
   private static String requireCode(String rawCode) {

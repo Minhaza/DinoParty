@@ -15,6 +15,13 @@ spring:
   flyway:
     enabled: true
 
+logging:
+  level:
+    # STOMP frame logging at DEBUG/TRACE prints native headers; keep it off so a bearer token can
+    # never reach a log, whatever the root level is.
+    org.springframework.messaging: INFO
+    org.springframework.web.socket: INFO
+
 server:
   port: 8080
   error:
@@ -74,3 +81,6 @@ app:
   public-url: ${APP_PUBLIC_URL:http://localhost:5173}
   guest:
     token-ttl: ${TOKEN_TTL:30d}
+  # STOMP lobby layer; durations use Spring syntax (30s, 1m). Defaults are in RealtimeProperties.
+  realtime:
+    disconnect-grace: ${WS_DISCONNECT_GRACE:30s}
