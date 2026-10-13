@@ -1,5 +1,12 @@
 import { apiJson, apiRequest, ApiError } from './client'
-import type { CreateRoomInput, RoomDto, RoomPreviewDto, UpdateRoomSettingsInput } from './types'
+import type {
+  CreateRoomInput,
+  RoomDto,
+  RoomPreviewDto,
+  SnapshotDto,
+  UpdateRoomSettingsInput,
+} from './types'
+
 
 export const roomQueryKey = (code: string) => ['room', code] as const
 
@@ -42,6 +49,52 @@ export async function joinRoom(code: string): Promise<RoomDto> {
 export async function leaveRoom(code: string): Promise<void> {
   await apiRequest(`/rooms/${encodeURIComponent(code)}/leave`, { method: 'POST' })
 }
+
+export async function getRoomSnapshot(code: string, signal?: AbortSignal): Promise<SnapshotDto> {
+  const body = await apiRequest(`/rooms/${encodeURIComponent(code)}/snapshot`, { signal })
+  if (
+    !isObject(body) ||
+    !isObject(body.room) ||
+    typeof body.serverNow !== 'string' ||
+    !isObject(body.seq)
+  ) {
+    throw new ApiError(502, null)
+  }
+  return body as unknown as SnapshotDto
+}
+
+export async function setRoomReady(
+  code: string,
+  ready: boolean,
+  signal?: AbortSignal,
+): Promise<RoomDto> {
+  return parseRoom(
+    await apiRequest(`/rooms/${encodeURIComponent(code)}/ready`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ready }),
+      signal,
+    }),
+  )
+}
+
+export async function startRoom(code: string, signal?: AbortSignal): Promise<RoomDto> {
+  return parseRoom(
+    await apiRequest(`/rooms/${encodeURIComponent(code)}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+      signal,
+    }),
+  )
+}
+
+export async function kickPlayer(code: string, guestId: string): Promise<void> {
+  await apiJson(`/rooms/${encodeURIComponent(code)}/kick`, 'POST', { guestId })
+}
+
+
+
 
 export async function updateRoomSettings(
   code: string,

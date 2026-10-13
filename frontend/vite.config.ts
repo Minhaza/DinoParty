@@ -15,6 +15,10 @@ export default defineConfig({
     // Backend dev server (decision D11). Same-origin in dev, so no CORS is needed locally.
     proxy: {
       '/api': 'http://localhost:8080',
+      '/ws': {
+        target: 'http://localhost:8080',
+        ws: true,
+      },
     },
   },
   test: {

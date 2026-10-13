@@ -9,7 +9,9 @@ import { HowToPlayModal } from '@/components/modals/HowToPlayModal'
 import { ProfileModal } from '@/components/modals/ProfileModal'
 import { Button } from '@/components/ui/button'
 import { useGuest } from '@/features/guest/useGuest'
+import { RealtimeProvider } from '@/features/realtime/RealtimeProvider'
 import { resolveDark } from '@/lib/theme'
+
 import { cn } from '@/lib/utils'
 import { usePrefsStore, type ThemePreference } from '@/stores/prefsStore'
 
@@ -61,7 +63,9 @@ export function Layout() {
     )
 
   return (
-    <div className="flex min-h-screen flex-col text-foreground antialiased selection:bg-primary/20">
+    <RealtimeProvider>
+      <div className="flex min-h-screen flex-col text-foreground antialiased selection:bg-primary/20">
+
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-card focus:px-4 focus:py-2 focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-primary"
@@ -193,5 +197,7 @@ export function Layout() {
       <HowToPlayModal open={howToPlayModalOpen} onOpenChange={setHowToPlayModalOpen} />
       <AboutModal open={aboutModalOpen} onOpenChange={setAboutModalOpen} />
     </div>
+    </RealtimeProvider>
   )
 }
+
