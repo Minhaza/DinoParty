@@ -1,23 +1,35 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, Crown, LogOut, Users } from 'lucide-react'
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  Copy,
+  Crown,
+  Loader2,
+  LogOut,
+  Play,
+  RotateCcw,
+  UserX,
+  Users,
+  WifiOff,
+} from 'lucide-react'
 import * as React from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { ApiError } from '@/api/client'
 import { describeError } from '@/api/errors'
-import { getRoom, isRoomDto, joinRoom, leaveRoom, roomQueryKey } from '@/api/rooms'
-import type { GuestDto, RoomDto, RoomPreviewDto } from '@/api/types'
+import { getRoom, isRoomDto, joinRoom, kickPlayer, leaveRoom, roomQueryKey } from '@/api/rooms'
+import type { GuestDto, PlayerDto, RoomDto, RoomPreviewDto } from '@/api/types'
 import { DinoAvatar } from '@/components/DinoAvatar'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { RequireGuest } from '@/features/guest/RequireGuest'
+import { useRealtimeRoom } from '@/features/realtime/useRealtimeRoom'
 import { GAME_CONFIGS } from '@/features/rooms/gameConfig'
 import { RoomSettingsForm } from '@/features/rooms/RoomSettingsForm'
 import { useAuthStore } from '@/stores/authStore'
-
-/** Lobby polls the REST room endpoint every 2 s until the realtime layer replaces it (Phase 3). */
-const POLL_MS = 2000
+import { useRoomStore } from '@/stores/roomStore'
 
 export function LobbyPage() {
   const { code = '' } = useParams()
@@ -31,37 +43,21 @@ export function LobbyPage() {
 function Lobby({ code, guest }: { code: string; guest: GuestDto }) {
   const lastRoomCode = useAuthStore((s) => s.lastRoomCode)
   const setLastRoomCode = useAuthStore((s) => s.setLastRoomCode)
+
   const query = useQuery({
     queryKey: roomQueryKey(code),
     queryFn: ({ signal }) => getRoom(code, signal),
-    refetchInterval: POLL_MS,
     retry: false,
   })
   const data = query.data
 
-  // Keep the "back to my room" hint aligned with what the server says about membership.
   const isMember = data !== undefined && isRoomDto(data)
   const isNonMember = data !== undefined && !isRoomDto(data)
+
   React.useEffect(() => {
     if (isMember && lastRoomCode !== code) setLastRoomCode(code)
     if (isNonMember && lastRoomCode === code) setLastRoomCode(null)
   }, [isMember, isNonMember, lastRoomCode, code, setLastRoomCode])
-
-  // Announce host changes (e.g. the host left) to assistive tech, derived during render.
-  const hostId = data !== undefined && isRoomDto(data) ? data.hostGuestId : null
-  const [prevHostId, setPrevHostId] = React.useState(hostId)
-  const [notice, setNotice] = React.useState('')
-  if (hostId !== prevHostId) {
-    setPrevHostId(hostId)
-    if (hostId !== null && prevHostId !== null && data !== undefined && isRoomDto(data)) {
-      const newHost = data.players.find((p) => p.guestId === hostId)
-      setNotice(
-        hostId === guest.id
-          ? 'You are now the host.'
-          : `${newHost?.nickname ?? 'Someone'} is now the host.`,
-      )
-    }
-  }
 
   if (query.isPending) {
     return (
@@ -70,6 +66,7 @@ function Lobby({ code, guest }: { code: string; guest: GuestDto }) {
       </p>
     )
   }
+
   if (query.isError && data === undefined) {
     if (query.error instanceof ApiError && query.error.code === 'ROOM_NOT_FOUND') {
       return <Notice title="Room not found" body={`No room with the code ${code} exists.`} />
@@ -83,10 +80,11 @@ function Lobby({ code, guest }: { code: string; guest: GuestDto }) {
       </div>
     )
   }
+
   if (data === undefined) return null
 
   return isRoomDto(data) ? (
-    <MemberLobby room={data} guest={guest} notice={notice} />
+    <MemberLobby initialRoom={data} guest={guest} />
   ) : (
     <PreviewLobby preview={data} />
   )
@@ -157,26 +155,76 @@ function PreviewLobby({ preview }: { preview: RoomPreviewDto }) {
   )
 }
 
-function MemberLobby({ room, guest, notice }: { room: RoomDto; guest: GuestDto; notice: string }) {
+function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: GuestDto }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const setLastRoomCode = useAuthStore((s) => s.setLastRoomCode)
+  const resetRoomStore = useRoomStore((s) => s.reset)
+
+  const {
+    room: realtimeRoom,
+    isHost,
+    isReady,
+    isTogglingReady,
+    isStartingGame,
+    startError,
+    connectionStatus,
+    terminalReason,
+    reconnectAttempt,
+    isOnline,
+    lastError,
+    clearLastError,
+    toggleReady,
+    startGame,
+  } = useRealtimeRoom(initialRoom.code, true, guest.id, initialRoom)
+
+  const currentRoom = realtimeRoom ?? initialRoom
+
   const [copied, setCopied] = React.useState(false)
-  const isHost = room.hostGuestId === guest.id
-  const game = GAME_CONFIGS[room.gameKey]
+  const [kickTarget, setKickTarget] = React.useState<string | null>(null)
+  const game = GAME_CONFIGS[currentRoom.gameKey]
+
+  // Track host changes to announce them to assistive technology
+  const hostId = currentRoom.hostGuestId
+  const [prevHostId, setPrevHostId] = React.useState(hostId)
+  const [hostNotice, setHostNotice] = React.useState('')
+
+  if (hostId !== prevHostId) {
+    setPrevHostId(hostId)
+    if (hostId && prevHostId) {
+      const newHost = currentRoom.players.find((p) => p.guestId === hostId)
+      setHostNotice(
+        hostId === guest.id
+          ? 'You are now the host.'
+          : `${newHost?.nickname ?? 'Someone'} is now the host.`,
+      )
+    }
+  }
 
   const leave = useMutation({
-    mutationFn: () => leaveRoom(room.code),
+    mutationFn: () => leaveRoom(currentRoom.code),
     onSuccess: () => {
       setLastRoomCode(null)
-      queryClient.removeQueries({ queryKey: roomQueryKey(room.code) })
+      resetRoomStore()
+      queryClient.removeQueries({ queryKey: roomQueryKey(currentRoom.code) })
       void navigate('/')
     },
   })
 
+  const handleKick = async (guestId: string) => {
+    setKickTarget(guestId)
+    try {
+      await kickPlayer(currentRoom.code, guestId)
+    } catch (err) {
+      console.error('Failed to kick player', err)
+    } finally {
+      setKickTarget(null)
+    }
+  }
+
   const copyInvite = async () => {
     try {
-      await navigator.clipboard.writeText(room.inviteUrl)
+      await navigator.clipboard.writeText(currentRoom.inviteUrl)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
     } catch {
@@ -184,25 +232,111 @@ function MemberLobby({ room, guest, notice }: { room: RoomDto; guest: GuestDto; 
     }
   }
 
-  const missing = Math.max(0, room.minPlayers - room.players.length)
+  const connectedPlayers = currentRoom.players.filter((p) => p.connection !== 'DISCONNECTED')
+  const missing = Math.max(0, currentRoom.minPlayers - currentRoom.players.length)
+  const allReady = currentRoom.players.length > 0 && currentRoom.players.every((p) => p.ready)
+  const canStart =
+    isHost &&
+    currentRoom.status === 'WAITING' &&
+    connectedPlayers.length >= currentRoom.minPlayers &&
+    !isStartingGame
+
+  if (currentRoom.status === 'CLOSED') {
+    return <Notice title="Room closed" body={`Room ${currentRoom.code} has been closed.`} />
+  }
 
   return (
     <>
+      {/* Session Replaced Alert (Single-tab restriction) */}
+      {terminalReason === 'SESSION_REPLACED' && (
+        <div
+          role="alert"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-destructive/50 bg-destructive/10 p-4 text-destructive"
+        >
+          <div className="flex items-start gap-3">
+            <AlertCircle className="size-5 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Session opened in another window</p>
+              <p className="text-sm text-foreground/80">
+                DinoParty allows one active tab per player. This tab has been disconnected.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.reload()}
+            className="self-start sm:self-auto shrink-0 gap-1.5"
+          >
+            <RotateCcw className="size-3.5" />
+            Reopen here
+          </Button>
+        </div>
+      )}
+
+      {/* Reconnecting Banner */}
+      {connectionStatus === 'RECONNECTING' && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2.5 rounded-2xl border border-amber-500/50 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-800 dark:text-amber-300"
+        >
+          <Loader2 className="size-4 animate-spin text-amber-600 dark:text-amber-400" />
+          <span>Reconnecting to lobby… (attempt {reconnectAttempt})</span>
+        </div>
+      )}
+
+      {/* Offline Alert */}
+      {(!isOnline || connectionStatus === 'DISCONNECTED') &&
+        terminalReason !== 'SESSION_REPLACED' && (
+          <div
+            role="status"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted/60 px-4 py-2.5 text-sm text-muted-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <WifiOff className="size-4 text-muted-foreground" />
+              <span>You are currently offline.</span>
+            </div>
+          </div>
+        )}
+
+      {/* Error Banner */}
+      {lastError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-2xl border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive"
+        >
+          <span className="font-medium">{lastError}</span>
+          <Button variant="ghost" size="sm" onClick={clearLastError} className="h-7 px-2">
+            Dismiss
+          </Button>
+        </div>
+      )}
+
+      {/* Lobby Header Card */}
       <Card>
         <CardHeader className="gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{game.name}</Badge>
             <Badge variant="muted">
-              {room.status === 'WAITING' ? 'Waiting for players' : room.status}
+              {currentRoom.status === 'WAITING' ? 'Waiting for players' : currentRoom.status}
             </Badge>
+            {connectionStatus === 'CONNECTED' && (
+              <Badge
+                variant="outline"
+                className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+              >
+                Live
+              </Badge>
+            )}
           </div>
           <CardTitle as="h1" className="flex flex-wrap items-baseline gap-3">
             <span>Lobby</span>
             <span
-              aria-label={`Room code ${room.code.split('').join(' ')}`}
+              aria-label={`Room code ${currentRoom.code.split('').join(' ')}`}
               className="font-mono text-3xl font-extrabold tracking-widest text-primary"
             >
-              {room.code}
+              {currentRoom.code}
             </span>
           </CardTitle>
           <CardDescription>Share the code or invite link with your friends.</CardDescription>
@@ -222,40 +356,103 @@ function MemberLobby({ room, guest, notice }: { room: RoomDto; guest: GuestDto; 
         </CardHeader>
       </Card>
 
+      {/* Action Controls: Ready Toggle & Host Start */}
+      <Card>
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+          <div className="flex items-center gap-3">
+            <Button
+              variant={isReady ? 'outline' : 'default'}
+              size="lg"
+              onClick={() => void toggleReady()}
+              disabled={isTogglingReady || currentRoom.status !== 'WAITING'}
+              className="gap-2 font-bold"
+              aria-pressed={isReady}
+            >
+              {isTogglingReady ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : isReady ? (
+                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <Check className="size-4" />
+              )}
+              {isReady ? 'Cancel ready' : 'Ready up'}
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {isReady ? 'You are marked ready!' : 'Click ready when you are set.'}
+            </span>
+          </div>
+
+          {isHost && (
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                variant="default"
+                size="lg"
+                onClick={() => void startGame()}
+                disabled={!canStart}
+                className="gap-2 font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {isStartingGame ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Play className="size-4 fill-current" />
+                )}
+                {currentRoom.status === 'STARTING' ? 'Starting…' : 'Start game'}
+              </Button>
+              {missing > 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  Needs at least {currentRoom.minPlayers} players
+                </span>
+              ) : !allReady ? (
+                <span className="text-xs text-amber-600 dark:text-amber-400">
+                  Waiting for players to ready up
+                </span>
+              ) : (
+                <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                  All players ready!
+                </span>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {startError && (
+        <p role="alert" className="text-sm font-medium text-destructive">
+          {startError}
+        </p>
+      )}
+
+      {/* Players List Card */}
       <Card>
         <CardHeader>
           <CardTitle as="h2" className="flex items-center gap-2">
             <Users className="size-5" aria-hidden />
-            Players ({room.players.length}/{room.maxPlayers})
+            Players ({currentRoom.players.length}/{currentRoom.maxPlayers})
           </CardTitle>
           {missing > 0 && (
             <CardDescription>
-              {game.name} needs at least {room.minPlayers} players; waiting for {missing} more.
+              {game.name} needs at least {currentRoom.minPlayers} players; waiting for {missing}{' '}
+              more.
             </CardDescription>
           )}
         </CardHeader>
         <CardContent>
-          <ul aria-label="Players" className="flex flex-col gap-2">
-            {room.players.map((player) => (
-              <li
+          <ul aria-label="Players" className="flex flex-col gap-2.5">
+            {currentRoom.players.map((player) => (
+              <PlayerListItem
                 key={player.guestId}
-                className="flex items-center gap-3 rounded-2xl border border-border/70 bg-background/70 p-2.5"
-              >
-                <DinoAvatar avatarKey={player.avatarKey} size="md" alt="" />
-                <span className="min-w-0 flex-1 truncate font-semibold">{player.nickname}</span>
-                {player.guestId === guest.id && <Badge variant="outline">You</Badge>}
-                {player.isHost && (
-                  <Badge variant="warning">
-                    <Crown className="size-3" aria-hidden />
-                    Host
-                  </Badge>
-                )}
-              </li>
+                player={player}
+                isCurrentGuest={player.guestId === guest.id}
+                canKick={isHost && player.guestId !== guest.id}
+                isKicking={kickTarget === player.guestId}
+                onKick={() => void handleKick(player.guestId)}
+              />
             ))}
           </ul>
         </CardContent>
       </Card>
 
+      {/* Settings Card */}
       <Card>
         <CardHeader>
           <CardTitle as="h2">Settings</CardTitle>
@@ -267,15 +464,17 @@ function MemberLobby({ room, guest, notice }: { room: RoomDto; guest: GuestDto; 
         </CardHeader>
         <CardContent>
           {isHost ? (
-            <RoomSettingsForm room={room} />
+            <RoomSettingsForm room={currentRoom} />
           ) : (
             <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
               <dt className="text-muted-foreground">Max players</dt>
-              <dd className="font-semibold">{room.maxPlayers}</dd>
+              <dd className="font-semibold">{currentRoom.maxPlayers}</dd>
               {game.fields.map((field) => (
                 <React.Fragment key={field.key}>
                   <dt className="text-muted-foreground">{field.label}</dt>
-                  <dd className="font-semibold">{String(room.settings[field.key] ?? '–')}</dd>
+                  <dd className="font-semibold">
+                    {String(currentRoom.settings[field.key] ?? '–')}
+                  </dd>
                 </React.Fragment>
               ))}
             </dl>
@@ -284,13 +483,13 @@ function MemberLobby({ room, guest, notice }: { room: RoomDto; guest: GuestDto; 
       </Card>
 
       <p aria-live="polite" role="status" className="min-h-5 text-sm font-medium text-foreground">
-        {notice}
+        {hostNotice}
       </p>
 
+      {/* Leave Button */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Starting a game arrives in a later phase; for now you can gather players and tune
-          settings.
+          Gather players and tune settings. Once ready, the host can start the game!
         </p>
         <Button variant="outline" onClick={() => leave.mutate()} disabled={leave.isPending}>
           <LogOut className="size-4" aria-hidden />
@@ -303,5 +502,100 @@ function MemberLobby({ room, guest, notice }: { room: RoomDto; guest: GuestDto; 
         </p>
       )}
     </>
+  )
+}
+
+function PlayerListItem({
+  player,
+  isCurrentGuest,
+  canKick,
+  isKicking,
+  onKick,
+}: {
+  player: PlayerDto
+  isCurrentGuest: boolean
+  canKick: boolean
+  isKicking: boolean
+  onKick: () => void
+}) {
+  const isDisconnected = player.connection === 'DISCONNECTED'
+
+  return (
+    <li
+      className={`flex items-center justify-between gap-3 rounded-2xl border p-3 transition-colors ${
+        isDisconnected
+          ? 'border-dashed border-amber-500/40 bg-amber-500/5 opacity-80'
+          : 'border-border/70 bg-background/70'
+      }`}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <DinoAvatar
+          avatarKey={player.avatarKey}
+          color={player.avatarColor ?? undefined}
+          size="md"
+          alt=""
+        />
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-semibold text-foreground">{player.nickname}</span>
+            {isCurrentGuest && <Badge variant="outline">You</Badge>}
+            {player.isHost && (
+              <Badge variant="warning">
+                <Crown className="size-3" aria-hidden />
+                Host
+              </Badge>
+            )}
+          </div>
+          {isDisconnected && (
+            <span className="text-xs text-amber-600 dark:text-amber-400">
+              Disconnected (reconnecting…)
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 shrink-0">
+        {/* Connection status badge */}
+        {isDisconnected ? (
+          <Badge
+            variant="outline"
+            className="border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1 text-xs"
+          >
+            <WifiOff className="size-3" />
+            Offline
+          </Badge>
+        ) : player.ready ? (
+          <Badge
+            variant="outline"
+            className="border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 gap-1 text-xs font-semibold"
+          >
+            <Check className="size-3" />
+            Ready
+          </Badge>
+        ) : (
+          <Badge variant="muted" className="text-xs">
+            Not ready
+          </Badge>
+        )}
+
+        {/* Kick player control */}
+        {canKick && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onKick}
+            disabled={isKicking}
+            aria-label={`Kick ${player.nickname}`}
+            className="h-8 px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          >
+            {isKicking ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <UserX className="size-3.5" />
+            )}
+          </Button>
+        )}
+      </div>
+    </li>
   )
 }
