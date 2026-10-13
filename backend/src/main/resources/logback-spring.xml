@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+  <!-- Forwards log records to OTLP. Records are dropped until ObservabilityConfig installs the
+       OpenTelemetry SDK, and the SDK only exports when OTEL_ENABLED=true. MDC keys are the
+       non-sensitive correlation ids from AGENTS.md; nothing else is copied as an attribute. -->
+  <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+    <captureMdcAttributes>roomCode,guestId,sessionId</captureMdcAttributes>
+    <captureExperimentalAttributes>false</captureExperimentalAttributes>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="OTEL"/>
+  </root>
+</configuration>

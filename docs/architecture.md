@@ -207,7 +207,7 @@ Tailwind v4 with design tokens in CSS variables, shadcn/ui components themed to 
 
 ## 7. Observability
 
-Structured logs with `roomCode`, `guestId`, `sessionId` MDC fields; Micrometer metrics (active rooms, connections, command latency, dropped events); health: liveness, readiness (DB).
+Structured logs with `roomCode`, `guestId`, `sessionId` MDC fields; Micrometer metrics (active rooms, connections, command latency, dropped events); health: liveness, readiness (DB). Optional dev-only OTLP export (backend, browser errors/fetch, PostgreSQL logs) through an OpenTelemetry Collector to a local Aspire Dashboard (`OTEL_ENABLED`, default off; see `docs/observability.md`).
 
 ## 8. Known limitations (documented to users/devs)
 

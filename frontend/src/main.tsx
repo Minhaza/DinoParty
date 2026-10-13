@@ -5,8 +5,11 @@ import { createBrowserRouter, RouterProvider } from 'react-router'
 
 import { createQueryClient } from '@/app/queryClient'
 import { routes } from '@/app/routes'
+import { initTelemetry } from '@/telemetry'
 
 import './index.css'
+
+void initTelemetry()
 
 const queryClient = createQueryClient()
 const router = createBrowserRouter(routes)

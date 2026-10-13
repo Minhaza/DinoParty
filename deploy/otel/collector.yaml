@@ -1,0 +1,74 @@
+# OpenTelemetry Collector for local development.
+#   backend / browser --OTLP/HTTP--> collector --> Aspire Dashboard
+#   PostgreSQL JSON log file ------> collector --> Aspire Dashboard (service dinoparty-postgres)
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        # Browsers post cross-origin; only the local frontend origin is allowed.
+        cors:
+          allowed_origins:
+            - ${env:OTEL_ALLOWED_ORIGIN}
+          allowed_headers: [Content-Type]
+          max_age: 7200
+
+  file_log/postgres:
+    include: [/var/lib/postgresql/data/log/postgresql.json]
+    start_at: beginning
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.timestamp
+          layout_type: strptime
+          layout: "%Y-%m-%d %H:%M:%S.%L %Z"
+        severity:
+          parse_from: attributes.error_severity
+          mapping:
+            debug: [DEBUG1, DEBUG2, DEBUG3, DEBUG4, DEBUG5]
+            info: [INFO, NOTICE, LOG]
+            warn: WARNING
+            error: ERROR
+            fatal: [FATAL, PANIC]
+      - type: move
+        from: attributes.message
+        to: body
+
+processors:
+  batch: {}
+  # Defence in depth: SQL text and row data must never reach the dashboard.
+  attributes/postgres_scrub:
+    actions:
+      - {key: statement, action: delete}
+      - {key: detail, action: delete}
+      - {key: internal_query, action: delete}
+      - {key: context, action: delete}
+      - {key: query, action: delete}
+      - {key: timestamp, action: delete}
+  resource/postgres:
+    attributes:
+      - {key: service.name, value: dinoparty-postgres, action: upsert}
+
+exporters:
+  otlp_http/aspire:
+    endpoint: http://aspire-dashboard:18890
+    compression: none
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_http/aspire]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_http/aspire]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_http/aspire]
+    logs/postgres:
+      receivers: [file_log/postgres]
+      processors: [attributes/postgres_scrub, resource/postgres, batch]
+      exporters: [otlp_http/aspire]

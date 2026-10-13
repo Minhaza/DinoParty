@@ -28,6 +28,20 @@ npm --prefix frontend ci
 
 `.env` is git-ignored. `.env.example` contains placeholders only.
 
+## Run everything with one command
+
+```powershell
+.\scripts\dev.ps1                  # Windows: database + backend + frontend, Ctrl+C stops the apps
+.\scripts\dev.ps1 -Observability   # also Collector + Aspire Dashboard (http://localhost:18888): backend, browser and Postgres telemetry
+.\scripts\dev.ps1 -Stop            # stop the Docker services
+```
+
+```bash
+scripts/dev.sh [--observability|--stop]   # macOS/Linux/Git Bash
+```
+
+It creates `.env` from `.env.example` if missing, installs frontend dependencies on first run and waits for the database to be healthy. App: <http://localhost:5173>, API: <http://localhost:8080/api/v1/health>. Needs Docker, JDK 21 and Node. The manual three-terminal steps below do the same thing.
+
 ## Run the stack (three terminals)
 
 ```bash
@@ -53,6 +67,8 @@ curl -fsS http://localhost:8080/actuator/health/readiness
 ```
 
 With the database stopped (`docker compose --env-file .env -f deploy/compose.dev.yml stop db`) the health endpoint answers `503` with `"status":"DOWN","db":"DOWN"`, and recovers once the database is back.
+
+Optional: local traces, metrics and logs from backend, frontend and Postgres in the Aspire Dashboard (<http://localhost:18888>) - see [docs/observability.md](docs/observability.md).
 
 Stop the database: `docker compose --env-file .env -f deploy/compose.dev.yml down` (keeps data). Add `-v` to delete the data volume.
 

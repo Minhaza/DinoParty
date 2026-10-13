@@ -1,0 +1,55 @@
+# Optional development observability: Aspire Dashboard + OpenTelemetry Collector, and PostgreSQL
+# file logging so the Collector can read database logs. Layer it over the dev compose file:
+#   docker compose --env-file .env -f deploy/compose.dev.yml -f deploy/compose.observability.yml up -d
+# Dev only: anonymous dashboard, everything bound to loopback. See docs/observability.md.
+name: dinoparty-dev
+
+services:
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.6
+    restart: unless-stopped
+    environment:
+      ASPIRE_ALLOW_UNSECURED_TRANSPORT: "true"
+      DASHBOARD__FRONTEND__AUTHMODE: Unsecured
+      DASHBOARD__OTLP__AUTHMODE: Unsecured
+    ports:
+      - "127.0.0.1:${ASPIRE_UI_PORT:-18888}:18888"
+    # OTLP/HTTP (container port 18890) is reachable only from the Collector on the compose network.
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    # Root only so it can read PostgreSQL's log files from the (read-only) data volume.
+    user: "0:0"
+    environment:
+      # Browser origin allowed to post telemetry (exact match, no wildcards).
+      OTEL_ALLOWED_ORIGIN: ${OTEL_ALLOWED_ORIGIN:-http://localhost:5173}
+    volumes:
+      - ./otel/collector.yaml:/etc/otelcol/config.yaml:ro
+      - dinoparty-db-data:/var/lib/postgresql/data:ro
+    ports:
+      # Backend and browser export here; the Collector forwards to the dashboard.
+      - "127.0.0.1:${OTEL_COLLECTOR_HTTP_PORT:-4318}:4318"
+    depends_on:
+      - aspire-dashboard
+
+  db:
+    # Write JSON logs to <data>/log (read by the Collector) instead of stderr. Statements are never
+    # logged (log_min_error_statement=panic) because they can contain user data.
+    command:
+      - postgres
+      - -c
+      - logging_collector=on
+      - -c
+      - log_destination=jsonlog
+      - -c
+      - log_directory=log
+      - -c
+      - log_filename=postgresql.log
+      - -c
+      - log_rotation_age=1d
+      - -c
+      - log_truncate_on_rotation=on
+      - -c
+      - log_min_error_statement=panic
