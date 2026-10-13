@@ -1,6 +1,6 @@
 # DinoParty — API Contracts (REST + STOMP)
 
-This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: design (v0, pre-implementation); fields may be refined in Phase 2–3 but only via edits to this file.
+This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: REST (Phase 2) and the lobby STOMP layer (Phase 3) are implemented as written; rows marked *Phase 4+* are still design. Fields may be refined, but only via edits to this file.
 
 ## 1. Conventions
 
@@ -34,11 +34,11 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `POST /rooms/{roomCode}/join` | yes | `{}` | `200 RoomDto`. Idempotent: joining a room you are already in returns it unchanged | 404, 409 (`ROOM_FULL`, `ROOM_IN_PROGRESS`, `ROOM_CLOSED`, `ALREADY_IN_ROOM` when in a *different* room), 429 (per guest) |
 | `POST /rooms/{roomCode}/leave` | yes | — | `204`. Idempotent: a non-member (or already-left) caller is a no-op. If the host leaves, the longest-standing remaining player becomes host; the last player leaving closes the room | 404 |
 | `PATCH /rooms/{roomCode}/settings` | host | `{gameKey?, settings?, maxPlayers?}` | `200 RoomDto` | 400, 403 `NOT_HOST` (also for non-members), 404, 409 `INVALID_PHASE` (room not in `WAITING`) |
-| `POST /rooms/{roomCode}/ready` | member | `{ready: boolean}` | `200 RoomDto` | (WS command equivalent) |
+| `POST /rooms/{roomCode}/ready` | member | `{ready: boolean}` | `200 RoomDto`. Same effect as the WS `SET_READY` command; only while `WAITING` | 403 `NOT_IN_ROOM`, 404, 409 `INVALID_PHASE` |
 | `POST /rooms/{roomCode}/start` | host | `{}` | `202 RoomDto` (status `STARTING`) | 403, 409 `NOT_ENOUGH_PLAYERS` |
 | `POST /rooms/{roomCode}/kick` | host | `{guestId}` | `204` | 403 |
 | `POST /rooms/{roomCode}/close` | host | — | `204` | 403 |
-| `GET /rooms/{roomCode}/snapshot` | member | — | `200 SnapshotDto` (viewer-specific) | 403 `NOT_IN_ROOM` |
+| `GET /rooms/{roomCode}/snapshot` | member | — | `200 SnapshotDto` (viewer-specific; `game` is `null` until Phase 4) | 403 `NOT_IN_ROOM`, 404 `ROOM_NOT_FOUND` |
 | `GET /sessions/{sessionId}/results` | member of the session's room | — | `200 ResultsDto` | 404, 409 `RESULTS_NOT_READY` |
 | `GET /sessions/{sessionId}/albums/{chainIndex}` | member | — | `200 AlbumDto` (telephone, after reveal) | 404 |
 
@@ -54,7 +54,7 @@ RoomDto         { id, code, inviteUrl, status, gameKey, hostGuestId, minPlayers,
 RoomPreviewDto  { code, gameKey, status, playerCount, maxPlayers, hostNickname }
 PlayerDto       { guestId, nickname, avatarKey, avatarColor, ready, connection:"CONNECTED|DISCONNECTED|LEFT",
                   isHost, score|null }
-SnapshotDto     { room:RoomDto, serverNow, seq:{room:int, private:int}, game: GameSnapshot|null }
+SnapshotDto     { room:RoomDto, serverNow, seq:{room:int, private:int}, game: GameSnapshot|null /* null until Phase 4 */ }
 ResultsDto      { sessionId, gameKey, startedAt, finishedAt, standings:[{rank, guestId, nickname, score, detail}],
                   rounds:[{roundNo, drawerGuestId?, word?, …}] }
 AlbumDto        { chainIndex, ownerGuestId, entries:[{step, kind:"TEXT|DRAWING", authorGuestId, text?, strokes?, timedOut}] }
@@ -65,7 +65,10 @@ AlbumDto        { chainIndex, ownerGuestId, entries:[{step, kind:"TEXT|DRAWING",
 - A guest may be an active member of at most one room (`ALREADY_IN_ROOM` on create/join of another room). Leaving or the room closing frees them.
 - `maxPlayers` defaults to 8 clamped to the game's bounds (`draw-guess` 2–10, `telephone` 4–8) and must stay within them; it cannot be set below the current player count (400).
 - `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|mixed|hard`; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `allowSkipTimeout` bool). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
-- `players[]` lists active members ordered by join time; `ready` is `false`, `connection` is `CONNECTED` and `score` is `null` until presence/ready (Phase 3) and games (Phase 4+) exist. `sessionId` is `null`.
+- `players[]` lists active members ordered by join time. `score` and `sessionId` are `null` until games exist (Phase 4+).
+- `ready` (Phase 3) is server-authoritative and persisted per membership: `false` on join/rejoin, changed only by `SET_READY` / `POST …/ready` while the room is `WAITING`.
+- `connection` (Phase 3): `DISCONNECTED` while a member's STOMP connection is gone and the grace period (`app.realtime.disconnect-grace`, default 30 s) has not expired; otherwise `CONNECTED`. A member who has never opened a STOMP connection (REST-only client) is reported `CONNECTED` and is never timed out. `LEFT` is not used in `players[]` (left members are removed).
+- When the host leaves or is removed on timeout, the new host is the longest-standing remaining player who is not currently `DISCONNECTED`; if everyone left is disconnected, the longest-standing one.
 - `inviteUrl` = `{APP_PUBLIC_URL}/join/{CODE}`.
 - Rate limits: `POST /guests` per client IP and join per guest answer `429 RATE_LIMITED` with `Retry-After`.
 
@@ -85,88 +88,115 @@ Stroke            { strokeId, tool:"PENCIL|ERASER", color:"#RRGGBB", size:int(1-
 
 ### 3.1 Connection
 
-- Endpoint `wss://<api-host>/ws` (native WebSocket, no SockJS).
-- `CONNECT` headers: `accept-version:1.2`, `heart-beat:10000,10000`, `Authorization: Bearer <token>`.
-- Subscriptions (allowed only for room members):
+- Endpoint `wss://<api-host>/ws` (native WebSocket, no SockJS). The HTTP upgrade is unauthenticated (browsers cannot set headers on a WebSocket) but is **Origin-checked** against `CORS_ALLOWED_ORIGINS`: a disallowed `Origin` gets `403`, and more than `app.realtime.connect-limit-per-minute` handshakes per client address get `429` + `Retry-After`. Authentication happens in the STOMP `CONNECT` frame.
+- `CONNECT` headers: `accept-version:1.2`, `heart-beat:10000,10000`, `Authorization: Bearer <token>`. The server answers `heart-beat:10000,10000`. Invalid, missing, expired or revoked token ⇒ STOMP `ERROR` frame (`message: Authentication failed`, `code: UNAUTHENTICATED`) and the connection is closed; repeated failures from one client address answer `code: RATE_LIMITED`. The token is never echoed, logged or forwarded after `CONNECT`. Any frame other than `CONNECT`/`STOMP` sent before authenticating is rejected the same way.
+- Principal name = the guest id (`GuestDto.id`).
+- One live connection per guest: a new authenticated `CONNECT` replaces the previous one. The old connection receives private `SESSION_REPLACED` (when it is subscribed) and is closed with WebSocket close code 1008 (reason `SESSION_REPLACED`); its disconnect does **not** mark the guest disconnected.
+- Server-side limits: STOMP frame ≤ `app.realtime.max-message-bytes` (default 65536; larger frames close the connection with 1009), ≤ 8 subscriptions per connection.
+- A connection whose guest session expires or is revoked is closed by the server (checked every `app.realtime.session-recheck-interval`, default 30 s).
+- Subscriptions (allowed only for **current members** of the room, checked against the database at `SUBSCRIBE` time; everything else is refused with an `ERROR` frame and the connection is closed):
   - `/topic/rooms/{code}` — public stream (`stream: "ROOM"`).
   - `/user/queue/rooms/{code}` — private stream (`stream: "PRIVATE"`).
-  - `/user/queue/errors` — errors not tied to a room.
-- Client sends to `/app/rooms/{code}/command`.
+  - `/user/queue/errors` — errors not tied to a room (always allowed once authenticated).
+  - No other destination may be subscribed to (no wildcards, no `/topic/**`, no other user's queue). `{code}` must be a well-formed room code (uppercase, §1).
+  - When a member leaves, times out or the room closes, the server stops delivering that room's streams to their connection (the `PLAYER_LEFT` event itself is still delivered).
+- Client sends to `/app/rooms/{code}/command` only (any other `SEND` destination is refused). Membership is verified for every command inside the room's serialized mailbox.
 
 ### 3.2 Envelope (all server events)
 
 ```json
-{ "type": "…", "roomId": "uuid", "roomCode": "ABCD12", "ts": "ISO", "seq": 17,
+{ "type": "…", "roomId": "uuid", "roomCode": "ABCD12", "ts": "2026-01-01T12:00:00.000Z", "seq": 17,
   "stream": "ROOM|PRIVATE", "actionId": "echoed client id or null", "payload": { } }
 ```
 
-Client commands use `{ "type": "…", "actionId": "uuid", "phaseId": "uuid|null", "payload": { } }`.
-`seq` is gapless within a stream; a gap means the client must resync via `REQUEST_SNAPSHOT` / `GET …/snapshot`.
+Client commands use `{ "type": "…", "actionId": "uuid", "phaseId": "uuid|null", "payload": { } }` sent as a JSON text frame (`content-type:application/json`). `type` is 1–40 chars `[A-Z_]`, `actionId` is a UUID string (required for every command except `PING`), `payload` is an object (may be omitted for payload-less commands).
+
+- `seq` is gapless and starts at `1` **per stream**: the `ROOM` stream counts per room; the `PRIVATE` stream counts per (room, recipient). A gap means the client must resync via `REQUEST_SNAPSHOT` / `GET …/snapshot`.
+- `ts` is server time (ISO-8601 UTC millis).
+- Counters live in memory. After a server restart they restart from 1; therefore a client **replaces** its remembered `lastSeq` with `snapshot.seq` after every snapshot, even when lower.
+- `/user/queue/errors` envelopes use `type: "ERROR"`, `stream: "PRIVATE"`, `seq: 0` (unsequenced), `roomId: null`, and `roomCode` = the destination's code when it was well-formed, else `null`. Payload as `GAME_ERROR`.
 
 ### 3.3 Client → server commands
 
+Implemented in Phase 3: `SET_READY`, `REQUEST_SNAPSHOT`, `PING`. Every other `type` in the table is reserved for later phases and is currently answered with `GAME_ERROR` `INVALID_ACTION` (`retryable:false`), as is an unknown `type`.
+
 | `type` | Who | Payload | Notes |
 |---|---|---|---|
-| `SET_READY` | member (WAITING) | `{ready}` | |
-| `START_GAME` | host | `{}` | Same effect as REST start |
-| `REQUEST_SNAPSHOT` | member | `{}` | Reply: private `ROOM_SNAPSHOT` |
-| `CHOOSE_WORD` | drawer (WORD_CHOICE) | `{wordIndex:0-2}` | Index only; server holds words |
-| `DRAW_STROKE` | drawer (DRAWING) | `{strokeId, tool, color, size, points:[[x,y]…], final}` | ≤200 points, normalized |
-| `DRAW_UNDO` | drawer | `{}` | Removes last stroke |
-| `DRAW_CLEAR` | drawer | `{}` | |
-| `SUBMIT_GUESS` | non-drawer | `{text}` | Also serves as chat in Draw & Guess |
-| `TELEPHONE_SUBMIT_TEXT` | active player | `{text}` | prompt or description |
-| `TELEPHONE_SUBMIT_DRAWING` | active player | `{strokes:Stroke[]}` | one-shot |
-| `REVEAL_NEXT` / `REVEAL_PREV` | host (REVEAL) | `{}` | |
-| `REMATCH_VOTE` | member (RESULTS) | `{vote:true|false}` | |
-| `PING` | any | `{}` | optional app-level latency probe |
+| `SET_READY` | member (`WAITING`) | `{ready:boolean}` | Idempotent (setting the current value emits no event but is acknowledged). `INVALID_PHASE` if the room is not `WAITING` |
+| `REQUEST_SNAPSHOT` | member | `{}` | Reply: private `ROOM_SNAPSHOT` (consumes one private `seq`; `snapshot.seq.private` equals that envelope's `seq`) |
+| `PING` | any member | `{}` | Reply: private `PONG {serverNow}`; no `actionId` required |
+| `START_GAME` | host | `{}` | *Phase 4+*. Same effect as REST start |
+| `CHOOSE_WORD` | drawer (WORD_CHOICE) | `{wordIndex:0-2}` | *Phase 5*. Index only; server holds words |
+| `DRAW_STROKE` | drawer (DRAWING) | `{strokeId, tool, color, size, points:[[x,y]…], final}` | *Phase 5*. ≤200 points, normalized |
+| `DRAW_UNDO` | drawer | `{}` | *Phase 5*. Removes last stroke |
+| `DRAW_CLEAR` | drawer | `{}` | *Phase 5* |
+| `SUBMIT_GUESS` | non-drawer | `{text}` | *Phase 5*. Also serves as chat in Draw & Guess |
+| `TELEPHONE_SUBMIT_TEXT` | active player | `{text}` | *Phase 6*. prompt or description |
+| `TELEPHONE_SUBMIT_DRAWING` | active player | `{strokes:Stroke[]}` | *Phase 6*. one-shot |
+| `REVEAL_NEXT` / `REVEAL_PREV` | host (REVEAL) | `{}` | *Phase 6* |
+| `REMATCH_VOTE` | member (RESULTS) | `{vote:true|false}` | *Phase 4* |
+
+Command handling rules:
+
+- **Authorization** always comes from the authenticated principal and the database membership, never from client data. A non-member (or a member of a different room) gets `GAME_ERROR` `NOT_IN_ROOM` on `/user/queue/errors`.
+- **Rate limit**: `app.realtime.command-limit-per-10s` (default 60) commands per guest per 10 s; excess ⇒ `GAME_ERROR` `RATE_LIMITED` (`retryable:true`), command not executed and not recorded for duplicate detection. Rate limits for high-frequency game commands (strokes, guesses) are added with those commands.
+- **Duplicates**: `actionId`s are remembered per guest and room for the last 256 commands / 5 minutes. A repeated `actionId` is **not** executed again and is answered with `GAME_ERROR` `DUPLICATE_ACTION` (`retryable:false`); clients that did not see the ack should rely on events/snapshot, or retry with a new `actionId`.
+- **Validation**: malformed JSON, bad `type`/`actionId`, or a bad payload ⇒ `GAME_ERROR` `VALIDATION_FAILED` (`retryable:false`; the message never echoes client data). Frames larger than the limit close the connection (1009).
+- Accepted commands are acknowledged with private `ACTION_ACK` after their events were published.
 
 ### 3.4 Server → client events
 
 Public stream (`/topic/rooms/{code}`):
 
-| `type` | Payload |
-|---|---|
-| `PLAYER_JOINED` | `{player:PlayerDto}` |
-| `PLAYER_LEFT` | `{guestId, reason:"LEFT|KICKED|TIMEOUT"}` |
-| `READY_UPDATED` | `{guestId, ready}` |
-| `HOST_CHANGED` | `{hostGuestId}` |
-| `ROOM_SETTINGS_UPDATED` | `{gameKey, settings, maxPlayers}` |
-| `ROOM_STATUS_CHANGED` | `{status}` (`STARTING` includes `startsAt`) |
-| `GAME_STARTED` | `{sessionId, gameKey, settings, order:[guestId]}` |
-| `PHASE_STARTED` | `{phase, phaseId, round, deadlineAt, … game-specific public data}` (e.g. `drawerGuestId`, `hint`) |
-| `DRAWING_UPDATED` | `{kind:"STROKE|UNDO|CLEAR", stroke?, strokeId?}` (not sent to the drawer) |
-| `HINT_UPDATED` | `{hint}` |
-| `GUESS_ACCEPTED` | `{guestId, scoreDelta, totalScore}` (no word) |
-| `GUESS_REJECTED_PUBLIC`/chat | `{guestId, text}` shown as chat |
-| `ROUND_ENDED` | `{round, word, reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}, scores:{guestId:int}}` |
-| `TELEPHONE_PROGRESS` | `{submittedCount, total}` |
-| `ALBUM_REVEALED` | `{chainIndex, entryIndex, entry}` |
-| `GAME_FINISHED` | `{sessionId, standings:[…]}` |
-| `REMATCH_VOTES_UPDATED` | `{votes:{guestId:boolean}}` |
-| `PLAYER_DISCONNECTED` | `{guestId, graceEndsAt}` |
-| `PLAYER_RECONNECTED` | `{guestId}` |
-| `ROOM_CLOSED` | `{reason}` |
+| `type` | Payload | Phase |
+|---|---|---|
+| `PLAYER_JOINED` | `{player:PlayerDto}` | 3 |
+| `PLAYER_LEFT` | `{guestId, reason:"LEFT|KICKED|TIMEOUT"}` (`TIMEOUT` = grace period expired) | 3 |
+| `READY_UPDATED` | `{guestId, ready}` | 3 |
+| `HOST_CHANGED` | `{hostGuestId}` | 3 |
+| `ROOM_SETTINGS_UPDATED` | `{gameKey, settings, minPlayers, maxPlayers}` | 3 |
+| `PLAYER_DISCONNECTED` | `{guestId, graceEndsAt}` | 3 |
+| `PLAYER_RECONNECTED` | `{guestId}` | 3 |
+| `ROOM_CLOSED` | `{reason:"EMPTY"|"HOST_CLOSED"}` (Phase 3 only emits `EMPTY`) | 3 |
+| `ROOM_STATUS_CHANGED` | `{status}` (`STARTING` includes `startsAt`) | 4 |
+| `GAME_STARTED` | `{sessionId, gameKey, settings, order:[guestId]}` | 4 |
+| `PHASE_STARTED` | `{phase, phaseId, round, deadlineAt, … game-specific public data}` (e.g. `drawerGuestId`, `hint`) | 5 |
+| `DRAWING_UPDATED` | `{kind:"STROKE|UNDO|CLEAR", stroke?, strokeId?}` (not sent to the drawer) | 5 |
+| `HINT_UPDATED` | `{hint}` | 5 |
+| `GUESS_ACCEPTED` | `{guestId, scoreDelta, totalScore}` (no word) | 5 |
+| `GUESS_REJECTED_PUBLIC`/chat | `{guestId, text}` shown as chat | 5 |
+| `ROUND_ENDED` | `{round, word, reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}, scores:{guestId:int}}` | 5 |
+| `TELEPHONE_PROGRESS` | `{submittedCount, total}` | 6 |
+| `ALBUM_REVEALED` | `{chainIndex, entryIndex, entry}` | 6 |
+| `GAME_FINISHED` | `{sessionId, standings:[…]}` | 4 |
+| `REMATCH_VOTES_UPDATED` | `{votes:{guestId:boolean}}` | 4 |
+
+Ordering of the events produced by one operation: leaving ⇒ `PLAYER_LEFT`, then `HOST_CHANGED` (if the host left), then `ROOM_CLOSED` (if the room emptied). A joining member produces `PLAYER_JOINED` only when the join is new (idempotent re-joins emit nothing). Disconnect/reconnect produce `PLAYER_DISCONNECTED` / `PLAYER_RECONNECTED` once per transition.
 
 Private stream (`/user/queue/rooms/{code}`):
 
-| `type` | Payload |
-|---|---|
-| `ROOM_SNAPSHOT` | `SnapshotDto` |
-| `WORD_CHOICES` | `{phaseId, choices:[string×3], deadlineAt}` — drawer only |
-| `DRAWER_WORD` | `{phaseId, word}` — drawer only |
-| `GUESS_FEEDBACK` | `{result:"CLOSE|DUPLICATE|ALREADY_GUESSED"}` |
-| `TELEPHONE_TASK` | `{phaseId, step, kind:"PROMPT|DRAW|DESCRIBE", source:{kind, text?, strokes?}|null, deadlineAt}` |
-| `ACTION_ACK` | `{actionId, accepted:true}` |
-| `GAME_ERROR` | `{actionId?, code, message, retryable}` — rejected command (also `PAYLOAD_TOO_LARGE`, `RATE_LIMITED`, `STALE_ACTION`) |
-| `SESSION_REPLACED` | `{}` then connection closed |
+| `type` | Payload | Phase |
+|---|---|---|
+| `ROOM_SNAPSHOT` | `SnapshotDto` | 3 |
+| `ACTION_ACK` | `{actionId, accepted:true}` (envelope `actionId` echoes it) | 3 |
+| `GAME_ERROR` | `{actionId?, code, message, retryable}` — rejected command (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `NOT_IN_ROOM`, `RATE_LIMITED`, `DUPLICATE_ACTION`, `PAYLOAD_TOO_LARGE`, `STALE_ACTION`, `SERVER_ERROR`) | 3 |
+| `PONG` | `{serverNow}` | 3 |
+| `SESSION_REPLACED` | `{}` then the connection is closed | 3 |
+| `WORD_CHOICES` | `{phaseId, choices:[string×3], deadlineAt}` — drawer only | 5 |
+| `DRAWER_WORD` | `{phaseId, word}` — drawer only | 5 |
+| `GUESS_FEEDBACK` | `{result:"CLOSE|DUPLICATE|ALREADY_GUESSED"}` | 5 |
+| `TELEPHONE_TASK` | `{phaseId, step, kind:"PROMPT|DRAW|DESCRIBE", source:{kind, text?, strokes?}|null, deadlineAt}` | 6 |
+
+`SESSION_REPLACED` is delivered to the *replaced* connection only; `ACTION_ACK`, `GAME_ERROR`, `ROOM_SNAPSHOT` and `PONG` go to the guest's current connection.
 
 ### 3.5 Ordering and delivery guarantees
 
-- Events within a stream are ordered by `seq`; STOMP over a single WebSocket preserves order.
+- Events within a stream are ordered by `seq`; the server publishes in `seq` order (`preservePublishOrder`), and room events are produced inside the room's serialized mailbox after the state change has committed.
 - No exactly-once delivery: clients dedupe by `seq`; commands dedupe by `actionId` server-side.
-- On reconnect the client resubscribes, calls `REQUEST_SNAPSHOT`, applies the snapshot, then processes stream events with `seq > snapshot.seq` for that stream.
+- **Snapshot consistency**: a snapshot (REST or WS) is built inside the room mailbox, so it is exactly the state after the last event with `seq ≤ snapshot.seq.room` (and `≤ snapshot.seq.private` for the private stream). A reconnecting client resubscribes, sends `REQUEST_SNAPSHOT`, applies the snapshot, then processes stream events with `seq > snapshot.seq` for that stream.
+- `SnapshotDto.serverNow` is the server clock in ISO-8601 UTC millis; clients derive a clock offset from it.
 - Secret data (`DRAWER_WORD`, `WORD_CHOICES`, `TELEPHONE_TASK`, snapshot fields marked viewer-only) never appears on the public stream or in another viewer's snapshot (contract-tested).
+- Error responses and logs never contain tokens, stack traces or echoed client input.
 
 ### 3.6 Extension rule for new games
 
