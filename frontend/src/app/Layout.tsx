@@ -8,9 +8,9 @@ import { AboutModal } from '@/components/modals/AboutModal'
 import { HowToPlayModal } from '@/components/modals/HowToPlayModal'
 import { ProfileModal } from '@/components/modals/ProfileModal'
 import { Button } from '@/components/ui/button'
+import { useGuest } from '@/features/guest/useGuest'
 import { resolveDark } from '@/lib/theme'
 import { cn } from '@/lib/utils'
-import { useGuestStore } from '@/stores/guestStore'
 import { usePrefsStore, type ThemePreference } from '@/stores/prefsStore'
 
 const NEXT_THEME: Record<ThemePreference, ThemePreference> = {
@@ -38,8 +38,14 @@ export function Layout() {
   useApplyTheme(theme)
   const ThemeIcon = THEME_ICON[theme]
 
-  const nickname = useGuestStore((s) => s.nickname)
-  const avatarKey = useGuestStore((s) => s.avatarKey)
+  const guestState = useGuest()
+  const nickname =
+    guestState.status === 'ready'
+      ? guestState.guest.nickname
+      : guestState.status === 'anonymous'
+        ? 'Set up profile'
+        : '…'
+  const avatarKey = guestState.guest?.avatarKey
 
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [howToPlayModalOpen, setHowToPlayModalOpen] = useState(false)
@@ -113,7 +119,11 @@ export function Layout() {
             <button
               type="button"
               onClick={() => setProfileModalOpen(true)}
-              aria-label={`Profile: ${nickname}. Click to edit avatar and name.`}
+              aria-label={
+                guestState.status === 'ready'
+                  ? `Profile: ${nickname}. Click to edit avatar and name.`
+                  : 'Set up your guest profile'
+              }
               className="flex items-center gap-2 rounded-full border border-border/80 bg-card px-2.5 py-1.5 shadow-2xs transition-all hover:border-primary/50 hover:bg-secondary/40 active:scale-95 cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               <DinoAvatar avatarKey={avatarKey} size="sm" border={false} />

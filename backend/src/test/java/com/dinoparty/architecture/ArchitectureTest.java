@@ -20,7 +20,48 @@ class ArchitectureTest {
           .resideInAPackage("com.dinoparty.common..")
           .should()
           .dependOnClassesThat()
-          .resideInAnyPackage("com.dinoparty.health..", "com.dinoparty.web..");
+          .resideInAnyPackage(
+              "com.dinoparty.health..",
+              "com.dinoparty.web..",
+              "com.dinoparty.guest..",
+              "com.dinoparty.room..");
+
+  @ArchTest
+  static final ArchRule guestDependsOnlyOnCommon =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.guest..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.room..", "com.dinoparty.web..", "com.dinoparty.health..");
+
+  @ArchTest
+  static final ArchRule roomDoesNotDependOnWebOrHealth =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.room..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage("com.dinoparty.web..", "com.dinoparty.health..");
+
+  @ArchTest
+  static final ArchRule guestPersistenceIsPrivateToGuest =
+      noClasses()
+          .that()
+          .resideOutsideOfPackage("com.dinoparty.guest..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.guest.persistence..");
+
+  @ArchTest
+  static final ArchRule roomPersistenceIsPrivateToRoom =
+      noClasses()
+          .that()
+          .resideOutsideOfPackage("com.dinoparty.room..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.room.persistence..");
 
   @ArchTest
   static final ArchRule healthDoesNotDependOnWeb =
@@ -43,6 +84,5 @@ class ArchitectureTest {
           .that()
           .areAnnotatedWith(jakarta.persistence.Entity.class)
           .should()
-          .resideInAPackage("..persistence..")
-          .allowEmptyShould(true); // no entities exist until Phase 2
+          .resideInAPackage("..persistence..");
 }

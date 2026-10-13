@@ -1,6 +1,6 @@
 # DinoParty
 
-Browser party games for friends (Draw & Guess, Telephone Drawing). This repository currently contains the **Phase 1 foundation**: a Spring Boot backend with PostgreSQL + Flyway and a React frontend that shows the backend's health. No guests, rooms or games exist yet. See `docs/implementation-plan.md` for the roadmap and `AGENTS.md` for the working agreement.
+Browser party games for friends (Draw & Guess, Telephone Drawing). This repository currently contains the **Phase 1 foundation** plus **Phase 2 (guest identity and rooms)**: a Spring Boot backend with PostgreSQL + Flyway and a React frontend where players create a guest profile (nickname + dino, no account), create or join a room by code or invite link, and wait in a polled lobby. There is no realtime layer or gameplay yet. See `docs/implementation-plan.md` for the roadmap and `AGENTS.md` for the working agreement.
 
 ## Prerequisites
 
@@ -79,7 +79,7 @@ CI (`.github/workflows/ci.yml`) runs the backend `verify` and the frontend forma
 ## Layout
 
 ```
-backend/    Spring Boot 4 (Java 21) modular monolith: common, health, web (more modules arrive with their phase)
+backend/    Spring Boot 4 (Java 21) modular monolith: common, guest, room, health, web (more modules arrive with their phase)
 frontend/   React + TypeScript (strict) + Vite, Tailwind v4, shadcn/ui-style components, React Router, Zustand, TanStack Query
 deploy/     compose.dev.yml (PostgreSQL for development)
 docs/       requirements, architecture, contracts, rules, plan
@@ -95,6 +95,6 @@ docs/       requirements, architecture, contracts, rules, plan
 - **Frontend shows "Backend unreachable"** — the backend is not running on 8080.
 - A harmless `Could not transfer metadata ... flyway-community-db-support ... 401` warning may appear on the first Maven run.
 
-## Known limitations (Phase 1)
+## Known limitations (Phases 1-2)
 
 See `docs/testing.md` for what has and has not been verified.

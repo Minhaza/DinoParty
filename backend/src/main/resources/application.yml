@@ -36,3 +36,7 @@ app:
   version: "@project.version@"
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  # Frontend origin used to build invite links ({APP_PUBLIC_URL}/join/{CODE}).
+  public-url: ${APP_PUBLIC_URL:http://localhost:5173}
+  guest:
+    token-ttl: ${TOKEN_TTL:30d}

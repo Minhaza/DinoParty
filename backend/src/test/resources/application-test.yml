@@ -1,0 +1,7 @@
+# Integration tests share one client address and many guests, so relax the throttles;
+# dedicated tests lower them again to prove the limits work.
+app:
+  guest:
+    create-limit-per-minute: 100000
+  join-limit-per-minute: 100000
+  public-url: http://app.test

@@ -1,13 +1,19 @@
 package com.dinoparty.web;
 
+import com.dinoparty.common.DomainException;
+import com.dinoparty.common.DomainException.FieldViolation;
+import com.dinoparty.common.RateLimitedException;
+import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -37,6 +43,37 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
       problem.setProperty("traceId", UUID.randomUUID().toString());
     }
     return response;
+  }
+
+  @Override
+  protected ResponseEntity<Object> handleMethodArgumentNotValid(
+      MethodArgumentNotValidException ex,
+      HttpHeaders headers,
+      HttpStatusCode status,
+      WebRequest request) {
+    List<FieldViolation> violations =
+        ex.getBindingResult().getFieldErrors().stream()
+            .map(f -> new FieldViolation(f.getField(), f.getDefaultMessage()))
+            .toList();
+    ProblemDetail problem =
+        ProblemFactory.from(
+            new DomainException(
+                com.dinoparty.common.ErrorCode.VALIDATION_FAILED,
+                "The request is invalid.",
+                violations));
+    return ResponseEntity.badRequest()
+        .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+        .body(problem);
+  }
+
+  @ExceptionHandler(DomainException.class)
+  ResponseEntity<ProblemDetail> handleDomain(DomainException e) {
+    ProblemDetail problem = ProblemFactory.from(e);
+    ResponseEntity.BodyBuilder response = ResponseEntity.status(problem.getStatus());
+    if (e instanceof RateLimitedException limited) {
+      response.header(HttpHeaders.RETRY_AFTER, Long.toString(limited.retryAfterSeconds()));
+    }
+    return response.contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);
   }
 
   @ExceptionHandler(Exception.class)

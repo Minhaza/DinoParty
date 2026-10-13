@@ -24,16 +24,16 @@ This file is the **single source of truth** for client/server contracts. Backend
 | Method & path | Auth | Request | Success | Errors |
 |---|---|---|---|---|
 | `GET /health` | no | — | `200 {status:"UP", version, db:"UP", time}` | `503` with the same body shape (`status:"DOWN"`, `db:"DOWN"`) if the DB is unreachable (not problem+json) |
-| `POST /guests` | no | `{nickname, avatarKey, avatarColor?}` | `201 {guest: GuestDto, token, expiresAt}` | 400, 429 |
+| `POST /guests` | no | `{nickname, avatarKey, avatarColor?}` — nickname 2–20 chars (letters, digits, single spaces, `_ . ' -`; must start with a letter/digit), `avatarKey` from the fixed catalog, `avatarColor` `#RRGGBB` | `201 {guest: GuestDto, token, expiresAt}` | 400, 429 (per client IP) |
 | `GET /guests/me` | yes | — | `200 GuestDto` (also renews sliding expiry) | 401 |
-| `PATCH /guests/me` | yes | `{nickname?, avatarKey?, avatarColor?}` | `200 GuestDto` | 400, 409 (`INVALID_PHASE` while locked in a playing room) |
+| `PATCH /guests/me` | yes | `{nickname?, avatarKey?, avatarColor?}` (absent/null = unchanged) | `200 GuestDto` | 400, 401, 409 (`INVALID_PHASE` while locked in a playing room — enforced from Phase 4) |
 | `GET /games` | no | — | `200 GameSummaryDto[]` | |
 | `GET /games/{gameKey}` | no | — | `200 GameDetailDto` (rules text, settings schema, bounds) | 404 |
-| `POST /rooms` | yes | `{gameKey, settings?}` | `201 RoomDto` (+ `inviteUrl`) | 400, 404, 409 (`ALREADY_IN_ROOM`) |
-| `GET /rooms/{roomCode}` | yes | — | `200 RoomDto` (members only for details; non-members get `RoomPreviewDto`) | 404 |
-| `POST /rooms/{roomCode}/join` | yes | `{}` | `200 RoomDto` | 404, 409 (`ROOM_FULL`, `ROOM_IN_PROGRESS`, `ROOM_CLOSED`), 429 |
-| `POST /rooms/{roomCode}/leave` | yes | — | `204` | 404 |
-| `PATCH /rooms/{roomCode}/settings` | host | `{gameKey?, settings?, maxPlayers?}` | `200 RoomDto` | 403 `NOT_HOST`, 409 `INVALID_PHASE` |
+| `POST /rooms` | yes | `{gameKey, settings?, maxPlayers?}` (defaults from the game; see §2.2) | `201 RoomDto` (+ `inviteUrl`) | 400, 404 `GAME_NOT_FOUND`, 409 (`ALREADY_IN_ROOM`) |
+| `GET /rooms/{roomCode}` | yes | — | `200 RoomDto` (members only for details; non-members get `RoomPreviewDto`; a closed room is still returned with `status: "CLOSED"`) | 404 `ROOM_NOT_FOUND` (also for a malformed code) |
+| `POST /rooms/{roomCode}/join` | yes | `{}` | `200 RoomDto`. Idempotent: joining a room you are already in returns it unchanged | 404, 409 (`ROOM_FULL`, `ROOM_IN_PROGRESS`, `ROOM_CLOSED`, `ALREADY_IN_ROOM` when in a *different* room), 429 (per guest) |
+| `POST /rooms/{roomCode}/leave` | yes | — | `204`. Idempotent: a non-member (or already-left) caller is a no-op. If the host leaves, the longest-standing remaining player becomes host; the last player leaving closes the room | 404 |
+| `PATCH /rooms/{roomCode}/settings` | host | `{gameKey?, settings?, maxPlayers?}` | `200 RoomDto` | 400, 403 `NOT_HOST` (also for non-members), 404, 409 `INVALID_PHASE` (room not in `WAITING`) |
 | `POST /rooms/{roomCode}/ready` | member | `{ready: boolean}` | `200 RoomDto` | (WS command equivalent) |
 | `POST /rooms/{roomCode}/start` | host | `{}` | `202 RoomDto` (status `STARTING`) | 403, 409 `NOT_ENOUGH_PLAYERS` |
 | `POST /rooms/{roomCode}/kick` | host | `{guestId}` | `204` | 403 |
@@ -49,7 +49,7 @@ GuestDto        { id, nickname, avatarKey, avatarColor|null, createdAt }
 GameSummaryDto  { key, name, tagline, minPlayers, maxPlayers, iconKey, enabled }
 GameDetailDto   { …GameSummaryDto, description, howToPlay[], settingsSchema: SettingField[], defaultSettings }
 SettingField    { key, label, type:"int|bool|enum", min?, max?, step?, options?, default }
-RoomDto         { id, code, inviteUrl, status, gameKey, host:PlayerDto→guestId, minPlayers, maxPlayers,
+RoomDto         { id, code, inviteUrl, status, gameKey, hostGuestId, minPlayers, maxPlayers,
                   settings, players:PlayerDto[], sessionId|null, createdAt }
 RoomPreviewDto  { code, gameKey, status, playerCount, maxPlayers, hostNickname }
 PlayerDto       { guestId, nickname, avatarKey, avatarColor, ready, connection:"CONNECTED|DISCONNECTED|LEFT",
@@ -59,6 +59,15 @@ ResultsDto      { sessionId, gameKey, startedAt, finishedAt, standings:[{rank, g
                   rounds:[{roundNo, drawerGuestId?, word?, …}] }
 AlbumDto        { chainIndex, ownerGuestId, entries:[{step, kind:"TEXT|DRAWING", authorGuestId, text?, strokes?, timedOut}] }
 ```
+
+### 2.2 Room rules (Phase 2)
+
+- A guest may be an active member of at most one room (`ALREADY_IN_ROOM` on create/join of another room). Leaving or the room closing frees them.
+- `maxPlayers` defaults to 8 clamped to the game's bounds (`draw-guess` 2–10, `telephone` 4–8) and must stay within them; it cannot be set below the current player count (400).
+- `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|mixed|hard`; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `allowSkipTimeout` bool). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
+- `players[]` lists active members ordered by join time; `ready` is `false`, `connection` is `CONNECTED` and `score` is `null` until presence/ready (Phase 3) and games (Phase 4+) exist. `sessionId` is `null`.
+- `inviteUrl` = `{APP_PUBLIC_URL}/join/{CODE}`.
+- Rate limits: `POST /guests` per client IP and join per guest answer `429 RATE_LIMITED` with `Retry-After`.
 
 `GameSnapshot` is game-specific and viewer-specific:
 

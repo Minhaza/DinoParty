@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/authStore'
+
 /** Base path of the REST API; proxied to the backend by Vite in dev (see vite.config.ts). */
 export const API_BASE = '/api/v1'
 
@@ -9,6 +11,7 @@ export interface ApiProblem {
   code?: string
   detail?: string
   traceId?: string
+  fieldErrors?: { field: string; message: string }[]
 }
 
 export class ApiError extends Error {
@@ -20,6 +23,10 @@ export class ApiError extends Error {
     this.name = 'ApiError'
     this.status = status
     this.problem = problem
+  }
+
+  get code(): string | undefined {
+    return this.problem?.code
   }
 }
 
@@ -45,10 +52,20 @@ export interface RawResponse {
 
 /** Performs a request and returns status + parsed body without throwing on HTTP errors. */
 export async function apiRequestRaw(path: string, init?: RequestInit): Promise<RawResponse> {
+  const token = useAuthStore.getState().token
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { Accept: 'application/json', ...init?.headers },
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   })
+  // A rejected token means the session is gone (expired or revoked): forget it so the UI offers
+  // a fresh sign-up instead of retrying a dead token.
+  if (response.status === 401 && token && useAuthStore.getState().token === token) {
+    useAuthStore.getState().clear()
+  }
   return { status: response.status, ok: response.ok, body: await readJson(response) }
 }
 
@@ -57,4 +74,13 @@ export async function apiRequest(path: string, init?: RequestInit): Promise<unkn
   const { status, ok, body } = await apiRequestRaw(path, init)
   if (!ok) throw new ApiError(status, isProblem(body) ? body : null)
   return body
+}
+
+/** JSON request helper for mutating calls. */
+export function apiJson(path: string, method: 'POST' | 'PATCH', body: unknown): Promise<unknown> {
+  return apiRequest(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
