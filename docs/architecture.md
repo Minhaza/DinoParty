@@ -41,7 +41,7 @@ Single Maven module, strictly layered packages; boundaries enforced by **ArchUni
 | Module | Responsibility | May depend on |
 |---|---|---|
 | `common` | error model, `Clock`/`IdGenerator` beans, validation helpers, rate-limit port | — |
-| `guest` | `GuestIdentity`, `GuestSession`, token issue/hash/verify, profile edit, Spring Security filter + `Principal` | `common` |
+| `guest` | `GuestIdentity`, `GuestSession`, token issue/hash/verify, profile edit, `AuthenticatedGuest` principal (the Spring Security filter lives in `web`, next to the problem+json entry point) | `common` |
 | `room` | room lifecycle, codes, membership, capacity, ready, host transfer, settings, room mailbox runtime | `common`, `guest`, `engine` (api) |
 | `engine` | game SPI (`GameModule`, `GameDefinition`, `GameContext`), registry, phase/timer scheduler, scoring helpers, vote service, snapshot contract | `common` |
 | `games.drawguess` | Draw & Guess rules, words, scoring, stroke model | `engine`, `drawing` |
@@ -62,6 +62,7 @@ Rules: controllers and STOMP handlers contain **no** business logic; they valida
 - `RoomRegistry` (`ConcurrentHashMap<RoomCode, RoomRuntime>`) creates/looks up runtimes. Room creation checks code uniqueness against the DB unique index (insert-then-retry).
 - A `Clock` bean is injected everywhere; tests use a manual clock and a fake scheduler.
 - Idle runtimes (CLOSED, or no connections for N minutes) are evicted.
+- **Phase 2 implementation:** membership is still DB-backed. `RoomMailbox` serializes commands per room code (keyed lock, reference-counted), each command runs in one transaction holding the room row lock (`SELECT ... FOR UPDATE`), and the partial unique index above guards cross-room races. The in-memory `RoomRuntime` replaces the DB reads when realtime state arrives (Phase 3/4).
 
 ### 3.3 Room state machine
 
@@ -108,8 +109,8 @@ PostgreSQL, Flyway (`db/migration/V1__…`), `ddl-auto=validate`. UUID primary k
 | `guest_identity` | `id`, `nickname`, `avatar_key`, `avatar_color`, `created_at`, `updated_at` |
 | `guest_session` | `id`, `guest_id` FK, `token_hash` UNIQUE, `created_at`, `last_seen_at`, `expires_at`, `revoked_at` |
 | `game_definition` | `key` UNIQUE (`draw-guess`, `telephone`), `name`, `min_players`, `max_players`, `enabled`, `default_settings` JSONB |
-| `room` | `id`, `code` UNIQUE (case-normalized), `game_key` FK, `host_guest_id` FK, `status`, `settings` JSONB, `created_at`, `closed_at` |
-| `room_participant` | `id`, `room_id`, `guest_id`, `role`, `joined_at`, `left_at`, UNIQUE(`room_id`,`guest_id`) |
+| `room` | `id`, `code` UNIQUE (case-normalized), `game_key` FK, `host_guest_id` FK, `status`, `max_players`, `settings` JSONB, `created_at`, `closed_at` |
+| `room_participant` | `id`, `room_id`, `guest_id`, `joined_at`, `left_at`, UNIQUE(`room_id`,`guest_id`); partial UNIQUE(`guest_id`) WHERE `left_at IS NULL` (one active room per guest). The host is `room.host_guest_id`; there is no separate role column |
 | `game_session` | `id`, `room_id`, `game_key`, `status`, `settings` JSONB, `started_at`, `finished_at`, `session_number` |
 | `game_round` | `id`, `session_id`, `round_no`, `phase`, `drawer_guest_id` NULL, `word` NULL, `started_at`, `ended_at`, `meta` JSONB |
 | `game_submission` | `id`, `session_id`, `round_id` NULL, `author_guest_id`, `kind` (`TEXT`/`DRAWING`/`GUESS`), `chain_index` NULL, `step_no` NULL, `text` NULL, `payload` JSONB/`bytea` NULL, `submitted_at` |

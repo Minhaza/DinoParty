@@ -40,10 +40,10 @@ describe('routes', () => {
   })
 
   it('labels unbuilt pages as coming in a later phase', () => {
-    renderAt('/settings')
+    renderAt('/rooms/AB3D7K/play')
 
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
-    expect(screen.getByText('Coming in Phase 2')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Game' })).toBeInTheDocument()
+    expect(screen.getByText('Coming in Phase 4')).toBeInTheDocument()
   })
 
   it('renders the games catalog with game titles and rules', () => {
@@ -54,10 +54,11 @@ describe('routes', () => {
     expect(screen.getByRole('heading', { name: 'Dino Telephone' })).toBeInTheDocument()
   })
 
-  it('accepts an invite code in the join route', () => {
+  it('accepts an invite code in the join route', async () => {
     renderAt('/join/ABC234')
 
     expect(screen.getByRole('heading', { name: 'Join room' })).toBeInTheDocument()
+    expect(await screen.findByText('First, pick your dino')).toBeInTheDocument()
   })
 
   it('renders not-found for unknown paths', () => {
