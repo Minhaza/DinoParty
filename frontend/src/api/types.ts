@@ -163,4 +163,3 @@ export interface GameErrorPayload {
 export interface PongPayload {
   serverNow: string
 }
-

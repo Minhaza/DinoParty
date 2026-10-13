@@ -18,14 +18,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 
 import { ApiError } from '@/api/client'
 import { describeError } from '@/api/errors'
-import {
-  getRoom,
-  isRoomDto,
-  joinRoom,
-  kickPlayer,
-  leaveRoom,
-  roomQueryKey,
-} from '@/api/rooms'
+import { getRoom, isRoomDto, joinRoom, kickPlayer, leaveRoom, roomQueryKey } from '@/api/rooms'
 import type { GuestDto, PlayerDto, RoomDto, RoomPreviewDto } from '@/api/types'
 import { DinoAvatar } from '@/components/DinoAvatar'
 import { Badge } from '@/components/ui/badge'
@@ -185,7 +178,6 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
     startGame,
   } = useRealtimeRoom(initialRoom.code, true, guest.id, initialRoom)
 
-
   const currentRoom = realtimeRoom ?? initialRoom
 
   const [copied, setCopied] = React.useState(false)
@@ -208,7 +200,6 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
       )
     }
   }
-
 
   const leave = useMutation({
     mutationFn: () => leaveRoom(currentRoom.code),
@@ -296,17 +287,18 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
       )}
 
       {/* Offline Alert */}
-      {(!isOnline || connectionStatus === 'DISCONNECTED') && terminalReason !== 'SESSION_REPLACED' && (
-        <div
-          role="status"
-          className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted/60 px-4 py-2.5 text-sm text-muted-foreground"
-        >
-          <div className="flex items-center gap-2">
-            <WifiOff className="size-4 text-muted-foreground" />
-            <span>You are currently offline.</span>
+      {(!isOnline || connectionStatus === 'DISCONNECTED') &&
+        terminalReason !== 'SESSION_REPLACED' && (
+          <div
+            role="status"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted/60 px-4 py-2.5 text-sm text-muted-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <WifiOff className="size-4 text-muted-foreground" />
+              <span>You are currently offline.</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Error Banner */}
       {lastError && (
@@ -330,7 +322,10 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
               {currentRoom.status === 'WAITING' ? 'Waiting for players' : currentRoom.status}
             </Badge>
             {connectionStatus === 'CONNECTED' && (
-              <Badge variant="outline" className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400">
+              <Badge
+                variant="outline"
+                className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+              >
                 Live
               </Badge>
             )}
@@ -436,7 +431,8 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
           </CardTitle>
           {missing > 0 && (
             <CardDescription>
-              {game.name} needs at least {currentRoom.minPlayers} players; waiting for {missing} more.
+              {game.name} needs at least {currentRoom.minPlayers} players; waiting for {missing}{' '}
+              more.
             </CardDescription>
           )}
         </CardHeader>

@@ -7,7 +7,6 @@ import type {
   UpdateRoomSettingsInput,
 } from './types'
 
-
 export const roomQueryKey = (code: string) => ['room', code] as const
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -92,9 +91,6 @@ export async function startRoom(code: string, signal?: AbortSignal): Promise<Roo
 export async function kickPlayer(code: string, guestId: string): Promise<void> {
   await apiJson(`/rooms/${encodeURIComponent(code)}/kick`, 'POST', { guestId })
 }
-
-
-
 
 export async function updateRoomSettings(
   code: string,

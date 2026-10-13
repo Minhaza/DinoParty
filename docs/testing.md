@@ -122,8 +122,8 @@ Live run, observed after the fixes: host and joiner both show "Live"; a join app
 - **Network interruption was simulated** by closing the socket from the page and by stopping the backend, not by an OS-level cut or the browser `offline` event; heartbeat timeout is still unexercised.
 - **Host permissions over WebSocket** can only be partly tested: Phase 3 has no host-only WS command (`START_GAME`, kick, close answer `INVALID_ACTION` for everyone). `NOT_HOST` is enforced and tested on REST (settings, start); WS host commands arrive in Phase 4.
 - The lobby "Start game" button calls REST start, which has no game behind it yet.
+- `format:check` was not part of my local verification: on this Windows checkout (CRLF) Prettier flags every file, so only CI (LF) is meaningful. CI flagged 11 files; they were reformatted with `prettier --write` and lint/typecheck/tests re-run, but `format:check` itself was not re-run on LF here.
 - **Task 3.6** (CI contract tests with shared JSON schemas) is not implemented.
-- `npm run format:check` reports 51 frontend files (pre-existing, not introduced here); lint and typecheck are clean.
 - **Presence is in memory**: after a backend restart nobody is tracked until they reconnect, and members who never reconnect are not timed out. REST-only members (never opened a socket) are by design never timed out.
 - **`ROOM_CLOSED` has no recipient yet**: rooms only close when the last member leaves; it becomes observable with host-initiated close.
 - **No `START_GAME`, `kick`, `close`** (Phase 4); game commands are answered `INVALID_ACTION`.

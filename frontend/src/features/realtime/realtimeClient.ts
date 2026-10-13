@@ -4,11 +4,7 @@ import type { ClientCommand, EventEnvelope } from '@/api/types'
 import { generateUUID } from '@/lib/uuid'
 import { useRoomStore } from '@/stores/roomStore'
 
-import {
-  type ConnectionStatus,
-  type TerminalReason,
-  useConnectionStore,
-} from './connectionStore'
+import { type ConnectionStatus, type TerminalReason, useConnectionStore } from './connectionStore'
 
 export function getDefaultWsUrl(): string {
   if (typeof window === 'undefined') return 'ws://localhost:8080/ws'
@@ -57,7 +53,6 @@ export class RealtimeClient {
     this.onTerminal = options.onTerminal
     this.clientFactory = options.clientFactory
   }
-
 
   public setToken(token: string | null): void {
     if (this.token === token) return
@@ -264,23 +259,19 @@ export class RealtimeClient {
     this.clearSubscriptions()
 
     // 1. Public room stream
-    const subTopic = this.client.subscribe(
-      `/topic/rooms/${roomCode}`,
-      (msg) => this.handleMessage(msg),
+    const subTopic = this.client.subscribe(`/topic/rooms/${roomCode}`, (msg) =>
+      this.handleMessage(msg),
     )
     this.subscriptions.push(subTopic)
 
     // 2. Private room stream
-    const subPrivate = this.client.subscribe(
-      `/user/queue/rooms/${roomCode}`,
-      (msg) => this.handleMessage(msg),
+    const subPrivate = this.client.subscribe(`/user/queue/rooms/${roomCode}`, (msg) =>
+      this.handleMessage(msg),
     )
     this.subscriptions.push(subPrivate)
 
     // 3. User errors queue
-    const subErrors = this.client.subscribe('/user/queue/errors', (msg) =>
-      this.handleMessage(msg),
-    )
+    const subErrors = this.client.subscribe('/user/queue/errors', (msg) => this.handleMessage(msg))
     this.subscriptions.push(subErrors)
   }
 
@@ -326,10 +317,9 @@ export class RealtimeClient {
     this.updateStatus('RECONNECTING')
 
     // Exponential backoff with jitter
-    const delay = Math.min(
-      this.baseDelay * Math.pow(2, nextAttempt - 1),
-      this.maxDelay,
-    ) * (0.8 + Math.random() * 0.4)
+    const delay =
+      Math.min(this.baseDelay * Math.pow(2, nextAttempt - 1), this.maxDelay) *
+      (0.8 + Math.random() * 0.4)
 
     this.reconnectTimer = setTimeout(() => {
       if (!this.intentionalDisconnect && !this.terminal) {

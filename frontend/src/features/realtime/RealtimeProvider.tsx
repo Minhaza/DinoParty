@@ -46,9 +46,5 @@ export function RealtimeProvider({ children, client }: RealtimeProviderProps) {
     }
   }, [activeClient, setIsOnline])
 
-  return (
-    <RealtimeContext.Provider value={activeClient}>
-      {children}
-    </RealtimeContext.Provider>
-  )
+  return <RealtimeContext.Provider value={activeClient}>{children}</RealtimeContext.Provider>
 }

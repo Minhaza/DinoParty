@@ -7,7 +7,6 @@ import { useRoomStore } from '@/stores/roomStore'
 import { useConnectionStore } from './connectionStore'
 import { useRealtimeClient } from './realtimeContext'
 
-
 export function useRealtimeRoom(
   code: string,
   isMember: boolean,
@@ -53,7 +52,6 @@ export function useRealtimeRoom(
       client.unsubscribeFromRoom()
     }
   }, [code, isMember, client, setSyncStatus])
-
 
   // Handle sequence gap resync
   React.useEffect(() => {
@@ -145,5 +143,4 @@ export function useRealtimeRoom(
     toggleReady,
     startGame: handleStartGame,
   }
-
 }

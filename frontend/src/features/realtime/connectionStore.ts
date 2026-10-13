@@ -1,12 +1,7 @@
 import { create } from 'zustand'
 
 export type ConnectionStatus =
-  | 'IDLE'
-  | 'CONNECTING'
-  | 'CONNECTED'
-  | 'RECONNECTING'
-  | 'DISCONNECTED'
-  | 'TERMINATED'
+  'IDLE' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'DISCONNECTED' | 'TERMINATED'
 
 export type TerminalReason = 'SESSION_REPLACED' | 'SESSION_EXPIRED' | 'UNAUTHENTICATED' | null
 
@@ -36,7 +31,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     set(() => ({
       status,
       // If we transition to connected, clear terminal reason and reconnect count
-      ...(status === 'CONNECTED' ? { terminalReason: null, reconnectAttempt: 0, lastError: null } : {}),
+      ...(status === 'CONNECTED'
+        ? { terminalReason: null, reconnectAttempt: 0, lastError: null }
+        : {}),
       // If idle, reset reconnect attempt and last error
       ...(status === 'IDLE' ? { reconnectAttempt: 0, lastError: null } : {}),
     })),

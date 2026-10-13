@@ -16,7 +16,6 @@ import type {
   SnapshotSeq,
 } from '@/api/types'
 
-
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error'
 
 export interface RoomState {
@@ -163,9 +162,7 @@ function reduceRoomEvent(room: RoomDto, envelope: EventEnvelope<unknown>): RoomD
 
     case 'READY_UPDATED': {
       const { guestId, ready } = envelope.payload as ReadyUpdatedPayload
-      const players = room.players.map((p) =>
-        p.guestId === guestId ? { ...p, ready } : p,
-      )
+      const players = room.players.map((p) => (p.guestId === guestId ? { ...p, ready } : p))
       return { ...room, players }
     }
 

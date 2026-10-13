@@ -84,7 +84,6 @@ class ControlledStompClient {
   }
 }
 
-
 describe('LobbyPage Real-Time Integration', () => {
   let controlledStomp: ControlledStompClient | null = null
 
