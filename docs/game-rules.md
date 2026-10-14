@@ -65,7 +65,7 @@ Phases of one round, in order: `WORD_CHOICE` → `DRAWING` → `ROUND_END` (name
 - **Guesser points** `[DG-12]`: `max(50, roundHalfUp(100 + 400 × remMs / (T × 1000)) − 25 × order)`. Example: `T = 80`, 60 s left, first solver → 400; third (`order = 2`) → 350.
 - **Drawer points** `[DG-13]`, awarded once at round end, 0 when the round ended `DRAWER_LEFT`: let `eligible` = non-drawer roster members not `LEFT` at the start of `DRAWING`, minus those who became `LEFT` without having guessed; `correct` = number of solvers (a solver who later left still counts in `correct` and in `eligible`). Points = `roundHalfUp(100 × correct / eligible)`, plus 50 if `correct = eligible`; 0 if `correct = 0`. Example: 3 of 4 → 75; 4 of 4 → 150.
 - Scores are integers computed server-side; clients never submit scores. Points are applied to the ledger when computed (guesser: at the guess; drawer: at round end).
-- Ranking `[C-8]`; display tie-break order: total correct guesses (desc), then earliest join. Standing `detail`: `{correctGuesses, guesserPoints, drawerPoints, roundsDrawn}`.
+- Ranking `[C-8]`; tied players share a rank. Display order among them: total correct guesses (desc), then earliest join — this needs a module tie-break hook in `Ranking` that the Phase 4 engine does not have (it orders ties by play order); until task 5.5 adds it, play order applies. Standing `detail`: `{correctGuesses, guesserPoints, drawerPoints, roundsDrawn}`.
 
 ### Word pool `[DG-15]`
 
