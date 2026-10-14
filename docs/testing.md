@@ -293,5 +293,5 @@ A manual Playwright script (not committed; Phase 8 adds the E2E suite) ran again
 - During a reconnect mid-stroke, the drawer's local preview can briefly double-draw the points buffered while offline. Its canvas matches the server again after the next snapshot.
 - Only the client splits strokes at the 2000-point limit. The live canvas budget (12 000 points / 300 strokes) is enforced only by the server, and the client reacts to `PAYLOAD_TOO_LARGE`.
 - The drawer canvas keeps per-point preview data in Zustand and redraws everything on each change (P5-03 design). This is fine at the budget sizes, but it is not the imperative-only rendering `AGENTS.md` asks for.
-- Pre-existing P5-03 files that this change did not touch are not Prettier-clean (`npm run format:check` reports them). The word-choice overlay has no `role="dialog"`.
+- The word-choice overlay has no `role="dialog"`. (Seven P5-03 files that were not Prettier-clean, which would fail CI's `format:check`, were reformatted in this change.)
 - Not run: Linux/CI, Firefox/WebKit, mobile touch input, the committed Playwright suite (Phase 8).
