@@ -18,9 +18,7 @@ export function GameInterruptedBanner({
 }: GameInterruptedBannerProps) {
   if (!reason && !isServerRestart) return null
 
-  const title = isServerRestart
-    ? 'Game interrupted by server restart'
-    : 'Game session aborted'
+  const title = isServerRestart ? 'Game interrupted by server restart' : 'Game session aborted'
 
   const message = isServerRestart
     ? 'The server was restarted while this game was running. The room has returned to the lobby.'

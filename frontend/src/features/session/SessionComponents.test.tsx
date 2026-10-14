@@ -84,13 +84,7 @@ describe('Session Components', () => {
 
   describe('PlayerRoster', () => {
     it('renders player list with avatars, nicknames, and host badge', () => {
-      render(
-        <PlayerRoster
-          players={mockPlayers}
-          currentGuestId="p1"
-          hostGuestId="p1"
-        />,
-      )
+      render(<PlayerRoster players={mockPlayers} currentGuestId="p1" hostGuestId="p1" />)
 
       expect(screen.getByText('Rex')).toBeInTheDocument()
       expect(screen.getByText('Trixie')).toBeInTheDocument()
@@ -133,13 +127,7 @@ describe('Session Components', () => {
         { rank: 2, guestId: 'p2', score: 100, nickname: 'Trixie' },
       ]
 
-      render(
-        <Scoreboard
-          standings={standings}
-          players={mockPlayers}
-          currentGuestId="p2"
-        />,
-      )
+      render(<Scoreboard standings={standings} players={mockPlayers} currentGuestId="p2" />)
 
       expect(screen.getByText('1st place')).toBeInTheDocument()
       expect(screen.getByText('2nd place')).toBeInTheDocument()
@@ -178,7 +166,9 @@ describe('Session Components', () => {
       const startsAt = '2026-10-14T12:00:03.000Z'
       render(<GameStartingOverlay startsAt={startsAt} gameTitle="Draw & Guess" />)
 
-      expect(screen.getByRole('heading', { name: 'Get Ready for Draw & Guess!' })).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Get Ready for Draw & Guess!' }),
+      ).toBeInTheDocument()
       expect(screen.getByLabelText('3 seconds')).toBeInTheDocument()
     })
   })
@@ -189,12 +179,7 @@ describe('Session Components', () => {
       const user = userEvent.setup()
       const onDismiss = vi.fn()
 
-      render(
-        <GameInterruptedBanner
-          isServerRestart={true}
-          onDismiss={onDismiss}
-        />,
-      )
+      render(<GameInterruptedBanner isServerRestart={true} onDismiss={onDismiss} />)
 
       expect(screen.getByText('Game interrupted by server restart')).toBeInTheDocument()
       const dismissBtn = screen.getByRole('button', { name: 'Dismiss' })

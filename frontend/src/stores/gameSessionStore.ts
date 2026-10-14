@@ -187,7 +187,13 @@ export const useGameSessionStore = create<GameSessionState>((set) => ({
     }
 
     if (payload.status === 'WAITING') {
-      const resetReasons = ['REMATCH', 'RESULTS_TIMEOUT', 'GAME_ABORTED', 'SERVER_RESTART', 'START_CANCELLED']
+      const resetReasons = [
+        'REMATCH',
+        'RESULTS_TIMEOUT',
+        'GAME_ABORTED',
+        'SERVER_RESTART',
+        'START_CANCELLED',
+      ]
       if (payload.reason && resetReasons.includes(payload.reason)) {
         set({
           sessionId: null,
@@ -211,9 +217,7 @@ export const useGameSessionStore = create<GameSessionState>((set) => ({
       if (!exists) return state
 
       return {
-        players: state.players.map((p) =>
-          p.guestId === guestId ? { ...p, status } : p,
-        ),
+        players: state.players.map((p) => (p.guestId === guestId ? { ...p, status } : p)),
       }
     })
   },

@@ -81,7 +81,10 @@ export function RematchControls({
         <div className="flex flex-col sm:flex-row items-center gap-3 pt-1">
           <Button
             variant={hasVotedYes ? 'secondary' : 'default'}
-            className={cn('w-full sm:flex-1 gap-2 font-semibold', hasVotedYes && 'border border-primary/30')}
+            className={cn(
+              'w-full sm:flex-1 gap-2 font-semibold',
+              hasVotedYes && 'border border-primary/30',
+            )}
             onClick={handleVoteToggle}
             disabled={isSubmitting}
           >
@@ -99,11 +102,7 @@ export function RematchControls({
           </Button>
 
           {onReturnToLobby && (
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={onReturnToLobby}
-            >
+            <Button variant="outline" className="w-full sm:w-auto" onClick={onReturnToLobby}>
               Exit to Lobby
             </Button>
           )}

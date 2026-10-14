@@ -30,13 +30,7 @@ export function GameSessionPage() {
   )
 }
 
-function GuestSessionRoute({
-  code,
-  guest,
-}: {
-  code: string
-  guest: GuestDto
-}) {
+function GuestSessionRoute({ code, guest }: { code: string; guest: GuestDto }) {
   const queryClient = useQueryClient()
   const roomQuery = useQuery({
     queryKey: roomQueryKey(code),

@@ -1,8 +1,4 @@
-import {
-  Gamepad2,
-  Trophy,
-  Sparkles,
-} from 'lucide-react'
+import { Gamepad2, Trophy, Sparkles } from 'lucide-react'
 
 import type { PlayerDto } from '@/api/types'
 import { GAME_CONFIGS } from '@/features/rooms/gameConfig'
@@ -48,10 +44,7 @@ export function GameStage({
     <div className="flex-1 flex flex-col gap-4 min-h-0">
       {/* 3-Second Starting Countdown Overlay */}
       {roomStatus === 'STARTING' && (
-        <GameStartingOverlay
-          startsAt={session.startsAt}
-          gameTitle={config.name}
-        />
+        <GameStartingOverlay startsAt={session.startsAt} gameTitle={config.name} />
       )}
 
       {/* RESULTS Phase View */}

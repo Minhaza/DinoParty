@@ -99,15 +99,15 @@ export function PlayerRoster({
 
                     {isPlayerHost && (
                       <span title="Room Host">
-                        <Crown
-                          className="size-3.5 shrink-0 text-amber-500"
-                          aria-label="Host"
-                        />
+                        <Crown className="size-3.5 shrink-0 text-amber-500" aria-label="Host" />
                       </span>
                     )}
 
                     {isYou && (
-                      <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-medium leading-4">
+                      <Badge
+                        variant="outline"
+                        className="px-1.5 py-0 text-[10px] font-medium leading-4"
+                      >
                         You
                       </Badge>
                     )}
@@ -129,7 +129,8 @@ export function PlayerRoster({
               <div className="flex items-center gap-1.5 shrink-0">
                 {playerScore !== null && playerScore !== undefined && (
                   <Badge variant="secondary" className="font-mono text-xs tabular-nums">
-                    {playerScore} <span className="text-[10px] text-muted-foreground ml-0.5">pts</span>
+                    {playerScore}{' '}
+                    <span className="text-[10px] text-muted-foreground ml-0.5">pts</span>
                   </Badge>
                 )}
 
@@ -157,7 +158,8 @@ export function PlayerRoster({
           <DialogHeader>
             <DialogTitle>Kick {kickTarget?.nickname}?</DialogTitle>
             <DialogDescription>
-              Are you sure you want to kick {kickTarget?.nickname} from the game? They will be removed immediately.
+              Are you sure you want to kick {kickTarget?.nickname} from the game? They will be
+              removed immediately.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">

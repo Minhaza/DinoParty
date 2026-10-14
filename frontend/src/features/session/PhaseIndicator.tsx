@@ -18,12 +18,7 @@ function formatPhaseName(phase: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
-export function PhaseIndicator({
-  phase,
-  round,
-  totalRounds,
-  className,
-}: PhaseIndicatorProps) {
+export function PhaseIndicator({ phase, round, totalRounds, className }: PhaseIndicatorProps) {
   const [announcedPhase, setAnnouncedPhase] = React.useState<string>('')
   const prevPhaseRef = React.useRef<string | null>(null)
 

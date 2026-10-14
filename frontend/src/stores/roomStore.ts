@@ -268,7 +268,13 @@ function reduceRoomEvent(room: RoomDto, envelope: EventEnvelope<unknown>): RoomD
 
     case 'ROOM_STATUS_CHANGED': {
       const { status, reason } = envelope.payload as RoomStatusChangedPayload
-      const resetReasons = ['REMATCH', 'RESULTS_TIMEOUT', 'GAME_ABORTED', 'SERVER_RESTART', 'START_CANCELLED']
+      const resetReasons = [
+        'REMATCH',
+        'RESULTS_TIMEOUT',
+        'GAME_ABORTED',
+        'SERVER_RESTART',
+        'START_CANCELLED',
+      ]
       const shouldReset = reason && resetReasons.includes(reason)
       const players = shouldReset
         ? room.players.map((p) => ({ ...p, ready: false, score: null }))

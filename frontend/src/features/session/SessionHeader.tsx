@@ -1,14 +1,5 @@
 import * as React from 'react'
-import {
-  Copy,
-  Check,
-  LogOut,
-  Radio,
-  Loader2,
-  WifiOff,
-  XOctagon,
-  Users,
-} from 'lucide-react'
+import { Copy, Check, LogOut, Radio, Loader2, WifiOff, XOctagon, Users } from 'lucide-react'
 
 import type { ConnectionStatus } from '@/features/realtime/connectionStore'
 import { Badge } from '@/components/ui/badge'
@@ -137,7 +128,10 @@ export function SessionHeader({
       <div className="flex items-center gap-2 order-2 sm:order-3">
         {/* Connection Status Badge */}
         {!isOnline || connectionStatus === 'DISCONNECTED' ? (
-          <Badge variant="outline" className="gap-1 border-muted text-muted-foreground text-xs py-0.5">
+          <Badge
+            variant="outline"
+            className="gap-1 border-muted text-muted-foreground text-xs py-0.5"
+          >
             <WifiOff className="size-3" />
             <span className="hidden xs:inline">Offline</span>
           </Badge>
@@ -210,7 +204,11 @@ export function SessionHeader({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setShowLeaveDialog(false)} disabled={isLeaving}>
+            <Button
+              variant="outline"
+              onClick={() => setShowLeaveDialog(false)}
+              disabled={isLeaving}
+            >
               Stay
             </Button>
             <Button variant="destructive" onClick={handleLeave} disabled={isLeaving}>
@@ -227,11 +225,16 @@ export function SessionHeader({
             <DialogHeader>
               <DialogTitle>Close Room for Everyone?</DialogTitle>
               <DialogDescription>
-                As host, closing the room will terminate the game session and kick all players back to the home screen.
+                As host, closing the room will terminate the game session and kick all players back
+                to the home screen.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setShowCloseDialog(false)} disabled={isClosing}>
+              <Button
+                variant="outline"
+                onClick={() => setShowCloseDialog(false)}
+                disabled={isClosing}
+              >
                 Cancel
               </Button>
               <Button variant="destructive" onClick={handleClose} disabled={isClosing}>

@@ -91,9 +91,7 @@ export function GameSessionLayout({
         onLeaveRoom={onLeaveRoom}
         onCloseRoom={onCloseRoom}
         showRosterToggle={true}
-        onToggleRoster={() =>
-          setMobileTab((current) => (current === 'game' ? 'players' : 'game'))
-        }
+        onToggleRoster={() => setMobileTab((current) => (current === 'game' ? 'players' : 'game'))}
       />
 
       {/* Main Container & Alerts */}
@@ -240,9 +238,7 @@ export function GameSessionLayout({
               </div>
             )}
 
-            {sidebarFooter && (
-              <div className="mt-auto pt-2">{sidebarFooter}</div>
-            )}
+            {sidebarFooter && <div className="mt-auto pt-2">{sidebarFooter}</div>}
           </aside>
         </div>
       </div>

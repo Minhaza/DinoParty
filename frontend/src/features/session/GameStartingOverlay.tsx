@@ -15,9 +15,7 @@ export function GameStartingOverlay({
   gameTitle = 'Game',
   className,
 }: GameStartingOverlayProps) {
-  const [seconds, setSeconds] = React.useState(() =>
-    Math.max(1, getRemainingSeconds(startsAt)),
-  )
+  const [seconds, setSeconds] = React.useState(() => Math.max(1, getRemainingSeconds(startsAt)))
 
   React.useEffect(() => {
     if (!startsAt) return
@@ -46,15 +44,16 @@ export function GameStartingOverlay({
       )}
     >
       <div className="flex flex-col items-center gap-6 p-8 text-center animate-in fade-in zoom-in duration-300">
-        <DinoArtwork avatarKey="dino-rex" className="size-28 sm:size-36 drop-shadow-lg animate-bounce" />
+        <DinoArtwork
+          avatarKey="dino-rex"
+          className="size-28 sm:size-36 drop-shadow-lg animate-bounce"
+        />
 
         <div className="space-y-2">
           <h2 className="font-fredoka text-2xl sm:text-4xl text-foreground font-bold">
             Get Ready for {gameTitle}!
           </h2>
-          <p className="text-muted-foreground text-sm sm:text-base">
-            Session starting in…
-          </p>
+          <p className="text-muted-foreground text-sm sm:text-base">Session starting in…</p>
         </div>
 
         <div

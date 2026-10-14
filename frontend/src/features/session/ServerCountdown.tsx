@@ -19,12 +19,7 @@ export function ServerCountdown({
   className,
   size = 'md',
 }: ServerCountdownProps) {
-  const {
-    isUrgent,
-    isExpired,
-    formattedTime,
-    announcement,
-  } = useServerCountdown({
+  const { isUrgent, isExpired, formattedTime, announcement } = useServerCountdown({
     deadlineAt,
     totalDurationSeconds,
     onComplete,
