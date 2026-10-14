@@ -17,8 +17,8 @@ This file is the **single source of truth** for client/server contracts. Backend
   "traceId": "…", "fieldErrors": [ { "field": "nickname", "message": "must be 2–20 characters" } ] }
 ```
 
-- Optional extension `details` (object): machine-readable facts about a failure, only on codes that document it (currently `WORD_POOL_TOO_SMALL`: `{required:int, available:int}`, §2.4). Never contains secrets such as words.
-- Error codes: `VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_HOST, ROOM_NOT_FOUND, ROOM_FULL, ROOM_IN_PROGRESS, ROOM_CLOSED, NOT_ENOUGH_PLAYERS, WORD_POOL_TOO_SMALL, ALREADY_IN_ROOM, NOT_IN_ROOM, GAME_NOT_FOUND, SESSION_NOT_FOUND, RESULTS_NOT_READY, RATE_LIMITED, PAYLOAD_TOO_LARGE, STALE_ACTION, DUPLICATE_ACTION, INVALID_PHASE, INVALID_ACTION, NOT_DRAWER, IS_DRAWER, SERVER_ERROR, NOT_FOUND, METHOD_NOT_ALLOWED, UNSUPPORTED_MEDIA_TYPE`. The last three are generic framework-level codes for unmapped paths, wrong HTTP methods and wrong content types.
+- Optional extension `details` (object): machine-readable facts about a failure, only on codes that document it (currently `WORD_POOL_TOO_SMALL`: `{required:int, available:int}`, §2.4; `WORD_PACK_LIMIT_REACHED`: `{limit:int, kind:"PACKS"|"WORDS", remaining?:int}`, §2.5). Never contains secrets such as words.
+- Error codes: `VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_HOST, ROOM_NOT_FOUND, ROOM_FULL, ROOM_IN_PROGRESS, ROOM_CLOSED, NOT_ENOUGH_PLAYERS, WORD_POOL_TOO_SMALL, ALREADY_IN_ROOM, NOT_IN_ROOM, GAME_NOT_FOUND, SESSION_NOT_FOUND, RESULTS_NOT_READY, RATE_LIMITED, PAYLOAD_TOO_LARGE, STALE_ACTION, DUPLICATE_ACTION, INVALID_PHASE, INVALID_ACTION, NOT_DRAWER, IS_DRAWER, WORD_PACK_NOT_FOUND, WORD_PACK_LIMIT_REACHED, IMPORT_STALE, SERVER_ERROR, NOT_FOUND, METHOD_NOT_ALLOWED, UNSUPPORTED_MEDIA_TYPE`. The last three are generic framework-level codes for unmapped paths, wrong HTTP methods and wrong content types.
 - Rate-limit responses: `429` + `Retry-After`.
 - Idempotency: mutating room endpoints accept optional `Idempotency-Key` header (join/leave/start).
 
@@ -47,6 +47,16 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `GET /word-catalog/categories?locale=` | yes | — | `200 WordCategoriesDto` (§2.3) | 400 `VALIDATION_FAILED` (`locale`), 401 |
 | `GET /word-catalog/difficulties` | yes | — | `200 WordDifficultiesDto` (§2.3) | 401 |
 | `GET /word-catalog/counts?locale=&category=&difficulty=` | yes | — | `200 WordCountsDto` (§2.3) | 400 `VALIDATION_FAILED` (`locale`, `category`, `difficulty`), 401 |
+| `POST /rooms/{roomCode}/word-packs` | host | `{name, description?}` | `201 WordPackDto` (§2.5) | 400, 403 `NOT_HOST`/`NOT_IN_ROOM`, 404, 409 `ROOM_CLOSED`/`WORD_PACK_LIMIT_REACHED`, 429 |
+| `GET /rooms/{roomCode}/word-packs` | member | — | `200 {packs: WordPackDto[]}` (names and counts only) | 403 `NOT_IN_ROOM`, 404 |
+| `GET /rooms/{roomCode}/word-packs/{packId}` | member | — | `200 WordPackDto` | 403, 404 `ROOM_NOT_FOUND`/`WORD_PACK_NOT_FOUND` |
+| `PATCH /rooms/{roomCode}/word-packs/{packId}` | host | `{name?, description?}` | `200 WordPackDto` | 400, 403, 404, 409 `ROOM_CLOSED`, 429 |
+| `DELETE /rooms/{roomCode}/word-packs/{packId}` | host | — | `204` | 403, 404, 409 `ROOM_CLOSED`, 429 |
+| `GET /rooms/{roomCode}/word-packs/{packId}/words?offset=&limit=` | host | — | `200 WordPackWordsDto` (§2.5) | 400, 403 `NOT_HOST`, 404 |
+| `POST /rooms/{roomCode}/word-packs/{packId}/words` | host | `{words:[{text, category?, difficulty?}]}` (1–100) | `200 AddWordsResultDto` | 400, 403, 404, 409 `WORD_PACK_LIMIT_REACHED`/`ROOM_CLOSED`, 429 |
+| `DELETE /rooms/{roomCode}/word-packs/{packId}/words/{wordId}` | host | — | `204` | 403, 404, 409 `ROOM_CLOSED`, 429 |
+| `POST /rooms/{roomCode}/word-packs/{packId}/imports/preview` | host | multipart: `file` (`.txt`/`.csv`) | `200 ImportPreviewDto`; persists nothing | 400, 403, 404, 413 `PAYLOAD_TOO_LARGE`, 415, 429 |
+| `POST /rooms/{roomCode}/word-packs/{packId}/imports/confirm` | host | multipart: `file` (same bytes), `sha256`, `packVersion` | `200 ImportResultDto` | 400, 403, 404, 409 `IMPORT_STALE`/`WORD_PACK_LIMIT_REACHED`/`ROOM_CLOSED`, 413, 415, 429 |
 
 ### 2.1 DTOs (shape summaries)
 
@@ -151,6 +161,32 @@ How the room settings choose the words of a Draw & Guess game (rules: `game-rule
 - **Checked at start** (REST start and `START_GAME`), in this order, rejecting the start without initializing anything: an unknown or inactive category key (only checked when built-in words are used) → `400 VALIDATION_FAILED` `settings.wordCategories`; `custom`/`combined` without packs, or with a pack that does not exist or the host may not use → `400 VALIDATION_FAILED` `settings.wordPackIds`; fewer distinct usable words than one draw of choices (3, `[DG-2]`) → `409 WORD_POOL_TOO_SMALL` with `details:{required:3, available:n}`. A pool smaller than the number of rounds is allowed: words then repeat once the pool is exhausted (`[DG-15]`).
 - **Frozen at start.** The settings and the pool are fixed when the host starts (before the countdown). Later settings changes, catalog changes or pack edits never reach a running game; a rematch is a new start and uses the room's settings and pack contents at that moment, with an empty used-word set.
 - **Secrecy.** Settings carry pack ids, never words; `GAME_STARTED.settings` echoes them as stored. Errors (`message`, `details`) never contain words.
+
+### 2.5 Custom word packs (WP-03, room-scoped; decision D34)
+
+A word pack belongs to **one room** and lives and dies with it (database `ON DELETE CASCADE`; a closed room's packs are unreachable because nobody is a member any more). Only the **current host** creates, renames, edits, imports into or deletes packs. Any active member may list packs and read their metadata (name, description, word count); **word texts are only returned to the host**, by `GET …/words` and the import preview. No other endpoint, event, snapshot, room DTO or error ever contains a pack word. There are no accounts and no cross-room sharing: a pack id used under another room's code is `404 WORD_PACK_NOT_FOUND`. Pack ids are what `settings.wordPackIds` (§2.4) selects; at game start only packs of the host's own room resolve.
+
+```
+WordPackDto        { id, roomId, name, description /* "" when unset */, wordCount, createdAt, updatedAt }
+WordPackWordsDto   { words:[{id, text, category, difficulty}], offset, limit, total }   // host only
+AddWordsResultDto  { added, skipped /* duplicates */, pack: WordPackDto }
+ImportPreviewDto   { format:"TXT"|"CSV", sha256 /* hex of the uploaded bytes */, packVersion,
+                     totalRows /* non-blank rows */, validCount, duplicateCount, invalidCount,
+                     remainingCapacity, exceedsPackLimit,
+                     preview:[{line, text, category, difficulty}] /* ≤ 50 accepted rows */,
+                     duplicates:[{line, of:"FILE"|"PACK"}] /* ≤ 100 */,
+                     errors:[{line, code, message}] /* invalid rows, ≤ 100 */, truncated /* a list was cut */ }
+ImportResultDto    { imported, skipped /* duplicates + invalid */, duplicates, invalid, pack: WordPackDto }
+```
+
+- **Limits (server-side, starting values).** File 1 MiB (`413 PAYLOAD_TOO_LARGE`); 10 000 non-blank rows per file (`413`); 1 000 words per pack and 20 packs per room (`409 WORD_PACK_LIMIT_REACHED`, `details:{limit, kind}`); word 1–80 Unicode code points; pack name 1–80 characters; description 0–280; category 1–40 characters; 1–100 words per add request. Writes are rate limited per guest (`429`; imports stricter).
+- **Word normalization.** Text is trimmed, Unicode NFC, runs of whitespace collapsed to one space. Control, unassigned, surrogate and private-use characters, and `<` `>`, are invalid. Accents and case are **preserved** as entered. Duplicates are detected case-insensitively on the NFKC + lowercase form with accents kept (`Café` = `CAFÉ`, but `Café` ≠ `cafe`); the first occurrence wins, within the file and against words already in the pack. The game pool applies the stricter `[DG-4]` equivalence and `[DG-15]` shape on top (§2.4): longer or non-letter entries are stored but never played.
+- **Metadata defaults.** Missing or blank `category` → `Custom`; missing or blank `difficulty` → `MEDIUM`. `difficulty` is `EASY|MEDIUM|HARD`, case-insensitive on import; anything else (including `MIXED`) is an invalid row.
+- **TXT.** UTF-8 (BOM allowed, invalid UTF-8 rejected); one word per line; blank lines ignored; `line` is the physical line number.
+- **CSV.** UTF-8 (BOM allowed), RFC 4180 quoting. The first row is the header with columns `word` (required), `category`, `difficulty` (case-insensitive, any order, no repeats, no other columns). A row with fewer cells than the header leaves the missing optional cells empty; one with more is an invalid row `MALFORMED_ROW`. `line` is the physical line the record ends on. An unterminated quote, bad header, empty file or non-UTF-8 content rejects the whole file: `400 VALIDATION_FAILED` with `fieldErrors:[{field:"file", message}]`. The format comes from the file extension (`.txt`/`.csv`, case-insensitive), otherwise `415`.
+- **Row error codes** (`errors[].code`): `BLANK_WORD`, `TOO_LONG`, `INVALID_CHARACTER`, `INVALID_DIFFICULTY`, `INVALID_CATEGORY`, `MALFORMED_ROW`. Messages never echo file content.
+- **Import workflow.** `preview` parses and validates, returns counts and bounded lists, and persists nothing. `confirm` takes the **same file again** plus the `sha256` and `packVersion` from the preview; the server re-parses the upload (client-supplied rows are never trusted) and applies it in one transaction under the room's lock. `409 IMPORT_STALE` when the bytes do not hash to `sha256` or the pack changed since the preview (`packVersion` is bumped by every add, remove and import); nothing is written. If the accepted rows exceed the remaining capacity the whole import is rejected (`WORD_PACK_LIMIT_REACHED`, `details:{limit, kind:"WORDS", remaining}`); there are no partial imports. Invalid rows are skipped and counted, not fatal. Re-confirming the same preview is `IMPORT_STALE`, so an import cannot insert twice; a unique `(pack, normalized text)` index backs this up.
+- **Logging.** Imported content is never logged; logs carry room code, pack id and counts only.
 
 ## 3. STOMP
 
