@@ -226,6 +226,9 @@ class DrawGuessIT extends GameEngineSupport {
     g2.drop();
     StompTestClient again = connectAndSubscribe(r.guestOf(order.get(2)), r.code);
     r.sockets.set(g2Index, again);
+    if (g2 == host) { // the order is random: the host may be the guesser who refreshed
+      host = again;
+    }
     g2 = again;
     JsonNode game = r.snapshot(g2).get("game");
     assertThat(game.get("phase").asString()).isEqualTo("DRAWING");
@@ -381,6 +384,191 @@ class DrawGuessIT extends GameEngineSupport {
     JsonNode fresh = r.snapshot(observer).get("game");
     assertThat(fresh.get("scores").get(order.get(0)).asInt()).isZero();
     assertThat(fresh.get("round").asInt()).isEqualTo(1);
+  }
+
+  // ------------------------------------------------------------------ scores and disconnects
+
+  @Test
+  void scoresComeOnlyFromTheServerAndADrawerReconnectKeepsTheRound() {
+    Room r = new Room(3);
+    r.sockets.get(0).command(r.code, "START_GAME", actionId(), "{}");
+    JsonNode started = awaitLong(r.sockets.get(0), m -> m.type().equals("GAME_STARTED")).payload();
+    List<String> order = new ArrayList<>();
+    started.get("order").forEach(n -> order.add(n.asString()));
+    StompTestClient drawer = r.socketOf(order.get(0));
+    StompTestClient g1 = r.socketOf(order.get(1));
+    StompTestClient g2 = r.socketOf(order.get(2));
+    JsonNode choice = phase(g2, "WORD_CHOICE", 1);
+    String word =
+        awaitLong(drawer, m -> m.type().equals("WORD_CHOICES"))
+            .payload()
+            .get("choices")
+            .get(0)
+            .asString();
+    r.send(
+        drawer, "CHOOSE_WORD", choice.get("phaseId").asString(), "{\"wordIndex\":0}", actionId());
+    String phaseId = phase(g2, "DRAWING", 1).get("phaseId").asString();
+
+    // The drawer's socket dies mid-round and comes back within grace: same phase, word and role.
+    int drawerIndex = r.sockets.indexOf(drawer);
+    drawer.drop();
+    awaitLong(
+        g2,
+        m ->
+            m.type().equals("PLAYER_DISCONNECTED")
+                && m.payload().get("guestId").asString().equals(order.get(0)));
+    drawer = connectAndSubscribe(r.guestOf(order.get(0)), r.code);
+    r.sockets.set(drawerIndex, drawer);
+    awaitLong(
+        g2,
+        m ->
+            m.type().equals("PLAYER_RECONNECTED")
+                && m.payload().get("guestId").asString().equals(order.get(0)));
+    JsonNode restored = r.snapshot(drawer).get("game");
+    assertThat(restored.get("phase").asString()).isEqualTo("DRAWING");
+    assertThat(restored.get("phaseId").asString()).isEqualTo(phaseId);
+    assertThat(restored.get("word").asString()).isEqualTo(word);
+    String strokeAction = actionId();
+    r.send(
+        drawer,
+        "DRAW_STROKE",
+        phaseId,
+        stroke(UUID.randomUUID().toString(), 0, 2, true),
+        strokeAction);
+    awaitAck(drawer, strokeAction);
+
+    // There is no score command, and score fields in a guess are ignored.
+    String id = actionId();
+    r.send(g2, "SET_SCORE", phaseId, "{\"guestId\":\"" + order.get(2) + "\",\"score\":9999}", id);
+    assertThat(errorCode(g2, id)).isEqualTo("INVALID_ACTION");
+    String forged =
+        "{\"text\":\"%s\",\"scoreDelta\":100000,\"totalScore\":100000,\"guestId\":\"%s\",\"order\":0}"
+            .formatted(word, order.get(2));
+    String guessAction = actionId();
+    r.send(g1, "SUBMIT_GUESS", phaseId, forged, guessAction);
+    awaitAck(g1, guessAction);
+    JsonNode accepted = awaitLong(g2, m -> m.type().equals("GUESS_ACCEPTED")).payload();
+    assertThat(accepted.get("guestId").asString()).isEqualTo(order.get(1));
+    int delta = accepted.get("scoreDelta").asInt();
+    assertThat(delta).isBetween(100, 500);
+    assertThat(accepted.get("totalScore").asInt()).isEqualTo(delta);
+
+    // The same action again, and the word again under a new id, award nothing more.
+    r.send(g1, "SUBMIT_GUESS", phaseId, forged, guessAction);
+    assertThat(errorCode(g1, guessAction)).isEqualTo("DUPLICATE_ACTION");
+    String again = actionId();
+    r.send(g1, "SUBMIT_GUESS", phaseId, "{\"text\":\"" + word + "\"}", again);
+    awaitAck(g1, again);
+    awaitLong(drawer, m -> m.type().equals("GUESSER_CHAT")); // solver talk, not a second guess
+
+    JsonNode game = r.snapshot(g2).get("game");
+    assertThat(game.get("phase").asString()).isEqualTo("DRAWING");
+    assertThat(game.get("scores").get(order.get(1)).asInt()).isEqualTo(delta);
+    assertThat(game.get("scores").get(order.get(2)).asInt()).isZero();
+    assertThat(game.get("word").isNull()).isTrue();
+    assertThat(g2.ofType("GUESS_ACCEPTED")).hasSize(1);
+    assertThat(g2.ofType("GUESSER_CHAT")).isEmpty(); // the solver's repeat of the word stays hidden
+    assertThat(g2.messages()).noneMatch(m -> carries(m, word));
+  }
+
+  // ------------------------------------------------------------------ rematch
+
+  /**
+   * Plays the n-th round seen by {@code observer}: the drawer picks word 0, a guesser solves it.
+   */
+  private void playRound(Room r, StompTestClient observer, int nth) {
+    JsonNode choice = phase(observer, "WORD_CHOICE", nth);
+    String drawerId = choice.get("drawerGuestId").asString();
+    String choicePhase = choice.get("phaseId").asString();
+    StompTestClient drawer = r.socketOf(drawerId);
+    String word =
+        awaitLong(
+                drawer,
+                m ->
+                    m.type().equals("WORD_CHOICES")
+                        && m.payload().get("phaseId").asString().equals(choicePhase))
+            .payload()
+            .get("choices")
+            .get(0)
+            .asString();
+    r.send(drawer, "CHOOSE_WORD", choicePhase, "{\"wordIndex\":0}", actionId());
+    String phaseId = phase(observer, "DRAWING", nth).get("phaseId").asString();
+    StompTestClient guesser =
+        r.sockets.stream().filter(ws -> ws != drawer).findFirst().orElseThrow();
+    r.send(guesser, "SUBMIT_GUESS", phaseId, "{\"text\":\"" + word + "\"}", actionId());
+  }
+
+  private String results(Guest member, String sessionId) throws Exception {
+    return mvc.perform(
+            get("/api/v1/sessions/" + sessionId + "/results")
+                .header("Authorization", bearer(member)))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+  }
+
+  @Test
+  void aRematchStartsFreshAndLeavesThePreviousResultsUntouched() throws Exception {
+    Room r = new Room(2);
+    StompTestClient host = r.sockets.get(0);
+    host.command(r.code, "START_GAME", actionId(), "{}");
+    String firstSession =
+        awaitLong(host, m -> m.type().equals("GAME_STARTED")).payload().get("sessionId").asString();
+    playRound(r, host, 1);
+    playRound(r, host, 2);
+    JsonNode finished = awaitLong(host, m -> m.type().equals("GAME_FINISHED")).payload();
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .until(
+            () ->
+                "FINISHED"
+                    .equals(
+                        jdbc.queryForObject(
+                            "select status from game_session where id = ?::uuid",
+                            String.class,
+                            firstSession)));
+    String before = results(r.guests.get(0), firstSession);
+    JsonNode stored = JsonMapper.builder().build().readTree(before);
+    assertThat(stored.get("standings").get(0).get("score").asInt())
+        .isEqualTo(finished.get("standings").get(0).get("score").asInt());
+
+    for (StompTestClient ws : r.sockets) {
+      ws.command(r.code, "REMATCH_VOTE", actionId(), "{\"vote\":true}");
+    }
+    awaitLong(
+        host,
+        m ->
+            m.type().equals("ROOM_STATUS_CHANGED")
+                && m.payload().get("reason").asString().equals("REMATCH"));
+    host.command(r.code, "START_GAME", actionId(), "{}");
+    String secondSession =
+        awaitLong(
+                host,
+                m ->
+                    m.type().equals("GAME_STARTED")
+                        && !m.payload().get("sessionId").asString().equals(firstSession))
+            .payload()
+            .get("sessionId")
+            .asString();
+    JsonNode fresh = r.snapshot(host).get("game");
+    assertThat(fresh.get("round").asInt()).isEqualTo(1);
+    fresh.get("scores").forEach(score -> assertThat(score.asInt()).isZero());
+    assertThat(fresh.get("strokes")).isEmpty();
+
+    // Scoring in the new session does not touch the stored results of the first one.
+    playRound(r, host, 3);
+    await().atMost(LONG).until(() -> host.ofType("ROUND_ENDED").size() >= 3);
+    assertThat(host.ofType("ROUND_ENDED").getLast().payload().get("round").asInt()).isEqualTo(1);
+    assertThat(results(r.guests.get(0), firstSession)).isEqualTo(before);
+    assertThat(secondSession).isNotEqualTo(firstSession);
+    Integer finishedCount =
+        jdbc.queryForObject(
+            "select count(*) from game_session where room_id = (select room_id from game_session"
+                + " where id = ?::uuid) and status = 'FINISHED'",
+            Integer.class,
+            firstSession);
+    assertThat(finishedCount).isEqualTo(1);
   }
 
   // ------------------------------------------------------------------ limits
