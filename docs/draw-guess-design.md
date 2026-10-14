@@ -1,6 +1,6 @@
 # DinoParty — Draw & Guess Design (Phase 5)
 
-Status: **design; decisions D24–D31 approved (D25, D28 as amended below); implementation starts with P5-02.** Written against the Phase 4 engine as merged on `main` (`docs/game-engine.md`, `backend/.../engine`, `session`). Normative sources: rules in `docs/game-rules.md` (`[DG-*]`), wire formats in `docs/api-contracts.md` §3.9. This document adds the state machine, the module mapping, the concurrency analysis and the task breakdown, and lists the decisions that need approval (D24–D31, mirrored in `docs/decisions-and-risks.md` §6). Where this document and the two sources differ, the sources win; fix this document.
+Status: **backend implemented in P5-02 (tasks 5.1–5.6, 5.9 and most of 5.7; see §17); decisions D24–D31 approved (D25, D28 as amended below).** Written against the Phase 4 engine as merged on `main` (`docs/game-engine.md`, `backend/.../engine`, `session`). Normative sources: rules in `docs/game-rules.md` (`[DG-*]`), wire formats in `docs/api-contracts.md` §3.9. This document adds the state machine, the module mapping, the concurrency analysis and the task breakdown, and lists the decisions that need approval (D24–D31, mirrored in `docs/decisions-and-risks.md` §6). Where this document and the two sources differ, the sources win; fix this document.
 
 ## 1. Scope and decisions needing approval
 
@@ -226,7 +226,7 @@ Dependencies: 5.1–5.3 are independent and parallel; 5.4 needs them; 5.7 needs 
 
 Verified by reading the code at the commit above: engine SPI signatures (`GameModule`, `Transition`, `CommandSpec`, `Audience`), the completed-round counting in `SessionService`, the outbound send-buffer limit, and that `Ranking` has no module tie-break. **Not verified:** any behavior of Draw & Guess (nothing is implemented); the STOMP delivery of a ~200 KB snapshot; whether the router maps module-raised `PAYLOAD_TOO_LARGE` as §14.1 assumes. No build or test run was needed or performed — documentation only.
 
-## 16. Consistency check against the Phase 4 engine (done before P5-02)
+## 16. Consistency check against the Phase 4 engine (done before P5-02; one correction in §17)
 
 Checked against `backend/src/main/java/com/dinoparty/{engine,session}` and the engine tests; **no shared-engine change is needed.**
 
@@ -242,3 +242,22 @@ Checked against `backend/src/main/java/com/dinoparty/{engine,session}` and the e
 | Ranking: ties in play order, no module hook | No hook added (§14.2). |
 | `RoundRecord` count = completed rounds | D30 as approved. |
 | D15: `ready` is advisory | The module never reads `ready`; start rules are untouched. |
+
+## 17. Implementation notes (P5-02, backend)
+
+Built: `com.dinoparty.drawing` (`Tool`, `CanvasLimits`, `StrokeBatch`, `CanvasBuffer`) and `com.dinoparty.games.drawguess` (`DrawGuessModule`, `DrawGuessState`, `DrawGuessSettings`, `WordPool`, `GuessMatcher`, `Scoring`, `HintMasker`), word lists `resources/games/drawguess/words-{easy,hard}.txt` (203 / 184 words, version 1). Registration is the Spring bean: the existing `GameCatalog` row (`V2`, enabled) now finds a module, so a `draw-guess` room starts; **no Flyway migration** was needed (no new tables; rounds use `game_round.meta`, results use `game_result.detail`).
+
+Differences from this design, all deliberate:
+
+- **One SPI change (R21), correcting §16 "no shared-engine change".** `GameContext.nextPhaseId` (game-engine.md §13): the private `WORD_CHOICES`/`DRAWER_WORD` must carry the `phaseId` of the phase they belong to, and the engine created that id only after the module returned. The test game and an engine test exercise it.
+- **`NOT_DRAWER`/`IS_DRAWER`** were in the contract's error list but missing from `ErrorCode`; added (HTTP 403 if ever surfaced over REST). The router already sends module rejections as private `GAME_ERROR` (§14.1 confirmed, including `PAYLOAD_TOO_LARGE`, by `DrawGuessIT`).
+- **Settings drift guard is a test, not a startup check.** `games` must not depend on `room` and `room` must not know modules, so `DrawGuessSettingsSchemaTest` (room schema accepts every module bound, refuses ±1) and `DrawGuessIT.theModuleDefaultsEqualTheCatalogRow` replace the startup comparison of §10. The module also tolerates missing/invalid values by using the defaults.
+- **Seen-wrong-guess set** is bounded at 1000 normalized texts per round; beyond that duplicates are rebroadcast rather than answered `DUPLICATE` (memory bound, H6).
+- **Restricted chat audience** = drawer + solvers who have not left, fixed at send time.
+- **`roundsDrawn`** counts rounds the player drew to a recorded end other than `DRAWER_LEFT`.
+- **Startup word-list validation**: the pool refuses to load (startup failure) on a malformed or duplicate entry.
+
+Tests: `CanvasBufferTest`, `StrokeBatchTest` (limits at ±1, rejection leaves the buffer equal, refunds); `DrawGuessRulesTest` (`[DG-3]`, `[DG-4]`, `[DG-5]`, `[DG-12]`, `[DG-13]`, `[DG-15]`, settings); `DrawGuessSessionTest` (the module inside the real `SessionService` with a manual clock: T1–T10, rejection cells, secrecy, hints, timers, concurrency, reconnect, leaving, results, rematch, maximal snapshot < 256 KiB, a random-interleaving invariant walk); `DrawGuessIT` (real STOMP: full 3-player game, roles, stale/duplicate, secrecy across sockets, refresh mid-round, concurrent correct guesses, drawer leaving, results REST, rematch, maximal canvas snapshot delivered, module- and transport-level `PAYLOAD_TOO_LARGE`, catalog defaults); ArchUnit rules for `drawing` and `games.drawguess`.
+
+Not done here (later tasks): 5.8 shared JSON contract fixtures, the replay-equivalence property test (snapshot + later events ≡ uninterrupted stream), the 10-player fan-out load test and mailbox hold-time measurement, the "zero Hibernate statements per Draw & Guess command" assertion (the engine's generic test covers the code path), whole-token answer detection in chat (H4), and everything frontend.
+

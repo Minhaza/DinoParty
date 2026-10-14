@@ -173,6 +173,9 @@ public class TestGameModule implements GameModule {
                 Map.of("round", state.round, "turnGuestId", state.turn)))
         .withEvents(
             OutboundEvent.privateEvent(
-                state.turn, "TEST_SECRET", Map.of("round", state.round, "secret", state.secret)));
+                state.turn,
+                "TEST_SECRET",
+                Map.of(
+                    "round", state.round, "secret", state.secret, "phaseId", ctx.nextPhaseId())));
   }
 }

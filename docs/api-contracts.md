@@ -200,7 +200,7 @@ Public stream (`/topic/rooms/{code}`):
 | `HINT_UPDATED` | `{hint}` — `"_a__ ___"` pattern (§3.9) | 5 |
 | `GUESS_ACCEPTED` | `{guestId, scoreDelta, totalScore, order}` (no word; `order` = 0-based solver index) | 5 |
 | `GUESS_CHAT` | `{guestId, text}` — a wrong guess shown as public chat (replaces the earlier name `GUESS_REJECTED_PUBLIC`) | 5 |
-| `ROUND_ENDED` | `{round, drawerGuestId, word, reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}, scores:{guestId:int}}`; `word` is `null` only when the drawer left before a word was chosen | 5 |
+| `ROUND_ENDED` | `{round, drawerGuestId, word, reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}, scores:{guestId:int}}`; `word` is `null` only when the drawer left before a word was chosen. `scoreDeltas` lists every roster member in play order (0 for no points this round, including members who left); `scores` are the running totals of every roster member | 5 |
 | `TELEPHONE_PROGRESS` | `{submittedCount, total}` | 6 |
 | `ALBUM_REVEALED` | `{chainIndex, entryIndex, entry}` | 6 |
 | `GAME_FINISHED` | `{sessionId, endReason:"COMPLETED|INSUFFICIENT_PLAYERS", standings:[{rank, guestId, score, detail}], resultsReady}` — nicknames are not repeated, clients use the roster. `standings` is empty for unscored games. `resultsReady:false` means `GET …/results` may still answer `RESULTS_NOT_READY` | 4 |
@@ -263,7 +263,7 @@ Active games are in memory and do not survive a restart (see `docs/game-engine.m
 - Commands for the lost session (`phaseId` of a phase that no longer exists) are answered `STALE_ACTION`.
 - Before a *graceful* shutdown the server publishes `GAME_ABORTED {SERVER_SHUTDOWN}` and `ROOM_STATUS_CHANGED {WAITING, GAME_ABORTED}` to every active session, then closes sockets; the room is `WAITING` in the database when it comes back.
 
-### 3.9 Draw & Guess (Phase 5 — specified; decisions D24–D31 approved, D25 and D28 as amended; not implemented before P5-02)
+### 3.9 Draw & Guess (Phase 5 — decisions D24–D31 approved, D25 and D28 as amended; backend implemented in P5-02)
 
 Rules: `docs/game-rules.md` (`[DG-*]`); design and state machine: `docs/draw-guess-design.md`. Phases (`PHASE_STARTED.phase`): `WORD_CHOICE`, `DRAWING`, `ROUND_END`. All commands carry `actionId` and the current `phaseId` (§3.3); the validation order is the engine pipeline (`game-engine.md` §4.1), so the checks below run after membership, dedupe, due deadlines and the phase guard. `Retry` = `retryable` in `GAME_ERROR`.
 
@@ -295,7 +295,7 @@ All rejections leave game state unchanged and never end the round. `ACTION_ACK` 
 
 The word and the three choices appear on no public event, in no other viewer's snapshot, in no error message and in no log line before `ROUND_ENDED`; the two unchosen words are never revealed at all.
 
-**Standings detail** (`GAME_FINISHED.standings[].detail`, `ResultsDto.standings[].detail`): `{correctGuesses, guesserPoints, drawerPoints, roundsDrawn}`. `ResultsDto.rounds[].meta`: `{drawerGuestId, word|null, autoPicked, correctGuessers:[guestId in guess order]}`; `endReason` ∈ `TIME|ALL_GUESSED|DRAWER_LEFT`.
+**Standings detail** (`GAME_FINISHED.standings[].detail`, `ResultsDto.standings[].detail`): `{correctGuesses, guesserPoints, drawerPoints, roundsDrawn}` (`roundsDrawn` counts recorded rounds the player drew to the end, i.e. not `DRAWER_LEFT` ones; guesser counters include guesses of a round discarded by an early finish, matching the ledger). `ResultsDto.rounds[].meta`: `{drawerGuestId, word|null, autoPicked, correctGuessers:[guestId in guess order]}`; `endReason` ∈ `TIME|ALL_GUESSED|DRAWER_LEFT`.
 
 ## 4. Phase 4 changes to existing contract text
 

@@ -751,7 +751,8 @@ public class SessionService {
             change -> {
               s.deadlines.removeModuleEntries();
               s.phase = change.name();
-              s.phaseId = newId();
+              s.phaseId = s.nextPhaseId != null ? s.nextPhaseId : newId();
+              s.nextPhaseId = null;
               s.phaseStartedAt = now;
               s.deadlineAt = change.deadlineAt();
               if (change.deadlineAt() != null) {
@@ -960,7 +961,10 @@ public class SessionService {
   }
 
   private GameContext ctx(ActiveSession s) {
-    return new GameContext(s.sessionId, clock, s.random, s.rosterInfos(), s.order, s.settings);
+    // Minted per module call and consumed by apply() if that call's transition starts a phase.
+    s.nextPhaseId = newId();
+    return new GameContext(
+        s.sessionId, clock, s.random, s.rosterInfos(), s.order, s.settings, s.nextPhaseId);
   }
 
   private <T> T inRoom(String code, Supplier<T> action) {

@@ -10,7 +10,8 @@ Verification commands (once scaffolded; `<…>` = exact versions chosen in Phase
 Backend:   ./mvnw -f backend verify                      # unit + IT (Docker needed for ITs)
            ./mvnw -f backend test                        # unit only
 Frontend:  npm --prefix frontend ci
-           npm --prefix frontend run lint | typecheck | test | build
+           npm --prefix frontend run format              # Prettier write; then:
+           npm --prefix frontend run format:check | lint | typecheck | test | build   # all run in CI
 E2E:       npm --prefix frontend run e2e                 # Playwright, needs backend + db up
 Stack:     docker compose -f deploy/compose.dev.yml up -d --build
 Health:    curl -fsS http://localhost:8080/api/v1/health
@@ -108,7 +109,7 @@ Exit: a test-scope game runs end to end through the real engine over real STOMP,
 
 ## Phase 5 — Draw & Guess  (parallel with Phase 6)
 
-Design: `docs/draw-guess-design.md`; contract: `api-contracts.md` §3.9; rules `game-rules.md` `[DG-1]…[DG-18]`; decisions D24–D31 (`decisions-and-risks.md` §6) must be approved or amended **before task 5.4 starts**. Only task 5.0 and the documents were done in P5-01; nothing below is implemented.
+Design: `docs/draw-guess-design.md`; contract: `api-contracts.md` §3.9; rules `game-rules.md` `[DG-1]…[DG-18]`; decisions D24–D31 (`decisions-and-risks.md` §6) must be approved or amended **before task 5.4 starts**. Task 5.0 and the documents were done in P5-01. **P5-02 (backend) implemented 5.1–5.6 and 5.9, and 5.7 except its load/zero-Hibernate-statement acceptance items** (details and remaining gaps: `draw-guess-design.md` §17, verification in `testing.md`); 5.5 needed one SPI addition (`GameContext.nextPhaseId`, R21). Open: 5.8, 5.10–5.14.
 
 | ID | Task | Owner | Depends | Acceptance |
 |---|---|---|---|---|

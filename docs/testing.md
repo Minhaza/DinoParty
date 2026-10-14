@@ -185,6 +185,32 @@ Checklist mapped to existing tests (no new defects found, no code changed):
 
 Not verified in this pass: Playwright E2E (not present until Phase 8), Linux/CI, a live process kill, and the browser UI against a real game (no production game module exists). Full Draw & Guess and Telephone Drawing gameplay is **not** implemented.
 
+## Phase 5 verification record (P5-02, Draw & Guess backend)
+
+Run on Windows 11, JDK 21.0.3, Docker Desktop 29.8 (Testcontainers PostgreSQL 16). `./mvnw verify` (Spotless check, unit tests, integration tests): **BUILD SUCCESS, 198 unit tests and 137 integration tests, 0 failures, 0 skipped.** Frontend not touched and not re-run. Not run: Linux/CI, Playwright.
+
+New in P5-02 (68 unit, 4 integration):
+
+| Test | Count | Covers |
+|---|---|---|
+| `drawing.CanvasBufferTest` | 11 | `[DG-14]` every budget at its boundary, ordering/style, implicit close, undo/clear refunds, rejection leaves the buffer equal |
+| `drawing.StrokeBatchTest` | 3 | `DRAW_STROKE` schema validation (no client data echoed) |
+| `games.drawguess.DrawGuessRulesTest` | 22 | `[DG-3]` hint, `[DG-4]` normalization, `[DG-5]` close, `[DG-12]`/`[DG-13]` examples and rounding, `[DG-15]` word pool (sizes, charset, blocklist, no repeats, exhaustion, seeded determinism), settings defaults |
+| `room.DrawGuessSettingsSchemaTest` | 2 | module settings bounds = room schema (drift guard) |
+| `session.DrawGuessSessionTest` | 27 | module in the real engine with a manual clock: registration/start, player-count bounds, drawer rotation and skipped turns, word-choice authorization and auto-pick, secrecy of word/choices in events/snapshots/errors/round records, guess classification and scoring, timer expiry and exactly-at-deadline `STALE_ACTION`, hints, strokes/undo/clear, canvas full, concurrent correct guesses, reconnect snapshots, drawer/guesser leaving (D24, D25, D30, `[C-1]`), final standings and rematch, maximal snapshot < 256 KiB, random-interleaving invariants (secrecy, ledger = deltas) |
+| `session.SessionServiceTest` (+1) | 1 | engine SPI: private events of a new phase carry its `phaseId` (`GameContext.nextPhaseId`) |
+| `architecture.ArchitectureTest` (+2) | 2 | `drawing` depends on `common` only; `games.drawguess` on engine/drawing/common only |
+| `realtime.DrawGuessIT` | 3 | real STOMP: full 3-player game with role errors, stale/duplicate, secrecy across sockets, refresh mid-round, concurrent correct guesses, drawer leaving, results REST with round meta and standings detail, rematch and new session; maximal canvas (12 000 points) snapshot delivered under 256 KiB; module `PAYLOAD_TOO_LARGE` as private `GAME_ERROR` and transport cap on the errors queue; catalog defaults = module defaults |
+| `realtime.RealtimeCommandIT` (+1, 1 changed) | 1 | registered Draw & Guess commands answer `INVALID_PHASE` while no game runs (they were `INVALID_ACTION` before the module existed) |
+
+### Not verified / known limitations (Phase 5 backend)
+
+- No frontend, browser or Playwright verification (Antigravity tasks 5.10–5.13).
+- Not built: shared contract JSON fixtures (5.8), the snapshot/event replay-equivalence property test, a 10-player fan-out load test with mailbox hold times, and an explicit "zero Hibernate statements per Draw & Guess command" assertion (the engine-level test covers the shared code path only).
+- Engine semantics inherited from Phase 4: rate limits are a fixed one-second window of `max(burst, ceil(rate))` (e.g. 40 strokes/s, 5 guesses/s) and payload caps count characters of the serialized payload, not bytes.
+- A wrong guess containing the answer inside a sentence is broadcast as is (design §13 H4).
+- The 8 KiB stroke cap and 64 KiB frame cap are respected by construction; a 223 KB snapshot frame is delivered in the IT on this machine only.
+
 ## Phase 4 Frontend coverage (game-session infrastructure)
 
 Vitest + Testing Library (`npm --prefix frontend test`):
@@ -208,3 +234,64 @@ Run on Windows 11, Node 22.
 | `npm --prefix frontend test -- --run` | passed: 20 test files, 113 tests |
 | `npm --prefix frontend run build` | passed: Vite production build succeeded |
 
+
+## Phase 5 integration verification record (P5-04, Draw & Guess multiplayer)
+
+Run 2026-10-14 on Windows 11, JDK 21.0.3, Node 22, Docker Desktop 29.8, on `main` (P5-02 + P5-03 merged) plus this branch. No backend or contract change was needed; the integration defects were all on the client side.
+
+### Defects found and fixed (frontend)
+
+| Defect | Effect before the fix | Fix |
+|---|---|---|
+| Drawer echo suppression only worked for batch 0 (`applyDrawingUpdated` was called without the guest id) | The drawer's own strokes got their points duplicated from batch 1 on | Echoes are recognized by `strokeId` (contract §3.9); points of a local stroke are never re-applied |
+| Snapshot strokes were marked "batch 999999 processed" | After a reconnect, the rest of a stroke that was still open in the snapshot was dropped | Closed strokes ignore late batches; open ones keep accepting (stream `seq` already dedupes) |
+| `sendCommand` threw while the socket was down, uncaught inside the 50 ms batch timer | Errors on every tick; drawing broke after a reconnect | Commands return `false` instead; the stroke continues under a new `strokeId` from the last sent point |
+| Rejected batches (`INVALID_ACTION`/`VALIDATION_FAILED`/`RATE_LIMITED`/`PAYLOAD_TOO_LARGE`) were only shown as an error banner | Drawer kept sending a dead stroke; canvas diverged from the server | Command errors are matched by `actionId`: restart the stroke or show "canvas full", and resync the canvas from a snapshot; stale-phase races are silent |
+| No client per-stroke limit | A long gesture was rejected at 2000 points | Strokes are split at 2000 points (≤ 200 per batch); near-duplicate points are dropped |
+| An in-progress stroke kept sending after `DRAWING` ended | A burst of `STALE_ACTION` errors | Stroke stops when the phase or role changes |
+| Drawer fallback `order[0]` while the drawer was unknown | A wrong player could get drawer controls | Only the server's `drawerGuestId` grants drawer UI |
+| `WORD_CHOICES` were cleared if processed before their `PHASE_STARTED` | Drawer could miss the choices | Choices are kept when their `phaseId` matches |
+| Chat survived into the next round; timestamps were client time | Live view differed from the snapshot (the server clears chat per round) | Chat is cleared at `WORD_CHOICE`; envelope `ts` is used |
+| `REMATCH_VOTES_UPDATED` was merged instead of replaced | Votes of disconnected members lingered | The full tally replaces the old one |
+
+### Automated checks
+
+| Check | Result |
+|---|---|
+| `./mvnw -f backend verify` | passed: 335 tests (198 unit, 137 integration), 0 failures, Spotless clean (baseline; no backend change) |
+| `npm --prefix frontend run lint` / `typecheck` / `build` | passed |
+| `npm --prefix frontend test` | passed: 33 files, 180 tests (new: `stores/roomStore.drawguess.test.ts`, P5-04 blocks in `drawGuessStore.test.ts` and `DrawCanvas.test.tsx`) |
+
+Server-side authorization (drawer identity, `IS_DRAWER`, `NOT_DRAWER`, stale/duplicate actions, secrecy, timers, rematch) is covered by `DrawGuessIT` and `DrawGuessSessionTest` from P5-02 and was re-run in the backend verify above.
+
+### Browser verification (real backend, three independent Chromium contexts)
+
+A manual Playwright script (not committed; Phase 8 adds the E2E suite) ran against `spring-boot:run` with a throwaway PostgreSQL container and the Vite dev server. All checks below passed:
+
+| Scenario | Result |
+|---|---|
+| Host starts; all three players land on the game page; only the drawer gets word choices | passed |
+| Word is visible to the drawer only, during `DRAWING` and after guesser refresh | passed |
+| Player A draws, players B and C see pixel-identical canvases; undo is synchronized | passed |
+| Guesser drags on the canvas: nothing is sent or drawn anywhere | passed |
+| Raw STOMP `DRAW_STROKE` from a non-drawer: `GAME_ERROR NOT_DRAWER`, nothing drawn | passed |
+| Guesser refresh mid-round restores the full canvas | passed |
+| Drawer refresh mid-round restores word and canvas; new strokes reach everyone | passed |
+| Wrong guess appears as chat for the others; correct guess makes the guesser a solver, scores update on every client, the word is not broadcast | passed |
+| Solver disconnected (session replaced, socket closed) and reconnected: canvas and solver state restored | passed |
+| Guesser offline (`setOffline`) while the drawer draws, back online: catches up | passed |
+| Drawer goes offline in the middle of a stroke and keeps drawing: the stroke continues, and every client canvas equals the server canvas after resync | passed |
+| `DRAWING` timer (30 s) expires: round ends, word revealed to everyone | passed |
+| Drawer rotates over three rounds, each starts with an empty canvas; all-guessed ends a round early | passed |
+| Full game to results: identical standings for every player | passed |
+| Host rematch: all players back in the lobby, room `WAITING`, scores and ready cleared; second game starts clean | passed |
+| No uncaught page errors in any context | passed |
+
+### Not verified / known limitations
+
+- **Offline emulation does not drop the socket.** Chromium's `setOffline` left the existing WebSocket open, so the server never marked the guesser `DISCONNECTED`. That check failed as a test artifact, and grace-period expiry (`LEFT`) was not exercised in the browser. The backend covers it in `DrawGuessSessionTest`/`DrawGuessIT`.
+- During a reconnect mid-stroke, the drawer's local preview can briefly double-draw the points buffered while offline. Its canvas matches the server again after the next snapshot.
+- Only the client splits strokes at the 2000-point limit. The live canvas budget (12 000 points / 300 strokes) is enforced only by the server, and the client reacts to `PAYLOAD_TOO_LARGE`.
+- The drawer canvas keeps per-point preview data in Zustand and redraws everything on each change (P5-03 design). This is fine at the budget sizes, but it is not the imperative-only rendering `AGENTS.md` asks for.
+- The word-choice overlay has no `role="dialog"`. (Seven P5-03 files that were not Prettier-clean, which would fail CI's `format:check`, were reformatted in this change.)
+- Not run: Linux/CI, Firefox/WebKit, mobile touch input, the committed Playwright suite (Phase 8).

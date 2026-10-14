@@ -6,6 +6,7 @@ import { DinoAvatar } from '@/components/DinoAvatar'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
 
+import { DrawGuessStage } from '@/features/drawguess/DrawGuessStage'
 import { GameStartingOverlay } from './GameStartingOverlay'
 import { RematchControls } from './RematchControls'
 import { Scoreboard } from './Scoreboard'
@@ -82,6 +83,8 @@ export function GameStage({
             onReturnToLobby={onReturnToLobby}
           />
         </div>
+      ) : gameKey === 'draw-guess' ? (
+        <DrawGuessStage players={players} currentGuestId={currentGuestId} />
       ) : (
         /* PLAYING Phase View */
         <Card className="flex-1 flex flex-col border-border/70 shadow-xs overflow-hidden">

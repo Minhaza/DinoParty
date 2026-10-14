@@ -7,7 +7,6 @@ import type {
   GameFinishedPayload,
   GameStartedPayload,
   HostChangedPayload,
-  PhaseStartedPayload,
   PlayerDisconnectedPayload,
   PlayerJoinedPayload,
   PlayerLeftPayload,
@@ -21,6 +20,20 @@ import type {
   SnapshotSeq,
 } from '@/api/types'
 import { updateServerClockOffset } from '@/lib/serverClock'
+import type {
+  DrawGuessPhaseStartedPayload,
+  DrawGuessSnapshot,
+  DrawingUpdatedPayload,
+  DrawerWordPayload,
+  GuessAcceptedPayload,
+  GuessChatPayload,
+  GuesserChatPayload,
+  GuessFeedbackPayload,
+  HintUpdatedPayload,
+  RoundEndedPayload,
+  WordChoicesPayload,
+} from '@/features/drawguess/types'
+import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
 
 import { useGameSessionStore } from './gameSessionStore'
 
@@ -58,6 +71,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     updateServerClockOffset(snapshot.serverNow)
     useGameSessionStore.getState().applySnapshot(snapshot.game, snapshot.room)
 
+    if (snapshot.room.gameKey === 'draw-guess' || snapshot.game?.gameKey === 'draw-guess') {
+      useDrawGuessStore.getState().applySnapshot(snapshot.game as unknown as DrawGuessSnapshot)
+    }
+
     set({
       room: snapshot.room,
       serverNow: snapshot.serverNow,
@@ -78,7 +95,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     if (envelope.type === 'ERROR' || envelope.seq === 0) {
       const payload = envelope.payload as GameErrorPayload | undefined
       if (payload && typeof payload.message === 'string') {
-        set({ lastError: payload.message })
+        const outcome = useDrawGuessStore.getState().applyCommandError(payload, envelope.actionId)
+        if (outcome === 'resync') set({ needsResync: true })
+        else if (outcome === 'unhandled') set({ lastError: payload.message })
       }
       return 'applied'
     }
@@ -124,12 +143,15 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
     let terminalNotice = state.terminalNotice
     let lastError = state.lastError
+    let needsResync = state.needsResync
 
     if (envelope.type === 'SESSION_REPLACED') {
       terminalNotice = 'SESSION_REPLACED'
     } else if (envelope.type === 'GAME_ERROR') {
       const err = envelope.payload as GameErrorPayload
-      lastError = err.message || err.code
+      const outcome = useDrawGuessStore.getState().applyCommandError(err, envelope.actionId)
+      if (outcome === 'resync') needsResync = true
+      else if (outcome === 'unhandled') lastError = err.message || err.code
     }
 
     set({
@@ -138,6 +160,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       serverNow: envelope.ts || state.serverNow,
       terminalNotice,
       lastError,
+      needsResync,
     })
 
     return 'applied'
@@ -149,6 +172,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
   reset: () => {
     useGameSessionStore.getState().reset()
+    useDrawGuessStore.getState().reset()
     set({
       room: null,
       serverNow: null,
@@ -163,25 +187,75 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
 function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
   const sessionStore = useGameSessionStore.getState()
+  const drawGuessStore = useDrawGuessStore.getState()
+
   switch (envelope.type) {
     case 'GAME_STARTED':
       sessionStore.applyGameStarted(envelope.payload as GameStartedPayload)
+      drawGuessStore.reset()
       break
-    case 'PHASE_STARTED':
-      sessionStore.applyPhaseStarted(envelope.payload as PhaseStartedPayload, envelope.ts)
+    case 'PHASE_STARTED': {
+      const payload = envelope.payload as DrawGuessPhaseStartedPayload
+      sessionStore.applyPhaseStarted(payload, envelope.ts)
+      drawGuessStore.applyPhaseStarted(payload)
+      break
+    }
+    case 'DRAWING_UPDATED':
+      drawGuessStore.applyDrawingUpdated(envelope.payload as DrawingUpdatedPayload)
+      break
+    case 'HINT_UPDATED':
+      drawGuessStore.applyHintUpdated(envelope.payload as HintUpdatedPayload)
+      break
+    case 'GUESS_ACCEPTED': {
+      const payload = envelope.payload as GuessAcceptedPayload
+      drawGuessStore.applyGuessAccepted(payload)
+      sessionStore.updateScore(payload.guestId, payload.totalScore)
+      break
+    }
+    case 'GUESS_CHAT':
+      drawGuessStore.applyGuessChat(envelope.payload as GuessChatPayload, envelope.ts)
+      break
+    case 'GUESSER_CHAT':
+      drawGuessStore.applyGuesserChat(envelope.payload as GuesserChatPayload, envelope.ts)
+      break
+    case 'ACTION_ACK':
+      drawGuessStore.applyActionAck(envelope.actionId)
+      break
+    case 'ROUND_ENDED': {
+      const payload = envelope.payload as RoundEndedPayload
+      drawGuessStore.applyRoundEnded(payload)
+      if (payload.scores) {
+        sessionStore.updateScores(payload.scores)
+      }
+      break
+    }
+    case 'WORD_CHOICES':
+      drawGuessStore.applyWordChoices(envelope.payload as WordChoicesPayload)
+      break
+    case 'DRAWER_WORD':
+      drawGuessStore.applyDrawerWord(envelope.payload as DrawerWordPayload)
+      break
+    case 'GUESS_FEEDBACK':
+      drawGuessStore.applyGuessFeedback(envelope.payload as GuessFeedbackPayload)
       break
     case 'GAME_FINISHED':
       sessionStore.applyGameFinished(envelope.payload as GameFinishedPayload)
       break
     case 'GAME_ABORTED':
       sessionStore.applyGameAborted(envelope.payload as GameAbortedPayload)
+      drawGuessStore.reset()
       break
     case 'REMATCH_VOTES_UPDATED':
       sessionStore.applyRematchVotesUpdated(envelope.payload as RematchVotesUpdatedPayload)
       break
-    case 'ROOM_STATUS_CHANGED':
-      sessionStore.applyRoomStatusChanged(envelope.payload as RoomStatusChangedPayload)
+    case 'ROOM_STATUS_CHANGED': {
+      const payload = envelope.payload as RoomStatusChangedPayload
+      sessionStore.applyRoomStatusChanged(payload)
+      if (payload.status === 'WAITING') {
+        drawGuessStore.reset()
+      }
       break
+    }
     case 'PLAYER_LEFT': {
       const { guestId } = envelope.payload as PlayerLeftPayload
       sessionStore.applyPlayerStatusChanged(guestId, 'LEFT')
