@@ -103,3 +103,28 @@ Design: `docs/game-engine.md`. Contract: `docs/api-contracts.md` §3.7, §3.8, �
 | R19 | History persistence stalls or drops data. | Bounded queue, idempotent upserts, never-drop results, retry/backoff, metric `dinoparty.history.dropped`, IT that kills the database mid-session. |
 | R20 | Restart recovery misclassifies sessions when two instances overlap. | Single-instance rule documented; compose stops old before new; recovery logs the count of rows it changed. |
 | R21 | `GameModule` SPI proves too narrow once real games land (Phases 5–6 run in parallel on one SPI). | Phase 4 exit requires the SPI to be exercised by a test module covering every hook; Phases 5/6 may only change the SPI through a PR that also updates `game-engine.md` and the test module. |
+
+## 6. Phase 5 decisions needing approval (Draw & Guess)
+
+Design: `docs/draw-guess-design.md`. Contract: `api-contracts.md` §3.9. Rules: `game-rules.md` `[DG-*]`. Status of every row: **PROPOSED**. The docs already apply the recommended option; if one is rejected, the rule and contract text change in a `docs(contract)` commit before task 5.4 starts. D28 also changes the shared `Stroke` format and so touches Telephone (Phase 6).
+
+| ID | Decision | Recommendation | Alternative / consequence |
+|---|---|---|---|
+| D24 | Drawer leaves mid-round (`[DG-9c]` said "no points to anyone", but guesser points are published at each correct guess). | Round ends `DRAWER_LEFT`; drawer scores 0; points already awarded to guessers stay. | Roll back awarded points: needs a negative-delta event and tells players their points vanished. |
+| D25 | Early end when all guessed: disconnected guessers (`[DG-9b]` "connected" vs edge table "after grace"). | A `DISCONNECTED` guesser blocks early end until they return or are `LEFT`; consistent with D23. | Ignore disconnected guessers immediately: a network blip forfeits that player's round. |
+| D26 | `[DG-9b]` 2 s grace after the last correct guess. | None: the round ends in the command that completes it; `ROUND_END` (6 s) is the pause (consistent with D18). | A 2 s internal deadline before `ROUND_END` (extra state, no benefit: nobody can still guess). |
+| D27 | Guess feedback rules. | Close guesses are private-only; `DUPLICATE` = same normalized wrong guess already made this round (not rebroadcast); solvers' later text is restricted chat to solvers + drawer; `ALREADY_GUESSED` removed. | Broadcast close guesses (others can copy a near-miss and fix the typo). |
+| D28 | Drawing wire format and canvas budget. | Integer fixed-point points 0–10000 shared with Telephone (≈ 12 B/point) and a round budget of 15 000 live points so a snapshot stays under the 256 KiB engine bound. | Floats rounded to 4 decimals with a ≈ 6 000-point budget; or REST-paged canvas fetch (new endpoint). |
+| D29 | `totalRounds` when players leave. | Fixed turn list; `LEFT` players' turns are skipped; `totalRounds` is recomputed and can only shrink. | Fixed total with gaps in round numbers. |
+| D30 | Early finish and the engine's completed-round count. | A `DRAWER_LEFT` round is recorded and counts as completed; a round in progress at an early finish is discarded (no drawer points, no record). | Do not record aborted rounds (needs a flag on `RoundRecord`). |
+| D31 | Word pool. | Tiers EASY/HARD, ≥ 150 words each, 3–20 chars, original; `mixed` = union; "used" = chosen words; repeats allowed only on exhaustion. | Per-choice tier mix (one easy, one hard, one any). |
+
+Phase 5 risks:
+
+| # | Risk | Mitigation |
+|---|---|---|
+| R22 | Stroke traffic (≤ 30 batches/s × recipients) loads the room mailbox and the free VM. | Per-type buckets, point and stroke budgets, no DB on the hot path, mailbox hold-time metric, load test in 5.7. |
+| R23 | A ~200 KB snapshot fails or is slow over STOMP (send buffer 512 KiB). | Maxed-canvas snapshot test (5.9); lower the budget rather than the engine bound. |
+| R24 | Dropped batches (`RATE_LIMITED` is decided before the mailbox) leave holes in a stroke. | `batchNo` detection, client recovery with a new `strokeId`, client send rate ≈ 20/s < server 30/s. |
+| R25 | Secret word leaks through a public event, error text, log or another viewer's snapshot. | Public payload records, secrecy harness with drawer/guesser/outsider (5.7), log review (H1). |
+| R26 | The engine has no module tie-break and counts every `RoundRecord` as completed. | Small SPI addition in 5.5 (design §14); D30. |

@@ -108,13 +108,27 @@ Exit: a test-scope game runs end to end through the real engine over real STOMP,
 
 ## Phase 5 — Draw & Guess  (parallel with Phase 6)
 
+Design: `docs/draw-guess-design.md`; contract: `api-contracts.md` §3.9; rules `game-rules.md` `[DG-1]…[DG-18]`; decisions D24–D31 (`decisions-and-risks.md` §6) must be approved or amended **before task 5.4 starts**. Only task 5.0 and the documents were done in P5-01; nothing below is implemented.
+
 | ID | Task | Owner | Depends | Acceptance |
 |---|---|---|---|---|
-| 5.1 | `drawing` module: stroke model, validators, bounded buffer | CC | 4.1 | Unit tests for limits and undo/clear |
-| 5.2 | Draw & Guess module: rotation, word service (original word list), hint logic, guess normalization, scoring, phases, disconnect rules | CC | 5.1 | Unit tests per rule IDs `[DG-*]`; word never in any non-drawer payload (contract test) |
-| 5.3 | WS IT: full 3-player game, unauthorized drawing/guessing rejected, rate limits, reconnect mid-round restores strokes | CC | 5.2 | ITs green |
-| 5.4 | Canvas engine: pointer events, DPR scaling, normalized coords, batching, replay, undo/clear; pure-function unit tests | AG | 5.1 contract | Vitest canvas utility tests; manual browser check on mouse + touch emulation |
-| 5.5 | Draw & Guess UI: toolbar, word choice, hint, guess feed, scoreboard, round summary, results + replay | AG | 5.2–5.4 | Playwright: draw & guess correct word across two contexts; finish and rematch |
+| 5.0 | Approve D24–D31 (and D28's effect on Telephone's `Stroke`); merge the contract commits | Lead/user | — | Written approval or amendments; contract/rules updated first if any change |
+| 5.1 | `drawing` library: `Stroke`, `StrokeBatch`, `CanvasBuffer` (per-batch/stroke/round budgets, undo, clear, open-stroke rules, batch ordering and style checks) | CC | 5.0 | Unit tests at every limit ±1; budget refund on undo/clear; rejection leaves buffer equal |
+| 5.2 | Word pool: original resource (tiers, ≥ 150 each), loader at startup, blocklist/charset test, draw-3 and used-set logic | CC | 5.0 | Tests: tier sizes, charset, no repeats in a session, exhaustion fallback, seeded determinism |
+| 5.3 | Pure rules: `GuessMatcher` (normalize, close, duplicate), `Scoring` (`[DG-12]`, `[DG-13]`), `HintMasker` | CC | 5.0 | Unit tests named `DGn_…` with the examples of game-rules; property test for hint bounds |
+| 5.4 | `DrawGuessModule`: turn list, T1–T10, `CommandSpec`s, event audiences, `view`, `outcome`, `RoundRecord` meta | CC | 5.1–5.3, 4.x | Unit tests per transition row and per rejected cell; invariants property test; word never in a non-drawer `view` or public event |
+| 5.5 | Registration: module bean, settings schema equality with `room.SettingsSchema`, `GameCatalog` start path, ArchUnit rules, optional tie-break hook in the SPI (design §14) | CC | 5.4 | Room with `draw-guess` starts; startup check fails on drift; SPI change (if any) updates `game-engine.md` and the test module |
+| 5.6 | History: round meta and standings detail visible in `GET /sessions/{id}/results` | CC | 5.4 | IT: results contain per-round drawer/word/reason and standings detail |
+| 5.7 | WS ITs (real STOMP): full 3-player game, stale/late/duplicate, wrong role per command, oversize/rate-limit, secrecy across drawer/guesser/outsider, reconnect mid-round (strokes, hint, chat, solvers), drawer/guesser leaves in each phase, rematch twice, concurrent correct guesses | CC | 5.4–5.5 | ITs green; zero Hibernate statements per game command; mailbox hold time within threshold under 10-player load |
+| 5.8 | Contract fixtures: JSON examples of every §3.9 payload, validated by backend and frontend tests | CC + AG | 5.0 | Same files consumed by both suites in CI |
+| 5.9 | Size verification: maxed-out canvas snapshot < 256 KiB delivered over STOMP; module-raised `PAYLOAD_TOO_LARGE`/`NOT_DRAWER` arrive as `GAME_ERROR` | CC | 5.5 | Tests green or budget lowered and docs updated |
+| 5.10 | Types and fixtures mirroring §3.9; event reducers into the game store; snapshot replaces game state wholesale | AG | 5.8 | Vitest for every event/snapshot shape; no secret fields typed as public |
+| 5.11 | Canvas engine: Pointer Events (mouse/touch/pen), DPR scaling, integer 0–10000 quantization, ≈ 50 ms batching ≤ 20/s, simplification, stroke recovery after rejection, replay, undo/clear, eraser | AG | 5.8 | Vitest canvas utility tests (transform, DPR, batching, replay); manual browser check mouse + touch emulation |
+| 5.12 | Draw & Guess plugin UI: word choice, hint, toolbar, guess/chat feed (public + restricted), scoreboard, round summary, results, own-echo suppression, `aria-live` announcements | AG | 5.10–5.11 | Component tests; keyboard-operable toolbar; `prefers-reduced-motion` respected |
+| 5.13 | Playwright: draw & guess a word across 3 contexts; wrong-role actions rejected; refresh/reconnect mid-round; drawer disconnect; finish and rematch | AG | 5.7, 5.12 | E2E green on the committed backend |
+| 5.14 | Hardening review (design §13), a11y smoke (axe), limits/abuse tests, docs and verification record in `testing.md` | CC + AG | 5.7, 5.13 | Checklist ticked; known limitations listed honestly |
+
+Exit: three browsers play a complete game (word choice, drawing, guessing, scoring, round summaries, results, rematch); every `[DG-n]` has a test; secrecy, authorization and limit tests pass; reconnect restores canvas and state; `backend verify`, frontend lint/typecheck/test/build and E2E green.
 
 ## Phase 6 — Telephone Drawing  (parallel with Phase 5)
 
