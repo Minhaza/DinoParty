@@ -62,37 +62,18 @@ export function PencilBadge({ className }: { className?: string }) {
 
 const BANNER_SLOT = { 'draw-guess': 'games/draw-guess', telephone: 'games/telephone' } as const
 
-/**
- * Painted banner for a game card. Until the illustration file exists it shows a plain tinted
- * panel with the game's interface icon, never a drawn stand-in scene.
- */
+/** Game-specific paintings use the same character designs as the avatars and homepage. */
 export function GameBanner({ game, className }: { game: GameKey; className?: string }) {
-  const url = assetUrl(BANNER_SLOT[game])
-  if (url) {
-    return (
-      <img
-        src={url}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        className={cn('size-full object-cover', className)}
-      />
-    )
-  }
-  const Icon = game === 'draw-guess' ? PaletteBadge : PencilBadge
   return (
-    <div
-      className={cn(
-        'flex size-full items-center justify-center',
-        game === 'draw-guess' ? 'bg-game-draw/15' : 'bg-game-phone/15',
-        className,
-      )}
-    >
-      <Icon className="size-20 opacity-80" />
-    </div>
+    <img
+      src={assetUrl(BANNER_SLOT[game])}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={cn('size-full object-cover', className)}
+    />
   )
 }
-
 /** Small confetti burst for celebration moments. Pure CSS motion, hidden by reduced-motion. */
 export function Confetti({ count = 24 }: { count?: number }) {
   const colors = ['#f36b36', '#11956b', '#7565e8', '#f5b335', '#3aa6d8']

@@ -65,7 +65,7 @@ export function GamesPage() {
               key={entry.key}
               className="group flex flex-col overflow-hidden rounded-[22px] border-2 border-border bg-card shadow-card transition-all hover:-translate-y-1"
             >
-              <div className="relative h-56 w-full overflow-hidden border-b-2 border-border">
+              <div className="relative aspect-[2.3/1] w-full overflow-hidden border-b-2 border-border">
                 <GameBanner
                   game={entry.key}
                   className="transition-transform duration-500 group-hover:scale-105"

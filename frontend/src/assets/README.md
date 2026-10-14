@@ -4,11 +4,11 @@
 
 | File                          | Used by                             | Purpose                                                       |
 | ----------------------------- | ----------------------------------- | ------------------------------------------------------------- |
-| `characters/dinosaurs.png`    | `DinoArtwork`                       | Shared transparent artwork for six avatars and hero dinosaurs |
+| `characters/dinosaurs.png`    | `DinoArtwork`, `DinoLogo`           | Shared transparent artwork for six avatars and hero dinosaurs |
 | `backgrounds/hero-canyon.png` | `HeroScene`                         | Painted canyon, lake and grassy foreground                    |
 | `backgrounds/page-soft.svg`   | `PageBackdrop` through `assetUrl()` | Quiet background for app pages                                |
-| `games/draw-guess.svg`        | `GameBanner` through `assetUrl()`   | Draw & Guess banner                                           |
-| `games/telephone.svg`         | `GameBanner` through `assetUrl()`   | Telephone banner                                              |
+| `games/draw-guess.png`        | `GameBanner` through `assetUrl()`   | Draw & Guess banner                                           |
+| `games/telephone.png`         | `GameBanner` through `assetUrl()`   | Telephone banner                                              |
 
 All artwork is original. Keep character designs consistent across portraits and scenes.
 The dinosaur atlas has Rex, Tricera and Ptera in the top row; Stego, DinoMite and LavaLizard
@@ -27,3 +27,7 @@ cutouts, geometric hero layers and unused foliage have been removed.
 The scene was visually checked at 1880px, 1280px and 390px widths. Shared artwork regression
 tests cover all six avatar mappings and unique clipping IDs. Run the frontend formatting,
 lint, TypeScript, test and build scripts before committing asset or component changes.
+
+The header logo crops Rex from the shared atlas. The game banners are original painted
+scenes using the current dinosaur designs: Rex painting with Tricera for Draw & Guess,
+and dinosaurs passing drawings for Telephone.
