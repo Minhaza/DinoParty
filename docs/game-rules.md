@@ -39,7 +39,10 @@ Players: 2–10 (default max 8); `minActivePlayers` 2. Design, state machine and
 | `drawSeconds` | 80 | 30–180 |
 | `wordChoiceSeconds` | 15 | 5–30 |
 | `hintReveal` | on | on/off: reveal letters progressively |
-| `difficulty` | mixed | easy/mixed/hard word pool |
+| `difficulty` | mixed | easy/medium/hard/mixed: built-in words of that stored difficulty (mixed = all) |
+| `wordSource` | built-in | built-in / custom / combined (`[DG-15]`) |
+| `wordCategories` | random-mix | built-in categories, several allowed; Random Mix = all active |
+| `wordPackIds` | none | custom word packs (≤ 10) for custom/combined |
 
 The number of word choices is the constant 3 (not a setting). Constants (not settings): round-summary pause 6 s, word length 3–20.
 
@@ -69,9 +72,12 @@ Phases of one round, in order: `WORD_CHOICE` → `DRAWING` → `ROUND_END` (name
 
 ### Word pool `[DG-15]`
 
-- Original English word list (A14), versioned resource. Each word has tier `EASY` or `HARD`, 3–20 characters, letters plus single spaces/hyphens, no leading/trailing separator, no offensive entries (blocklist test). Size: ≥ 150 per tier so that `players × cycles` (≤ 50) rounds never exhaust a tier.
-- `difficulty`: `easy` → EASY tier, `hard` → HARD tier, `mixed` → both tiers. The 3 choices are drawn uniformly without replacement from the pool minus **words already chosen earlier in this session** (offered-but-unchosen words may come back). Pool exhaustion falls back to allowing repeats. A new session (rematch) starts with an empty used set.
-- Word catalog (WP-01): the same words also live in the database catalog with a category and a stored difficulty `EASY`/`MEDIUM`/`HARD` (api-contracts §2.3). Gameplay does **not** read it yet; the tiers above are unchanged. Mapping (D32, proposed): legacy EASY ⊆ catalog `EASY`, legacy HARD ⊆ catalog `MEDIUM` ∪ `HARD`.
+- **Sources** (WP-02, D33; contract api-contracts §2.4). Built-in words come from the original English word catalog (A14, WP-01, api-contracts §2.3): every word has one category and one stored difficulty `EASY`/`MEDIUM`/`HARD`, 3–20 characters, letters plus single spaces/hyphens, no offensive entries (blocklist test). Custom words come from the host's selected word packs (WP-03). `wordSource` picks built-in, custom or both.
+- **Filters.** `wordCategories` (one or more; Random Mix or an empty list = every active category) and `difficulty` (`easy`/`medium`/`hard` = that stored difficulty, `mixed` = all) filter **built-in words only**. Custom pack entries are never filtered by category or difficulty, with or without such metadata; an entry that is not a usable word (shape above) is not used.
+- **Pool.** Built-in words first, then packs in the selected order; duplicates removed by `[DG-4]` correct-guess equivalence (first occurrence kept). The pool is resolved and **frozen when the host starts**: settings, catalog or pack changes during a game never affect it.
+- **Start check.** The start is rejected, and nothing is initialized, when the pool has fewer distinct words than one draw (3): `WORD_POOL_TOO_SMALL` with the required and available counts; unknown/inactive categories and unavailable or missing packs are `VALIDATION_FAILED`.
+- **Draw.** The 3 choices are drawn uniformly without replacement from the pool minus **words already chosen earlier in this session** (offered-but-unchosen words may come back), with the server's cryptographically strong random source. Pool exhaustion falls back to allowing repeats. A new session (rematch) re-resolves the pool from the room's current settings and starts with an empty used set.
+- Difficulty never changes scoring (`[DG-12]`/`[DG-13]` are the same for every word).
 
 ### Timers `[DG-17]`
 

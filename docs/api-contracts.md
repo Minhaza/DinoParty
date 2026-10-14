@@ -17,7 +17,8 @@ This file is the **single source of truth** for client/server contracts. Backend
   "traceId": "…", "fieldErrors": [ { "field": "nickname", "message": "must be 2–20 characters" } ] }
 ```
 
-- Error codes: `VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_HOST, ROOM_NOT_FOUND, ROOM_FULL, ROOM_IN_PROGRESS, ROOM_CLOSED, NOT_ENOUGH_PLAYERS, ALREADY_IN_ROOM, NOT_IN_ROOM, GAME_NOT_FOUND, SESSION_NOT_FOUND, RESULTS_NOT_READY, RATE_LIMITED, PAYLOAD_TOO_LARGE, STALE_ACTION, DUPLICATE_ACTION, INVALID_PHASE, INVALID_ACTION, NOT_DRAWER, IS_DRAWER, SERVER_ERROR, NOT_FOUND, METHOD_NOT_ALLOWED, UNSUPPORTED_MEDIA_TYPE`. The last three are generic framework-level codes for unmapped paths, wrong HTTP methods and wrong content types.
+- Optional extension `details` (object): machine-readable facts about a failure, only on codes that document it (currently `WORD_POOL_TOO_SMALL`: `{required:int, available:int}`, §2.4). Never contains secrets such as words.
+- Error codes: `VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_HOST, ROOM_NOT_FOUND, ROOM_FULL, ROOM_IN_PROGRESS, ROOM_CLOSED, NOT_ENOUGH_PLAYERS, WORD_POOL_TOO_SMALL, ALREADY_IN_ROOM, NOT_IN_ROOM, GAME_NOT_FOUND, SESSION_NOT_FOUND, RESULTS_NOT_READY, RATE_LIMITED, PAYLOAD_TOO_LARGE, STALE_ACTION, DUPLICATE_ACTION, INVALID_PHASE, INVALID_ACTION, NOT_DRAWER, IS_DRAWER, SERVER_ERROR, NOT_FOUND, METHOD_NOT_ALLOWED, UNSUPPORTED_MEDIA_TYPE`. The last three are generic framework-level codes for unmapped paths, wrong HTTP methods and wrong content types.
 - Rate-limit responses: `429` + `Retry-After`.
 - Idempotency: mutating room endpoints accept optional `Idempotency-Key` header (join/leave/start).
 
@@ -37,7 +38,7 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `POST /rooms/{roomCode}/leave` | yes | — | `204`. Idempotent: a non-member (or already-left) caller is a no-op. If the host leaves, the longest-standing remaining player becomes host; the last player leaving closes the room | 404 |
 | `PATCH /rooms/{roomCode}/settings` | host | `{gameKey?, settings?, maxPlayers?}` | `200 RoomDto` | 400, 403 `NOT_HOST` (also for non-members), 404, 409 `INVALID_PHASE` (room not in `WAITING`) |
 | `POST /rooms/{roomCode}/ready` | member | `{ready: boolean}` | `200 RoomDto`. Same effect as the WS `SET_READY` command; only while `WAITING` | 403 `NOT_IN_ROOM`, 404, 409 `INVALID_PHASE` |
-| `POST /rooms/{roomCode}/start` | host | `{}` | `202 RoomDto` (status `STARTING`; the 3 s countdown runs on the server, see §3.7). Idempotent while already `STARTING` (returns the room unchanged). Same effect as the WS `START_GAME` command | 403 `NOT_HOST` (also non-members), 404, 409 `INVALID_PHASE` (room not `WAITING`/`STARTING`), 409 `NOT_ENOUGH_PLAYERS` (connected members `< minPlayers`) |
+| `POST /rooms/{roomCode}/start` | host | `{}` | `202 RoomDto` (status `STARTING`; the 3 s countdown runs on the server, see §3.7). Idempotent while already `STARTING` (returns the room unchanged). Same effect as the WS `START_GAME` command | 403 `NOT_HOST` (also non-members), 404, 409 `INVALID_PHASE` (room not `WAITING`/`STARTING`), 409 `NOT_ENOUGH_PLAYERS` (connected members `< minPlayers`), 400 `VALIDATION_FAILED` (word settings that are only checkable at start: `settings.wordCategories`, `settings.wordPackIds`, §2.4), 409 `WORD_POOL_TOO_SMALL` (`details:{required, available}`, §2.4). A rejected start changes nothing (no countdown, no event) |
 | `POST /rooms/{roomCode}/kick` | host | `{guestId}` | `204`. Same effect as a `PLAYER_LEFT reason:"KICKED"`; allowed in every room status except `CLOSED`; the kicked guest is removed from the active session like a player who left | 400 (host kicks self), 403 `NOT_HOST`, 404 (room, or target not a member) |
 | `POST /rooms/{roomCode}/close` | host | — | `204`. Emits `ROOM_CLOSED {reason:"HOST_CLOSED"}`; an active session ends `ABORTED` | 403 `NOT_HOST`, 404. Idempotent on an already-closed room |
 | `GET /rooms/{roomCode}/snapshot` | member | — | `200 SnapshotDto` (viewer-specific; `game` is `null` unless a session is `RUNNING`/`FINISHED`) | 403 `NOT_IN_ROOM`, 404 `ROOM_NOT_FOUND` |
@@ -75,7 +76,7 @@ AlbumDto        { chainIndex, ownerGuestId, entries:[{step, kind:"TEXT|DRAWING",
 
 - A guest may be an active member of at most one room (`ALREADY_IN_ROOM` on create/join of another room). Leaving or the room closing frees them.
 - `maxPlayers` defaults to 8 clamped to the game's bounds (`draw-guess` 2–10, `telephone` 4–8) and must stay within them; it cannot be set below the current player count (400).
-- `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|mixed|hard`; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `allowSkipTimeout` bool). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
+- `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|medium|hard|mixed`, `wordSource` `built-in|custom|combined`, `wordCategories` list of ≤ 20 distinct category keys or `["random-mix"]`, `wordPackIds` list of ≤ 10 distinct lowercase UUID strings — word keys in §2.4; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `allowSkipTimeout` bool). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
 - `players[]` lists active members ordered by join time. `score` is the engine's running total while a session is `RUNNING`/`FINISHED` (after `RESULTS`→`WAITING` it is `null` again) and always `null` for unscored games; `sessionId` is the current session (`RUNNING` or awaiting rematch) or `null`. Members who left or timed out during a session are no longer in `players[]`; their final score stays in the results.
 - `ready` (Phase 3) is server-authoritative and persisted per membership: `false` on join/rejoin, changed only by `SET_READY` / `POST …/ready` while the room is `WAITING`.
 - `connection` (Phase 3): `DISCONNECTED` while a member's STOMP connection is gone and the grace period (`app.realtime.disconnect-grace`, default 30 s) has not expired; otherwise `CONNECTED`. A member who has never opened a STOMP connection (REST-only client) is reported `CONNECTED` and is never timed out. `LEFT` is not used in `players[]` (left members are removed).
@@ -117,7 +118,7 @@ Stroke            { strokeId:uuid, tool:"PENCIL|ERASER", color:"#RRGGBB", size:i
 
 ### 2.3 Word catalog (WP-01, read-only metadata)
 
-Built-in Draw & Guess words, stored in PostgreSQL (Flyway `V5`/`V6`, `docs/draw-guess-design.md` §18, decision D32). These endpoints return **metadata only**: they never list or reveal a word, so they cannot leak a word chosen or offered in a running game. Any authenticated guest may call them; no room membership is needed.
+Built-in Draw & Guess words, stored in PostgreSQL (Flyway `V5`/`V6`, `docs/draw-guess-design.md` §18, decision D32). From WP-02 games draw their built-in words from this catalog (§2.4); `counts` is therefore the size of a built-in selection's pool. These endpoints return **metadata only**: they never list or reveal a word, so they cannot leak a word chosen or offered in a running game. Any authenticated guest may call them; no room membership is needed.
 
 ```
 WordCategoriesDto   { locale, categories:[{key, label}] /* active, display order */,
@@ -133,6 +134,23 @@ WordCountsDto       { locale, category /* key or "random-mix" */, difficulty:"EA
 - **Difficulties**: every word stores exactly one of `EASY`, `MEDIUM`, `HARD`. `MIXED` is a filter (all three), never stored. Difficulty and preset labels are English for now; clients may localize them by key.
 - **`counts` parameters** (all optional): `locale` (default `en`), `category` = a category key or `random-mix` (default), `difficulty` = `EASY|MEDIUM|HARD|MIXED` (case-insensitive, default `MIXED`). `byDifficulty` holds exactly the difficulties of the filter (zeros included); `total` is their sum. Only active words in active categories count. An unknown or inactive category key, an unknown difficulty, or a malformed locale is `400 VALIDATION_FAILED` with the parameter in `fieldErrors`.
 - **Locale**: input is a language tag `ll` or `ll-RR` (2–3 letter language, optional 2-letter region; case-insensitive; `_` accepted), normalized to `en`, `pt-BR`, … The catalog locale used is the first of *tag → language → `en`* that has active words, and is returned in `locale` (e.g. `en-US` → `en`). The built-in catalog is English only (`en`).
+
+### 2.4 Word selection (WP-02, Draw & Guess settings)
+
+How the room settings choose the words of a Draw & Guess game (rules: `game-rules.md` `[DG-15]`; decision D33). All four keys are ordinary room settings (§2.2): host-only, `WAITING` only, validated for shape when saved, with these defaults from the catalog row.
+
+| Key | Default | Values | Applies to |
+|---|---|---|---|
+| `wordSource` | `built-in` | `built-in` (catalog), `custom` (selected packs only), `combined` (both) | — |
+| `wordCategories` | `["random-mix"]` | category keys of §2.3, or `["random-mix"]`; `[]` also means Random Mix; `random-mix` cannot be combined with keys | built-in words only |
+| `difficulty` | `mixed` | `easy`, `medium`, `hard` = that stored difficulty; `mixed` = all three | built-in words only |
+| `wordPackIds` | `[]` | custom word pack ids (WP-03), in the host's order | custom words only; ignored (kept) when `wordSource = built-in` |
+
+- **Custom entries.** Category and difficulty filters never apply to custom pack words: a pack's entries are all eligible, whether or not they carry optional category/difficulty metadata. Only entries that are not usable words are left out: after trimming and Unicode NFC, a usable word is 3–20 characters of letters (any script) with single inner spaces or hyphens (`[DG-15]` shape). They are simply not counted in `available`.
+- **Pool.** Built-in words (filtered; locale `en`) come first, then the packs in `wordPackIds` order. Duplicates are removed by the `[DG-4]` guess equivalence: two words are the same when they normalize to the same text without spaces (`ice-cream` = `ice cream` = `Ice Cream`, `café` = `cafe`); the first occurrence is kept (so a built-in spelling wins over a pack's).
+- **Checked at start** (REST start and `START_GAME`), in this order, rejecting the start without initializing anything: an unknown or inactive category key (only checked when built-in words are used) → `400 VALIDATION_FAILED` `settings.wordCategories`; `custom`/`combined` without packs, or with a pack that does not exist or the host may not use → `400 VALIDATION_FAILED` `settings.wordPackIds`; fewer distinct usable words than one draw of choices (3, `[DG-2]`) → `409 WORD_POOL_TOO_SMALL` with `details:{required:3, available:n}`. A pool smaller than the number of rounds is allowed: words then repeat once the pool is exhausted (`[DG-15]`).
+- **Frozen at start.** The settings and the pool are fixed when the host starts (before the countdown). Later settings changes, catalog changes or pack edits never reach a running game; a rematch is a new start and uses the room's settings and pack contents at that moment, with an empty used-word set.
+- **Secrecy.** Settings carry pack ids, never words; `GAME_STARTED.settings` echoes them as stored. Errors (`message`, `details`) never contain words.
 
 ## 3. STOMP
 
@@ -175,7 +193,7 @@ Implemented in Phase 3: `SET_READY`, `REQUEST_SNAPSHOT`, `PING`. Phase 4 adds `S
 | `SET_READY` | member (`WAITING`) | `{ready:boolean}` | Idempotent (setting the current value emits no event but is acknowledged). `INVALID_PHASE` if the room is not `WAITING` |
 | `REQUEST_SNAPSHOT` | member | `{}` | Reply: private `ROOM_SNAPSHOT` (consumes one private `seq`; `snapshot.seq.private` equals that envelope's `seq`) |
 | `PING` | any member | `{}` | Reply: private `PONG {serverNow}`; no `actionId` required |
-| `START_GAME` | host (`WAITING`) | `{}` | *Phase 4*. Same effect as REST start; no `phaseId`. `NOT_HOST`, `INVALID_PHASE` (not `WAITING`/`STARTING`), `NOT_ENOUGH_PLAYERS`. Repeating it while `STARTING` is acknowledged without effect |
+| `START_GAME` | host (`WAITING`) | `{}` | *Phase 4*. Same effect as REST start; no `phaseId`. `NOT_HOST`, `INVALID_PHASE` (not `WAITING`/`STARTING`), `NOT_ENOUGH_PLAYERS`, `VALIDATION_FAILED`/`WORD_POOL_TOO_SMALL` (word settings, §2.4; with `details`). Repeating it while `STARTING` is acknowledged without effect |
 | `CHOOSE_WORD` | drawer (WORD_CHOICE) | `{wordIndex:0-2}` | *Phase 5*, specified in §3.9. Index only; server holds words |
 | `DRAW_STROKE` | drawer (DRAWING) | `{strokeId, batchNo, tool, color, size, points:[[x,y]…], final}` | *Phase 5*, §3.9. 0–200 points, integers 0–10000 |
 | `DRAW_UNDO` | drawer (DRAWING) | `{}` | *Phase 5*, §3.9. Removes last stroke |
@@ -237,7 +255,7 @@ Private stream (`/user/queue/rooms/{code}`):
 |---|---|---|
 | `ROOM_SNAPSHOT` | `SnapshotDto` | 3 |
 | `ACTION_ACK` | `{actionId, accepted:true}` (envelope `actionId` echoes it) | 3 |
-| `GAME_ERROR` | `{actionId?, code, message, retryable}` — rejected command of a member (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `DUPLICATE_ACTION`, `STALE_ACTION`; `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `NOT_IN_ROOM` and `SERVER_ERROR` arrive as `ERROR` on `/user/queue/errors` with the same payload; exception: `PAYLOAD_TOO_LARGE`, `NOT_DRAWER` and `IS_DRAWER` raised by a *game module* — e.g. the Draw & Guess stroke budgets — are private `GAME_ERROR`s like any module rejection, because only the transport-level byte caps are decided before the mailbox) | 3 |
+| `GAME_ERROR` | `{actionId?, code, message, retryable, details?}` — `details` as in §1, only when the code documents it (e.g. `WORD_POOL_TOO_SMALL` on `START_GAME`); rejected command of a member (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `DUPLICATE_ACTION`, `STALE_ACTION`; `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `NOT_IN_ROOM` and `SERVER_ERROR` arrive as `ERROR` on `/user/queue/errors` with the same payload; exception: `PAYLOAD_TOO_LARGE`, `NOT_DRAWER` and `IS_DRAWER` raised by a *game module* — e.g. the Draw & Guess stroke budgets — are private `GAME_ERROR`s like any module rejection, because only the transport-level byte caps are decided before the mailbox) | 3 |
 | `PONG` | `{serverNow}` | 3 |
 | `SESSION_REPLACED` | `{}` then the connection is closed | 3 |
 | `WORD_CHOICES` | `{phaseId, choices:[string×3], deadlineAt}` — drawer only | 5 |
