@@ -706,6 +706,26 @@ class SessionServiceTest {
     assertThat(crashing.sessions.activeCount()).isEqualTo(1);
   }
 
+  @Test
+  void privateEventsOfANewPhaseCanCarryItsPhaseId() {
+    f.players(2);
+    f.startAndPlay();
+    f.sessions.submit(
+        CODE,
+        f.sink.ofType("TEST_SECRET").getFirst().recipient(),
+        "TEST_NEXT",
+        f.phaseId(),
+        Map.of());
+
+    List<Published> secrets = f.sink.ofType("TEST_SECRET");
+    List<Published> phases = f.sink.ofType("PHASE_STARTED");
+    assertThat(secrets).hasSize(2);
+    for (int i = 0; i < 2; i++) {
+      assertThat(secrets.get(i).payload().get("phaseId"))
+          .isEqualTo(phases.get(i).payload().get("phaseId"));
+    }
+  }
+
   // ------------------------------------------------------------------ snapshots and secrecy
 
   @Test

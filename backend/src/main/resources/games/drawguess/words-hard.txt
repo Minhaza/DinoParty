@@ -1,0 +1,187 @@
+# DinoParty Draw & Guess word list, tier HARD. Version 1.
+# Original list ([DG-15], A14): lowercase letters, single inner spaces or hyphens, 3-20 characters.
+# One word per line; lines starting with # are comments. Reviewed for offensive entries (H8).
+astronaut
+telescope
+microscope
+skeleton
+lightning
+tornado
+avalanche
+earthquake
+eclipse
+constellation
+satellite
+submarine
+parachute
+skyscraper
+windmill
+treasure map
+roller coaster
+ferris wheel
+merry-go-round
+trampoline
+hammock
+campfire
+fireworks
+birthday party
+wedding cake
+haunted house
+time machine
+magic trick
+juggler
+acrobat
+ventriloquist
+lifeguard
+firefighter
+plumber
+carpenter
+librarian
+detective
+scientist
+archaeologist
+beekeeper
+lumberjack
+chef
+referee
+goalkeeper
+marathon
+tug-of-war
+hide-and-seek
+hopscotch
+scarecrow
+compass
+hourglass
+sundial
+thermometer
+stethoscope
+wheelchair
+bandage
+hiccups
+sneeze
+yawn
+nightmare
+daydream
+gravity
+magnet
+electricity
+battery
+light bulb
+keyboard
+password
+headphones
+microphone
+loudspeaker
+vending machine
+escalator
+elevator
+traffic light
+crosswalk
+roundabout
+tunnel
+highway
+passport
+suitcase
+souvenir
+postcard
+jigsaw puzzle
+chess
+checkmate
+domino
+origami
+pottery
+sculpture
+museum
+orchestra
+conductor
+ballet
+karaoke
+podcast
+selfie
+recycling
+compost
+greenhouse
+harvest
+hibernation
+migration
+camouflage
+metamorphosis
+fossil
+glacier
+iceberg
+geyser
+canyon
+swamp
+jungle
+oasis
+mirage
+quicksand
+stalactite
+coral reef
+shipwreck
+treasure chest
+skateboard
+snowboard
+surfboard
+scuba diver
+snorkel
+kayak
+sailboat
+hot-air balloon
+zeppelin
+cable car
+unicycle
+stilts
+pogo stick
+yo-yo
+boomerang
+kaleidoscope
+piggy bank
+alarm clock
+sleepwalking
+homesick
+jet lag
+sunburn
+goosebumps
+brainstorm
+deadline
+teamwork
+applause
+standing ovation
+red carpet
+autograph
+tightrope
+magician
+fortune teller
+crystal ball
+family tree
+bookworm
+couch potato
+night owl
+early bird
+copycat
+cliffhanger
+blueprint
+pyramid
+sphinx
+totem pole
+drawbridge
+knight
+jester
+avocado
+artichoke
+broccoli
+cauliflower
+pineapple
+coconut
+dumpling
+spaghetti
+sushi
+burrito
+croissant
+pretzel
+waffle
+lasagna
+milkshake
+lemonade
+smoothie
