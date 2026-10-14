@@ -185,6 +185,32 @@ Checklist mapped to existing tests (no new defects found, no code changed):
 
 Not verified in this pass: Playwright E2E (not present until Phase 8), Linux/CI, a live process kill, and the browser UI against a real game (no production game module exists). Full Draw & Guess and Telephone Drawing gameplay is **not** implemented.
 
+## Phase 5 verification record (P5-02, Draw & Guess backend)
+
+Run on Windows 11, JDK 21.0.3, Docker Desktop 29.8 (Testcontainers PostgreSQL 16). `./mvnw verify` (Spotless check, unit tests, integration tests): **BUILD SUCCESS, 198 unit tests and 137 integration tests, 0 failures, 0 skipped.** Frontend not touched and not re-run. Not run: Linux/CI, Playwright.
+
+New in P5-02 (68 unit, 4 integration):
+
+| Test | Count | Covers |
+|---|---|---|
+| `drawing.CanvasBufferTest` | 11 | `[DG-14]` every budget at its boundary, ordering/style, implicit close, undo/clear refunds, rejection leaves the buffer equal |
+| `drawing.StrokeBatchTest` | 3 | `DRAW_STROKE` schema validation (no client data echoed) |
+| `games.drawguess.DrawGuessRulesTest` | 22 | `[DG-3]` hint, `[DG-4]` normalization, `[DG-5]` close, `[DG-12]`/`[DG-13]` examples and rounding, `[DG-15]` word pool (sizes, charset, blocklist, no repeats, exhaustion, seeded determinism), settings defaults |
+| `room.DrawGuessSettingsSchemaTest` | 2 | module settings bounds = room schema (drift guard) |
+| `session.DrawGuessSessionTest` | 27 | module in the real engine with a manual clock: registration/start, player-count bounds, drawer rotation and skipped turns, word-choice authorization and auto-pick, secrecy of word/choices in events/snapshots/errors/round records, guess classification and scoring, timer expiry and exactly-at-deadline `STALE_ACTION`, hints, strokes/undo/clear, canvas full, concurrent correct guesses, reconnect snapshots, drawer/guesser leaving (D24, D25, D30, `[C-1]`), final standings and rematch, maximal snapshot < 256 KiB, random-interleaving invariants (secrecy, ledger = deltas) |
+| `session.SessionServiceTest` (+1) | 1 | engine SPI: private events of a new phase carry its `phaseId` (`GameContext.nextPhaseId`) |
+| `architecture.ArchitectureTest` (+2) | 2 | `drawing` depends on `common` only; `games.drawguess` on engine/drawing/common only |
+| `realtime.DrawGuessIT` | 3 | real STOMP: full 3-player game with role errors, stale/duplicate, secrecy across sockets, refresh mid-round, concurrent correct guesses, drawer leaving, results REST with round meta and standings detail, rematch and new session; maximal canvas (12 000 points) snapshot delivered under 256 KiB; module `PAYLOAD_TOO_LARGE` as private `GAME_ERROR` and transport cap on the errors queue; catalog defaults = module defaults |
+| `realtime.RealtimeCommandIT` (+1, 1 changed) | 1 | registered Draw & Guess commands answer `INVALID_PHASE` while no game runs (they were `INVALID_ACTION` before the module existed) |
+
+### Not verified / known limitations (Phase 5 backend)
+
+- No frontend, browser or Playwright verification (Antigravity tasks 5.10–5.13).
+- Not built: shared contract JSON fixtures (5.8), the snapshot/event replay-equivalence property test, a 10-player fan-out load test with mailbox hold times, and an explicit "zero Hibernate statements per Draw & Guess command" assertion (the engine-level test covers the shared code path only).
+- Engine semantics inherited from Phase 4: rate limits are a fixed one-second window of `max(burst, ceil(rate))` (e.g. 40 strokes/s, 5 guesses/s) and payload caps count characters of the serialized payload, not bytes.
+- A wrong guess containing the answer inside a sentence is broadcast as is (design §13 H4).
+- The 8 KiB stroke cap and 64 KiB frame cap are respected by construction; a 223 KB snapshot frame is delivered in the IT on this machine only.
+
 ## Phase 4 Frontend coverage (game-session infrastructure)
 
 Vitest + Testing Library (`npm --prefix frontend test`):

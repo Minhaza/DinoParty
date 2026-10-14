@@ -99,11 +99,6 @@ class RealtimeCommandIT extends RealtimeFixture {
     joinRoom();
     for (String type :
         List.of(
-            "CHOOSE_WORD",
-            "DRAW_STROKE",
-            "DRAW_UNDO",
-            "DRAW_CLEAR",
-            "SUBMIT_GUESS",
             "TELEPHONE_SUBMIT_TEXT",
             "TELEPHONE_SUBMIT_DRAWING",
             "REVEAL_NEXT",
@@ -113,6 +108,19 @@ class RealtimeCommandIT extends RealtimeFixture {
           errorFor(
               "{\"type\":\"%s\",\"actionId\":\"%s\",\"payload\":{}}".formatted(type, actionId()));
       assertThat(error.payload().get("code").asString()).as(type).isEqualTo("INVALID_ACTION");
+    }
+  }
+
+  @Test
+  void registeredDrawGuessCommandsAreRefusedWhileNoGameRuns() {
+    joinRoom(); // a draw-guess room in WAITING: the module exists, but no session does
+    for (String type :
+        List.of("CHOOSE_WORD", "DRAW_STROKE", "DRAW_UNDO", "DRAW_CLEAR", "SUBMIT_GUESS")) {
+      StompTestClient.Message error =
+          errorFor(
+              "{\"type\":\"%s\",\"actionId\":\"%s\",\"phaseId\":null,\"payload\":{}}"
+                  .formatted(type, actionId()));
+      assertThat(error.payload().get("code").asString()).as(type).isEqualTo("INVALID_PHASE");
     }
   }
 

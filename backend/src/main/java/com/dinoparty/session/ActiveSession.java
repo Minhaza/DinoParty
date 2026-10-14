@@ -39,6 +39,10 @@ final class ActiveSession {
 
   String phase;
   UUID phaseId;
+
+  /** Id announced to the module in its GameContext; becomes phaseId if its call changes phase. */
+  UUID nextPhaseId;
+
   Instant phaseStartedAt;
   Instant deadlineAt;
   final DeadlineBook deadlines = new DeadlineBook();

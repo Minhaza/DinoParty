@@ -28,7 +28,9 @@ class ArchitectureTest {
               "com.dinoparty.realtime..",
               "com.dinoparty.engine..",
               "com.dinoparty.session..",
-              "com.dinoparty.history..");
+              "com.dinoparty.history..",
+              "com.dinoparty.drawing..",
+              "com.dinoparty.games..");
 
   @ArchTest
   static final ArchRule guestDependsOnlyOnCommon =
@@ -152,6 +154,44 @@ class ArchitectureTest {
               "jakarta.persistence..")
           .allowEmptyShould(true);
 
+  /** The shared stroke library is pure: only common, so both drawing games can use it. */
+  @ArchTest
+  static final ArchRule drawingDependsOnlyOnCommon =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.drawing..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.engine..",
+              "com.dinoparty.games..",
+              "com.dinoparty.room..",
+              "com.dinoparty.session..",
+              "com.dinoparty.history..",
+              "com.dinoparty.realtime..",
+              "com.dinoparty.web..",
+              "com.dinoparty.guest..",
+              "com.dinoparty.health..",
+              "org.springframework..",
+              "..persistence..",
+              "jakarta.persistence..");
+
+  /** Draw & Guess uses the engine SPI, the drawing library and common only (design §10). */
+  @ArchTest
+  static final ArchRule drawGuessUsesEngineDrawingAndCommonOnly =
+      classes()
+          .that()
+          .resideInAPackage("com.dinoparty.games.drawguess..")
+          .should()
+          .onlyDependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.games.drawguess..",
+              "com.dinoparty.engine..",
+              "com.dinoparty.drawing..",
+              "com.dinoparty.common..",
+              "org.springframework.stereotype..",
+              "java..");
+
   /** The session module talks to sockets and storage only through its ports. */
   @ArchTest
   static final ArchRule sessionUsesPortsOnly =
@@ -196,7 +236,10 @@ class ArchitectureTest {
       noClasses()
           .that()
           .resideInAnyPackage(
-              "com.dinoparty.engine..", "com.dinoparty.session..", "com.dinoparty.games..")
+              "com.dinoparty.engine..",
+              "com.dinoparty.session..",
+              "com.dinoparty.games..",
+              "com.dinoparty.drawing..")
           .should()
           .callMethod(java.time.Instant.class, "now")
           .orShould()
@@ -210,7 +253,8 @@ class ArchitectureTest {
   static final ArchRule noThreadsInEngineOrGames =
       noClasses()
           .that()
-          .resideInAnyPackage("com.dinoparty.engine..", "com.dinoparty.games..")
+          .resideInAnyPackage(
+              "com.dinoparty.engine..", "com.dinoparty.games..", "com.dinoparty.drawing..")
           .should()
           .dependOnClassesThat()
           .haveFullyQualifiedName("java.lang.Thread")

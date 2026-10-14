@@ -60,6 +60,7 @@ final class SessionFixture {
     volatile RoomStatus status = RoomStatus.WAITING;
     volatile UUID host;
     volatile String gameKey = TestGameModule.KEY;
+    volatile Map<String, Object> settings = Map.of();
     private final ReentrantLock lock = new ReentrantLock(true);
 
     UUID addMember(boolean connected) {
@@ -98,7 +99,7 @@ final class SessionFixture {
 
     @Override
     public RoomState state(String roomCode) {
-      return new RoomState(roomId, status, gameKey, host, Map.of(), List.copyOf(members));
+      return new RoomState(roomId, status, gameKey, host, settings, List.copyOf(members));
     }
 
     @Override
@@ -235,6 +236,7 @@ final class SessionFixture {
 
   SessionFixture(GameModule module) {
     this.module = module instanceof TestGameModule t ? t : null;
+    room.gameKey = module.definition().key();
     sessions =
         new SessionService(
             new GameRegistry(List.of(module)),

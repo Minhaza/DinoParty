@@ -22,6 +22,8 @@ public enum ErrorCode {
   INVALID_PHASE(HttpStatus.CONFLICT, "Not allowed in the current phase"),
   INVALID_ACTION(HttpStatus.BAD_REQUEST, "Action not supported"),
   DUPLICATE_ACTION(HttpStatus.CONFLICT, "Duplicate action"),
+  NOT_DRAWER(HttpStatus.FORBIDDEN, "Only the drawer can do this"),
+  IS_DRAWER(HttpStatus.FORBIDDEN, "The drawer cannot do this"),
   PAYLOAD_TOO_LARGE(HttpStatus.valueOf(413), "Payload too large"),
   SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error"),
   RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests");
