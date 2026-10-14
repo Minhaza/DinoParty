@@ -14,8 +14,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The word pool over the real seeded catalog (V6) and the production custom-pack provider (no packs
- * until WP-03). Rolled back, so deactivated rows never leak into other tests.
+ * The word pool over the real seeded catalog (V6) and the production custom-pack provider (stored
+ * packs are covered by WordPackPoolIT). Rolled back, so deactivated rows never leak into other
+ * tests.
  */
 @IntegrationTest
 @Transactional
@@ -64,7 +65,7 @@ class WordPoolIT {
   }
 
   @Test
-  void customPacksAreUnavailableUntilWp03ProvidesThem() {
+  void anUnknownPackIsUnavailable() {
     DomainException e =
         assertThrows(
             DomainException.class,

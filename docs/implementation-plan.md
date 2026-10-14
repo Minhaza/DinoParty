@@ -137,6 +137,7 @@ Exit: three browsers play a complete game (word choice, drawing, guessing, scori
 |---|---|---|---|---|
 | WP-01 | Word catalog and database: categorized, difficulty-tagged built-in words (Flyway `V5`/`V6`), `words` module, read-only metadata endpoints (api-contracts §2.3); no gameplay change | CC | 5.2 | ≥ 150 `EASY` and ≥ 150 `MEDIUM`, curated `HARD`; legacy words all present with consistent tiers (D32); duplicate/format constraints, filtering, locale fallback and API contract tested; `backend verify` green. **Done** (design §18) |
 | WP-02 | Word filtering and game integration: `wordSource`/`wordCategories`/`difficulty` (adds `medium`)/`wordPackIds` settings (api-contracts §2.4, D33), `WordPoolService` + frozen `WordPool`, `CustomWordProvider` boundary for WP-03, start check `WORD_POOL_TOO_SMALL`, engine `GameModule.prepare`/`GameSetup`; no frontend change | CC | WP-01 | Categories (single, several, Random Mix, empty), each difficulty and mixed, combined de-duplication, insufficient pool (no partial start), no-repeat, exhaustion, secrecy, freeze at start, rematch reset tested; `backend verify` green. **Done** (design §19) |
+| WP-03 | Custom word packs and import: room-scoped packs (host-only writes, member-visible metadata), TXT/CSV import with preview/confirm (api-contracts §2.5, D34), `PackWordProvider` for the word pool; `V8` | CC | WP-01, WP-02 | CRUD + authorization + cross-room isolation, parsers, limits, concurrency and rollback tests green; `./mvnw verify` |
 
 ## Phase 6 — Telephone Drawing  (parallel with Phase 5)
 

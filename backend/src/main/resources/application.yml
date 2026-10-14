@@ -14,6 +14,14 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
+  servlet:
+    multipart:
+      # Word pack imports are capped at 1 MiB (WordPackLimits); the framework limit sits just above
+      # so the service reports the contract's PAYLOAD_TOO_LARGE for files it receives, while a
+      # request far beyond is cut off before it is buffered.
+      max-file-size: 1100KB
+      max-request-size: 1200KB
+      file-size-threshold: 2MB
 
 logging:
   level:

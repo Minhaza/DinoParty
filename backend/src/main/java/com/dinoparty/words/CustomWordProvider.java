@@ -5,9 +5,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Custom word packs for the word pool. WP-03 implements it on top of its pack storage; until then
- * {@link NoCustomWordPacks} answers that no pack exists. Selection, filtering, de-duplication and
- * drawing stay in {@link WordPoolService}, so a provider only returns entries.
+ * Custom word packs for the word pool. The {@code wordpacks} module implements it on top of its
+ * room-scoped pack storage (WP-03). Selection, filtering, de-duplication and drawing stay in {@link
+ * WordPoolService}, so a provider only returns entries.
  */
 public interface CustomWordProvider {
 

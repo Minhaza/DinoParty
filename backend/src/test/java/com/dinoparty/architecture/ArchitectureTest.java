@@ -113,6 +113,43 @@ class ArchitectureTest {
               "com.dinoparty.health..");
 
   @ArchTest
+  static final ArchRule wordPacksPersistenceIsPrivateToWordPacks =
+      noClasses()
+          .that()
+          .resideOutsideOfPackage("com.dinoparty.wordpacks..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.wordpacks.persistence..");
+
+  /** Word packs sit on rooms (authorization) and the word pool SPI, never on transport or games. */
+  @ArchTest
+  static final ArchRule wordPacksDoNotDependOnTransportSessionsOrGames =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.wordpacks..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.web..",
+              "com.dinoparty.realtime..",
+              "com.dinoparty.session..",
+              "com.dinoparty.engine..",
+              "com.dinoparty.games..",
+              "com.dinoparty.history..",
+              "com.dinoparty.health..",
+              "com.dinoparty.room.persistence..",
+              "com.dinoparty.guest.persistence..");
+
+  @ArchTest
+  static final ArchRule wordCatalogKnowsNothingOfWordPacks =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.words..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.wordpacks..");
+
+  @ArchTest
   static final ArchRule realtimeDoesNotTouchPersistence =
       noClasses()
           .that()
