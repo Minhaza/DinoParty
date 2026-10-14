@@ -29,7 +29,7 @@ All values marked *(default)* are configurable within the stated bounds. The ser
 
 ## Game 1 — Draw & Guess (`draw-guess`)
 
-Players: 2–10 (default max 8). Rounds: one turn per player per "cycle"; `cycles` *(default 2)* → total rounds = players × cycles.
+Players: 2–10 (default max 8); `minActivePlayers` 2. Design, state machine and wire details: `docs/draw-guess-design.md`; contract: `api-contracts.md` §3.9. Decisions D24–D31 (`decisions-and-risks.md` §6) are **approved**, D25 and D28 with the amendments written below; rules that came from them are tagged with the decision id.
 
 ### Settings (host, in WAITING only)
 
@@ -38,44 +38,85 @@ Players: 2–10 (default max 8). Rounds: one turn per player per "cycle"; `cycle
 | `cycles` | 2 | 1–5 |
 | `drawSeconds` | 80 | 30–180 |
 | `wordChoiceSeconds` | 15 | 5–30 |
-| `wordChoices` | 3 | fixed 3 in MVP |
 | `hintReveal` | on | on/off: reveal letters progressively |
 | `difficulty` | mixed | easy/mixed/hard word pool |
 
+The number of word choices is the constant 3 (not a setting). Constants (not settings): round-summary pause 6 s, word length 3–20.
+
 ### Round flow
 
-1. **`[DG-1]` Drawer selection.** Fair rotation: the order is a shuffled permutation of players made at game start; each cycle uses the same order. A player who left is skipped. A late-rejoining player does not re-enter mid-game.
-2. **`[DG-2]` Word choice phase** (`wordChoiceSeconds`). The server draws 3 distinct words (not used earlier in this session) and sends them **privately** to the drawer. If the drawer does not pick before the deadline, the server picks one at random.
-3. **`[DG-3]` Drawing phase** (`drawSeconds`). The drawer's word is sent privately to the drawer. Others receive a hint of underscores and lengths (e.g. `_ _ _ _  _ _ _`), with spaces/hyphens shown. If `hintReveal` is on, one random letter is revealed at 50 % and again at 75 % of elapsed time (never more than ⌈len/2⌉ letters).
-4. **`[DG-4]` Guessing.** Every non-drawer who has not yet guessed correctly may submit guesses. Guess normalization: Unicode NFKC, lowercase, trim, collapse whitespace, strip punctuation; accents folded. Match is exact on normalized text, or Levenshtein distance ≤ 1 for words ≥ 6 letters is reported as `CLOSE` (private feedback "so close!", **not** accepted) `[DG-5]`.
-5. **`[DG-6]` Wrong guesses** are broadcast as chat lines (with author). **Correct guesses** are broadcast only as "<name> guessed the word!" (word withheld); the guesser is then muted for guesses and their further chat is visible only to other correct guessers and the drawer `[DG-7]`.
-6. **`[DG-8]` Drawer restrictions.** The drawer can only draw/undo/clear; cannot guess; their chat is disabled. Other players cannot send drawing commands.
-7. **`[DG-9]` Round end** when (a) time expires, or (b) all connected non-drawer players have guessed correctly (end immediately after 2 s grace to show result), or (c) the drawer permanently leaves (round aborted, no points to anyone) `[DG-10]`. The word is revealed to all at round end; a short `ROUND_ENDED` summary (word, points) is shown for 6 s.
-8. **`[DG-11]` Next round** or game end after the final round.
+Phases of one round, in order: `WORD_CHOICE` → `DRAWING` → `ROUND_END` (names are the engine's `phase` values). Every round has all three unless it is aborted (`[DG-10]`).
+
+1. **`[DG-1]` Turns and drawer rotation.** The engine's `order` (a shuffle made once at start, `[C-4]`) is repeated `cycles` times to make the *turn list* (`players × cycles` entries, fixed at start). Each round takes the next turn; a turn whose player is `LEFT` when the turn is reached is skipped without a round. `round` is 1-based and counts rounds actually played; `totalRounds` is `rounds played so far + remaining turns whose player is not LEFT` and is recomputed at every phase start, so it may shrink when players leave and never grows. A player who left never re-enters (`[C-9]`). A `DISCONNECTED` player keeps their turn (`[DG-10]`). *(proposed, D29)*
+2. **`[DG-2]` Word choice phase** (`WORD_CHOICE`, `wordChoiceSeconds`). The server draws 3 distinct words from the pool (`[DG-15]`) and sends them **privately** to the drawer only. `CHOOSE_WORD{wordIndex}` from the drawer ends the phase at once and starts `DRAWING`. If the drawer has not chosen by the deadline, the server picks one of the three at random and starts `DRAWING` (`autoPicked: true` in the round record). Nobody but the drawer ever sees the three choices, and the two unchosen words are never published, persisted or revealed.
+3. **`[DG-3]` Drawing phase** (`DRAWING`, `drawSeconds`, deadline = phase start + `drawSeconds`). The drawer receives the word privately. Everyone else sees only the **hint**: a string with one character per character of the word, `_` for each hidden letter, spaces and hyphens shown as they are (`"____ ___"`, `"__-____"`); clients render the spaced form. With `hintReveal` on, one random still-hidden letter (never a space or hyphen) is revealed when 50 % of `drawSeconds` has elapsed and another at 75 %, and `HINT_UPDATED` is published each time; never more than ⌈letters/2⌉ revealed. The drawer's word and canvas are the only thing the drawer produces; the canvas starts empty.
+4. **`[DG-4]` Guess normalization and matching.** A guess is normalized as: Unicode NFKC → NFD with combining marks removed (accents folded) → lowercase → hyphens and underscores become spaces → every character that is not a letter, digit or space is removed → whitespace collapsed and trimmed. The word is normalized the same way. A guess is **correct** if the normalized texts are equal, or equal after removing all spaces (`"ice cream"` = `"icecream"`). A guess that normalizes to the empty string is invalid (`VALIDATION_FAILED`). Raw guess length is 1–80 characters after trim; control characters are stripped before normalization.
+5. **`[DG-5]` Close guesses.** For normalized words of ≥ 6 letters, a guess at Levenshtein distance exactly 1 (on the space-free forms) is **close**: the guesser gets private feedback `CLOSE`; it is not accepted and not broadcast. *(proposed, D27: not broadcast.)*
+6. **`[DG-6]` Wrong guesses** (neither correct nor close) are broadcast as public chat lines with the author (`GUESS_CHAT`). A wrong guess whose normalized text equals one already guessed (by anyone) in this round is not broadcast; the author gets private feedback `DUPLICATE` *(proposed, D27)*.
+7. **`[DG-7]` Correct guesses and muting.** A correct guess is broadcast only as `GUESS_ACCEPTED` (guesser, points, new total; never the word). That player is then a *solver* for the rest of the round: any further text they submit is delivered only to the other solvers and the drawer (`GUESSER_CHAT`), is never evaluated as a guess, and is not echoed to anyone else. Late solvers do not receive earlier restricted lines live, and the snapshot only contains restricted lines the viewer was an audience member of when they were sent. The drawer cannot send text (`[DG-8]`) but receives solvers' lines.
+8. **`[DG-8]` Drawer restrictions.** In `DRAWING` the drawer may only draw, undo and clear; they cannot guess or chat (`IS_DRAWER`). Non-drawers cannot send drawing or word commands (`NOT_DRAWER`). Guesses and chat exist only in `DRAWING`; in `WORD_CHOICE`/`ROUND_END` they are `INVALID_PHASE`.
+9. **`[DG-9]` Round end.** `DRAWING` ends when (a) its deadline passes (`reason: TIME`), or (b) every *eligible guesser* has guessed correctly (`reason: ALL_GUESSED`), at the moment the last correct guess is processed — there is no extra grace (`[C-6]`, D26) — or (c) the drawer is `LEFT` (`[DG-10]`). Eligible guessers are defined in `[DG-13]`; a `DISCONNECTED` eligible guesser stays eligible, and so blocks (b), only during the engine's in-game reconnection grace (60 s); when the grace expires the engine marks them `LEFT`, they are removed from the eligible set and (b) is re-evaluated at once with the remaining players (D25). (b) holds when the eligible set has no unsolved guesser left and at least one guesser solved; if it has no unsolved guesser and nobody solved, fewer than 2 players remain and the engine's `[C-1]` path decides (the module does not end the round itself, so that round is discarded as in `[DG-16]`). Room membership, presence and reconnection are the engine's and are unchanged. At round end the engine moves to `ROUND_END` (6 s): `ROUND_ENDED` publishes the word, the round's score deltas and totals, the final canvas stays visible. Round-end conditions are evaluated inside the same mailbox command that caused them, in this order of events: `GUESS_ACCEPTED` (if any), `ROUND_ENDED`, `PHASE_STARTED{ROUND_END}`.
+10. **`[DG-10]` Drawer leaves.** A drawer who is `DISCONNECTED` keeps the turn: the round continues with its current deadline and the drawer's snapshot restores word and canvas on return. When the drawer becomes `LEFT` (grace expired, left, kicked) in `WORD_CHOICE` or `DRAWING`, the round ends at once with `reason: DRAWER_LEFT`: the drawer scores 0, guesser points already awarded stay (they were published as `GUESS_ACCEPTED`), nobody receives further points, and the word is revealed if it had been chosen *(proposed, D24)*. The round still goes through `ROUND_END` and counts as a recorded round (engine `[C-1]` counts it, D30). If the drawer is `LEFT` during `ROUND_END`, nothing changes.
+11. **`[DG-11]` Next round or finish.** When `ROUND_END` expires the next round starts (`WORD_CHOICE`, new word draw, empty canvas) or, if no turn is left, the game finishes (`GAME_FINISHED`, room → `RESULTS`). The last round also gets its full `ROUND_END` pause.
 
 ### Scoring (defaults)
 
-- Let `T = drawSeconds`, `t_rem` = remaining seconds when the guess is accepted (server clock), `order` = 0-based index among correct guessers.
-- **Guesser points** `[DG-12]`: `round(100 + 400 × t_rem / T) − 25 × order`, minimum 50.
-- **Drawer points** `[DG-13]`: `round(100 × correctGuessers / (eligibleGuessers))` + `50` if everyone guessed; 0 if nobody guessed. (`eligibleGuessers` = connected non-drawers at round start.)
-- Scores are integers computed server-side; clients never submit scores.
-- Ties in the final ranking share rank; tiebreaker display order: total correct guesses, then earliest join.
+- Let `T = drawSeconds`, `remMs` = milliseconds from the processing instant (room mailbox time) to the `DRAWING` deadline, `order` = 0-based index among correct guessers in mailbox order. `roundHalfUp(x) = floor(x + 0.5)`.
+- **Guesser points** `[DG-12]`: `max(50, roundHalfUp(100 + 400 × remMs / (T × 1000)) − 25 × order)`. Example: `T = 80`, 60 s left, first solver → 400; third (`order = 2`) → 350.
+- **Drawer points** `[DG-13]`, awarded once at round end, 0 when the round ended `DRAWER_LEFT`: let `eligible` = non-drawer roster members not `LEFT` at the start of `DRAWING`, minus those who became `LEFT` without having guessed; `correct` = number of solvers (a solver who later left still counts in `correct` and in `eligible`). Points = `roundHalfUp(100 × correct / eligible)`, plus 50 if `correct = eligible`; 0 if `correct = 0`. Example: 3 of 4 → 75; 4 of 4 → 150.
+- Scores are integers computed server-side; clients never submit scores. Points are applied to the ledger when computed (guesser: at the guess; drawer: at round end).
+- Ranking `[C-8]`; tied players share a rank. Display order among them is the engine's: play order (the engine has no module tie-break and Draw & Guess does not add one). Standing `detail`: `{correctGuesses, guesserPoints, drawerPoints, roundsDrawn}`.
 
-### Canvas and drawing constraints
+### Word pool `[DG-15]`
 
-- Logical canvas aspect fixed (16:10); coordinates normalized 0–1. Tools: pencil, eraser, 12-color palette, 4 brush sizes, clear, undo (last stroke).
-- Limits `[DG-14]`: ≤ 200 points per batch, ≤ 2000 points per stroke, ≤ 300 strokes per round, ≤ 32 KB per message, rate ≤ 30 batches/s per drawer.
-- Undo removes the drawer's last stroke; clear empties the board. Both are broadcast and part of the snapshot state.
+- Original English word list (A14), versioned resource. Each word has tier `EASY` or `HARD`, 3–20 characters, letters plus single spaces/hyphens, no leading/trailing separator, no offensive entries (blocklist test). Size: ≥ 150 per tier so that `players × cycles` (≤ 50) rounds never exhaust a tier.
+- `difficulty`: `easy` → EASY tier, `hard` → HARD tier, `mixed` → both tiers. The 3 choices are drawn uniformly without replacement from the pool minus **words already chosen earlier in this session** (offered-but-unchosen words may come back). Pool exhaustion falls back to allowing repeats. A new session (rematch) starts with an empty used set.
+
+### Timers `[DG-17]`
+
+| Phase | Duration | Advertised `deadlineAt` | Ends early when |
+|---|---|---|---|
+| `WORD_CHOICE` | `wordChoiceSeconds` | start + duration | valid `CHOOSE_WORD`; drawer `LEFT` |
+| `DRAWING` | `drawSeconds` | start + duration | all eligible guessed; drawer `LEFT` |
+| `ROUND_END` | 6 s | start + 6 s | never |
+
+Hint reveals are internal deadlines at 50 % and 75 % of `DRAWING`. All durations come from the server clock; due deadlines are applied before any command `[C-6]`.
+
+### Disconnection and leaving `[DG-16]`
+
+| Case | Behavior |
+|---|---|
+| Drawer disconnects | Round continues on the current deadline (`[DG-10]`); if the grace period (60 s) expires the drawer is `LEFT` and the round ends `DRAWER_LEFT`. |
+| Guesser disconnects | Stays eligible and keeps their points and solver status only during the in-game reconnection grace (60 s), blocking an `ALL_GUESSED` early end meanwhile. If they return, nothing changed. When the grace expires the engine marks them `LEFT` (D25): they leave the eligible set (`[DG-13]`) and `[DG-9]` (b) is re-evaluated at once. |
+| Fewer than 2 players not `LEFT` | Engine `[C-1]`: the session finishes with results if at least one round was recorded (including a `DRAWER_LEFT` round), otherwise it is aborted. A round in progress at that moment is discarded: no drawer points, no round record, guesser points already awarded stay in the standings. |
+| Reconnect | The snapshot restores everything the viewer may see (`[DG-18]`); nothing is replayed. |
+
+### Reconnect `[DG-18]`
+
+A reconnecting viewer receives a snapshot containing the current phase, `phaseId`, deadlines, hint, scores, the solvers, the visible chat lines and the **complete canvas** (all live strokes, in order). The drawer additionally receives `word` (in `DRAWING`) or `wordChoices` (in `WORD_CHOICE`). No other viewer ever receives either, and a solver does not receive the word either. In `ROUND_END` the word is public.
+
+### Canvas and drawing constraints `[DG-14]`
+
+- Logical canvas aspect 16:10. Wire coordinates are **integers 0–10000** (`x` of width, `y` of height; 1 unit = 0.01 % of the side), D28 (approved). Tools: pencil, eraser, 12-colour palette (client UI; the server accepts any `#RRGGBB`), 4 brush sizes (index 1–4), clear, undo (last stroke).
+- Limits (all enforced by the server on the drawer's own canvas, per round): ≤ 200 points per batch; ≤ 8 KiB per `DRAW_STROKE` message; ≤ 2000 points per stroke; ≤ 300 live strokes; **≤ 12 000 live points in total**; ≤ 30 batches/s (burst 40). Undo and clear free their budget. The approved target was 15 000 points (D28), but with `[[x,y]]` pairs the worst-case snapshot (12 000 × 14 B + 300 stroke headers ≈ 123 B + ≤ 30 chat lines + header) is ≈ 223 KB, while 15 000 points would be ≈ 265 KB and break the 256 KiB (262 144 B) snapshot bound, so the limit is reduced to 12 000; 15 000 would need the flat-array representation `points:[x0,y0,x1,y1,…]` (≈ 235 KB), which is not approved. A test serializes a maximal snapshot and asserts it is below 256 KiB.
+- **Budget exhaustion is deterministic and never truncates.** A batch that would exceed any limit (points per stroke, live points, live strokes) is rejected **whole** with `PAYLOAD_TOO_LARGE` (`retryable: false`) before any state changes; nothing of it is stored or published, so every client canvas equals the server canvas. Earlier accepted batches of that stroke stay. Batches that add no points (`final` with an empty `points`) always fit, so a stroke can always be closed. The drawer frees budget with undo or clear; after undoing an open stroke, further batches for its `strokeId` are `INVALID_ACTION`. The snapshot reports `canvasBudget` (used and maximum points/strokes) so the UI can warn before the limit.
+- A stroke is sent as ordered batches with the same `strokeId`, numbered from 0 (`batchNo`), the last one with `final: true`. The first batch for a `strokeId` fixes tool, colour and size; later batches must repeat them unchanged. A new `strokeId` implicitly closes any still-open stroke. Out-of-order or gapped `batchNo` is rejected (`INVALID_ACTION`).
+- Undo removes the drawer's last stroke (open or closed), clear empties the board; undo/clear on an empty board are acknowledged no-ops that publish nothing. Undo does not restore cleared strokes. Both are part of the snapshot state (the snapshot contains the strokes that exist now). The canvas is discarded when the next round's `WORD_CHOICE` starts.
+- Strokes are never persisted (D5); only round summaries are.
 
 ### Draw & Guess edge cases
 
 | Case | Behavior |
 |---|---|
-| Drawer disconnects mid-round | Grace period runs; if they return, round continues with current deadline. If grace expires: round aborted `[DG-10]`. |
-| Guesser disconnects | Their eligibility removed after grace expires; may end the round early if all remaining have guessed. |
-| Guess arrives at/after deadline | Accepted only if the server processes it before `deadlineAt` (the engine's `[C-6]`: due deadlines are applied first, so the phase has already changed and the command is `STALE_ACTION`). "Processes" means the room-mailbox time, not network arrival. |
-| Simultaneous correct guesses | Serialized by the room mailbox; earlier processed = better `order`. |
+| Guess arrives at/after deadline | The due deadline is applied first (`[C-6]`): the phase has already changed and the command is `STALE_ACTION`. "Before" means room-mailbox processing time, not network arrival. |
+| `CHOOSE_WORD` races the word-choice deadline | Same: at/after the deadline the server's pick wins and the command is `STALE_ACTION`. |
+| Simultaneous correct guesses | Serialized by the room mailbox; earlier processed = lower `order` = more points. |
 | Same word twice in a session | Prevented by the used-words set; pool exhaustion falls back to repeats. |
+| Duplicate command (`actionId` seen) | `DUPLICATE_ACTION`, not executed (engine). Any resubmission with a new `actionId` is judged on its own merits (a second `CHOOSE_WORD` is `STALE_ACTION` because the phase changed; a repeated `DRAW_STROKE` batch is `INVALID_ACTION` by `batchNo`; a repeated correct guess is restricted chat). |
+| Everybody but the drawer leaves | Fewer than 2 players: engine `[C-1]` path above. |
+| 2-player game | One drawer, one guesser; `eligible = 1`; the round ends when they guess or on time. |
+| Room host leaves | Hosting transfers `[C-2]`; the game is unaffected. |
+| Rematch | Engine `[C-3]`/`[C-11]`: same players, host and settings, new shuffle, empty used-words set, scores reset. |
 
 ---
 
