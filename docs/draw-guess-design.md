@@ -1,20 +1,20 @@
 # DinoParty — Draw & Guess Design (Phase 5)
 
-Status: **design, nothing implemented.** Written against the Phase 4 engine as merged on `main` (`docs/game-engine.md`, `backend/.../engine`, `session`). Normative sources: rules in `docs/game-rules.md` (`[DG-*]`), wire formats in `docs/api-contracts.md` §3.9. This document adds the state machine, the module mapping, the concurrency analysis and the task breakdown, and lists the decisions that need approval (D24–D31, mirrored in `docs/decisions-and-risks.md` §6). Where this document and the two sources differ, the sources win; fix this document.
+Status: **design; decisions D24–D31 approved (D25, D28 as amended below); implementation starts with P5-02.** Written against the Phase 4 engine as merged on `main` (`docs/game-engine.md`, `backend/.../engine`, `session`). Normative sources: rules in `docs/game-rules.md` (`[DG-*]`), wire formats in `docs/api-contracts.md` §3.9. This document adds the state machine, the module mapping, the concurrency analysis and the task breakdown, and lists the decisions that need approval (D24–D31, mirrored in `docs/decisions-and-risks.md` §6). Where this document and the two sources differ, the sources win; fix this document.
 
 ## 1. Scope and decisions needing approval
 
 Draw & Guess runs as a `GameModule` (`draw-guess`) inside the shared engine: the engine owns room status, countdown, roster/shuffle, `phaseId`, deadlines, dedupe, scores ledger, persistence, rematch; the module owns rounds, words, drawing, guesses and the scoring formulas. No SPI change is expected (R21); where one is, it is listed in §14.
 
-The earlier rules contained contradictions that the contract now resolves *provisionally*. They are the approval list (recommended option first applied in the docs):
+The earlier rules contained contradictions; all eight below are approved (D25 and D28 amended) and applied in the contract:
 
 | ID | Contradiction found | Applied (proposed) | Alternative |
 |---|---|---|---|
 | D24 | `[DG-9c]` "round aborted, no points to anyone" vs `[DG-12]`: guesser points are published immediately in `GUESS_ACCEPTED` | Drawer left ⇒ drawer 0, points already awarded stay | Roll back awarded points (clients already saw totals; needs a negative-delta event) |
-| D25 | `[DG-9b]` "all *connected* non-drawers guessed" vs edge table "eligibility removed after grace expires" | A `DISCONNECTED` guesser stays eligible until `LEFT` (matches the engine's "disconnected still counts") | Early end ignores disconnected guessers at once (round can end while someone is reconnecting) |
+| D25 | `[DG-9b]` "all *connected* non-drawers guessed" vs edge table "eligibility removed after grace expires" | **Approved, amended:** a `DISCONNECTED` guesser is eligible only during the engine's 60 s grace; at expiry the engine marks them `LEFT`, they leave the eligible set and early completion is re-evaluated. No unsolved guesser left and ≥ 1 solver ⇒ `ALL_GUESSED`; no unsolved guesser and no solver ⇒ the engine's `[C-1]` path decides (the module does not end the round) | Ignore disconnected guessers immediately |
 | D26 | `[DG-9b]` "2 s grace" vs `[C-6]`/D18 "no grace" | No grace: round ends in the command that completes it; the 6 s `ROUND_END` is the pause | Add a 2 s `INTERNAL` deadline (extra phase state) |
 | D27 | `CLOSE`/`DUPLICATE`/`ALREADY_GUESSED` feedback existed with no rule; `[DG-6]` says wrong guesses are broadcast | Close guesses are private only; `DUPLICATE` = same normalized wrong guess already made this round by anyone (not rebroadcast); `ALREADY_GUESSED` dropped, solver text is restricted chat | Broadcast close guesses (lets others copy a near-miss) |
-| D28 | `[DG-14]` limits (300 × 2000 points) allow ~8 MB of canvas, but the snapshot bound is 256 KiB (`game-engine.md` §7.1) and normalized floats are ~20 B per point | Fixed-point integer points (0–10000) shared with Telephone, plus a live budget of **15 000 points** per round | Keep floats and cap at ≈ 6 000 points; or REST-paged canvas fetch |
+| D28 | `[DG-14]` limits (300 × 2000 points) allow ~8 MB of canvas, but the snapshot bound is 256 KiB (`game-engine.md` §7.1) | **Approved, amended:** integer points 0–10000; **12 000** live points (the 15 000 target does not fit: see §8), 8 KiB per message, 200 points per batch, 2000 per stroke, 300 strokes; exhaustion rejects the whole batch (`PAYLOAD_TOO_LARGE`), never truncates; maximal-snapshot test | 15 000 points needs the flat `points:[x0,y0,…]` representation (not approved) |
 | D29 | "total rounds = players × cycles" vs `[DG-1]` skip left players | Fixed turn list, skip `LEFT`, `totalRounds` recomputed (may only shrink) | Fixed `totalRounds` with gaps |
 | D30 | Engine counts any `RoundRecord` as a completed round for `[C-1]` | A `DRAWER_LEFT` round is recorded and counts; a round in progress at an early finish is discarded | Don't record aborted rounds (needs a flag on `RoundRecord`) |
 | D31 | Word pool unspecified (tiers, repeats) | Two tiers EASY/HARD, ≥ 150 each; `mixed` = union; "used" = chosen words only | Per-choice tier mix (one easy, one hard, one any) |
@@ -86,7 +86,7 @@ Authoritative table: `api-contracts.md` §3.9 (commands, per-type rate/byte caps
 | Module role | drawer-only commands: `NOT_DRAWER`; `SUBMIT_GUESS` by drawer: `IS_DRAWER` | as named |
 | Module semantics | batch order/style, budgets, normalization | `INVALID_ACTION`, `PAYLOAD_TOO_LARGE`, `VALIDATION_FAILED` |
 
-`CommandSpec`s to register: `CHOOSE_WORD {WORD_CHOICE; 256 B; 2/s b3}`, `DRAW_STROKE {DRAWING; 32 KiB; 30/s b40}`, `DRAW_UNDO {DRAWING; 128 B; 5/s b5}`, `DRAW_CLEAR {DRAWING; 128 B; 2/s b3}`, `SUBMIT_GUESS {DRAWING; 1 KiB; 2/s b5}`. Event types: public `DRAWING_UPDATED`, `HINT_UPDATED`, `GUESS_ACCEPTED`, `GUESS_CHAT`, `ROUND_ENDED`; private `WORD_CHOICES`, `DRAWER_WORD`, `GUESS_FEEDBACK`, `GUESSER_CHAT`.
+`CommandSpec`s to register: `CHOOSE_WORD {WORD_CHOICE; 256 B; 2/s b3}`, `DRAW_STROKE {DRAWING; 8 KiB; 30/s b40}`, `DRAW_UNDO {DRAWING; 128 B; 5/s b5}`, `DRAW_CLEAR {DRAWING; 128 B; 2/s b3}`, `SUBMIT_GUESS {DRAWING; 1 KiB; 2/s b5}`. Event types: public `DRAWING_UPDATED`, `HINT_UPDATED`, `GUESS_ACCEPTED`, `GUESS_CHAT`, `ROUND_ENDED`; private `WORD_CHOICES`, `DRAWER_WORD`, `GUESS_FEEDBACK`, `GUESSER_CHAT`.
 
 Per the rule "validate, then mutate" every rejection leaves state equal; a module test per command asserts this.
 
@@ -143,12 +143,13 @@ Normative format: api-contracts §3.9.
 
 - **Why one command with `final` rather than begin/points/end:** every batch carries enough to be validated and replayed on its own (style repeated, `batchNo`), so there is no begin/end state that a dropped message can leave dangling; begin/end would triple message count on short strokes. "Begin" is `batchNo = 0`, "end" is `final = true`, "points" is any batch.
 - **Ordering:** frames from one connection are processed in sent order; the mailbox serializes; publication order = acceptance order; `seq` is gapless per stream. `batchNo` additionally detects a *client-side* hole (a batch dropped by `RATE_LIMITED`, which is decided before the mailbox and therefore never reaches the module). On a hole the server rejects later batches of that stroke, and the client's recovery (new `strokeId` from the last point) keeps drawing alive.
-- **Bounds:** per message 200 points and 32 KiB; per stroke 2000 points; per round 300 live strokes and 15 000 live points; ≤ 30 batches/s per drawer (burst 40). Worst-case accepted traffic: 15 000 points × ≈ 12 B ≈ 180 KB per round per recipient (≤ 10 recipients), spread over the round; peak rate is bounded by the batch rate, not by point counts: 30 batches/s × 200 points would exhaust the point budget in 2.5 s, after which every stroke batch is rejected, so abuse is self-limiting.
+- **Bounds:** per message 200 points and 8 KiB; per stroke 2000 points; per round 300 live strokes and 12 000 live points; ≤ 30 batches/s per drawer (burst 40). Abuse is self-limiting: at 30 batches × 200 points the point budget is gone in 2 s, after which stroke batches are rejected until undo/clear.
+- **Deterministic exhaustion:** `CanvasBuffer.append` checks every limit against the *whole* batch before mutating anything and throws `ActionRejected(PAYLOAD_TOO_LARGE)`; nothing is stored, published or truncated, so server and all clients stay identical. Closing-only batches (`final`, no points) cannot fail on budget. Undo and clear refund exactly the points/strokes they remove. `canvasBudget` in the snapshot exposes usage.
 - **Fan-out:** one public `DRAWING_UPDATED` per batch; the drawer receives and ignores its echo (D17); no per-recipient copies.
 - **State:** `List<Stroke>` (bounded) plus an `openStrokeId`; undo pops the tail, clear empties; counters `livePoints` and `strokes` are decremented accordingly. The canvas is cleared when the next round starts, kept during `ROUND_END`.
 - **Server-side processing:** the server validates and stores points exactly as received (integers); it does not simplify (clients do), so replay on all clients is identical to the drawer's canvas. Consecutive duplicate points are allowed.
 - **Reconnection recovery:** snapshot `strokes` contains every live stroke in order, each with `closed` flag. A viewer applies the snapshot wholesale, then events with `seq >` the snapshot's. The drawer's own client, after reconnect, replaces its local canvas with the snapshot (its in-flight open stroke, if any, is shown with `closed:false` and continues with the next `batchNo` only if the client still holds the counter; otherwise it starts a new `strokeId`).
-- **Snapshot size bound:** worst case ≈ 15 000 × 12 B + 300 stroke headers (≈ 100 B) ≈ 210 KB < 256 KiB; the outbound STOMP send buffer limit is 512 KiB (`WebSocketConfig`). A maxed-out-canvas snapshot test is mandatory (§11). If it fails, D28's budget is lowered, not the engine bound.
+- **Snapshot size bound (256 KiB = 262 144 B, `game-engine.md` §7.1):** worst-case JSON with `[[x,y]]` pairs: point `[10000,10000],` = 14 B → 12 000 × 14 = 168 000 B; 300 stroke objects ≈ 123 B = 36 900 B; ≤ 30 chat lines × ≈ 450 B (80 chars × up to 4 B UTF-8 + keys) = 13 500 B; header, players, scores, hint, ids for 10 players ≈ 5 000 B → **≈ 223 KB**, margin ≈ 39 KB. At 15 000 points the same arithmetic gives ≈ 265 KB > limit, hence 12 000. A flat `points:[x0,y0,…]` array (12 B/point, ≈ 235 KB at 15 000) would allow 15 000 but changes the shared `Stroke` format again and is not approved. A maximal-canvas test serializes the real snapshot and asserts `< 262 144` bytes; the STOMP send buffer is 512 KiB (`WebSocketConfig`) so a 223 KB frame is deliverable (to be verified in an IT).
 
 ## 9. Concurrency and idempotency
 
@@ -207,7 +208,7 @@ Dependencies: 5.1–5.3 are independent and parallel; 5.4 needs them; 5.7 needs 
 - H3 Text is rendered as text (no HTML); control characters stripped; maximum lengths enforced before normalization work (cap input at 80 chars first so Levenshtein runs on bounded input).
 - H4 Known limitation: a wrong guess containing the answer inside a longer sentence is broadcast as is; post-MVP: detect whole-token containment and answer privately.
 - H5 Drawer collusion (telling the word out of band) and screenshot cheating are out of scope.
-- H6 The 15 000-point/300-stroke/2000-point budgets protect memory per room; verify the `ActiveSession` heap per room with a maxed canvas (≈ 1 MB) times a plausible room count.
+- H6 The 12 000-point/300-stroke/2000-point budgets protect memory per room; verify the `ActiveSession` heap per room with a maxed canvas (≈ 1 MB) times a plausible room count.
 - H7 `RATE_LIMITED` is not recorded for dedupe (engine behavior) — the stroke client must tolerate dropped batches (§8).
 - H8 Word list review: no offensive entries; original list, no copying from proprietary lists.
 - H9 Clock: all scoring uses the injected `Clock`; tests never sleep.
@@ -215,7 +216,7 @@ Dependencies: 5.1–5.3 are independent and parallel; 5.4 needs them; 5.7 needs 
 ## 14. Possible engine/SPI touch points (to confirm in 5.4–5.5, per R21)
 
 1. `ActionRejected` raised by a module with `PAYLOAD_TOO_LARGE`/`NOT_DRAWER`/`IS_DRAWER` must reach the sender as a private `GAME_ERROR`; confirm in `CommandRouter` (contract §3.4 now says so). If it is rerouted to `/user/queue/errors`, fix the router, not the contract.
-2. **Tie-break display order (needs a small SPI addition).** `Ranking.of(totals, order)` orders equal scores by play order; there is no module-supplied tie-break, although `game-engine.md` §6.3 describes one. Task 5.5 adds an optional `GameModule` tie-break (default: play order) in a PR that also updates `game-engine.md` and the test module; if rejected, `[DG-13]` ties display by play order and the rules sentence is reduced accordingly.
+2. **Tie-break display order (decision, no SPI change).** `Ranking.of(totals, order)` orders equal scores by play order and the engine has no module tie-break (although `game-engine.md` §6.3 describes one). Draw & Guess does **not** add a hook: it must not change shared engine behavior for one game, so tied players display in play order and the earlier "correct guesses, then earliest join" display order is dropped; `correctGuesses` stays in the standing `detail`.
 3. `CommandSpec.phases` is matched by name: the three phase names are the contract (`WORD_CHOICE`, `DRAWING`, `ROUND_END`).
 4. The engine counts every `RoundRecord` as completed (D30); no change needed if D30 is approved as proposed.
 5. `PlayerStatusChange` has no reason; sufficient for this module.
@@ -224,3 +225,20 @@ Dependencies: 5.1–5.3 are independent and parallel; 5.4 needs them; 5.7 needs 
 ## 15. What was and was not verified
 
 Verified by reading the code at the commit above: engine SPI signatures (`GameModule`, `Transition`, `CommandSpec`, `Audience`), the completed-round counting in `SessionService`, the outbound send-buffer limit, and that `Ranking` has no module tie-break. **Not verified:** any behavior of Draw & Guess (nothing is implemented); the STOMP delivery of a ~200 KB snapshot; whether the router maps module-raised `PAYLOAD_TOO_LARGE` as §14.1 assumes. No build or test run was needed or performed — documentation only.
+
+## 16. Consistency check against the Phase 4 engine (done before P5-02)
+
+Checked against `backend/src/main/java/com/dinoparty/{engine,session}` and the engine tests; **no shared-engine change is needed.**
+
+| Engine fact | Consequence for the module |
+|---|---|
+| `GameContext` has no player statuses | The module tracks `ACTIVE/DISCONNECTED/LEFT` itself from `onPlayerStatus` (a reconnect arrives as `ACTIVE`). |
+| `SessionService.onMemberLeft` calls the module first, then finishes/aborts when active players `< minActivePlayers` | The module reacts to `LEFT` as in §7; it never ends the session itself. An `ALL_GUESSED`/`DRAWER_LEFT` round it records before the engine finishes counts as completed (D30). |
+| `PhaseChange.data` is merged into `PHASE_STARTED` with `putIfAbsent`; `phase`, `phaseId`, `deadlineAt` are the engine's | Module public data uses other keys (`round`, `totalRounds`, `drawerGuestId`, `hint`). |
+| `view()` keys are merged into the snapshot with `putIfAbsent` after the header (`sessionId, gameKey, status, order, phase, phaseId, phaseStartedAt, deadlineAt, scores, players, results, rematch`) | `DrawGuessSnapshot` keys never collide with those (tested). |
+| Deadline ids `phase-end`, countdown and results ids are reserved; module requests are `INTERNAL` and dropped at phase change | Hint reveals are `hint-1`, `hint-2`; the phase deadline comes from `PhaseChange.deadlineAt`. |
+| Module-thrown `DomainException`s (`ActionRejected`) are rethrown to the router; other exceptions become `SERVER_ERROR` | All rejections are `ActionRejected`; unexpected bugs become `SERVER_ERROR` without changing state. |
+| `GameDefinition` has no settings schema; `room.SettingsSchema` keeps the draw-guess schema and DB defaults | The module reads `ctx.settings()` with the same keys and falls back to the defaults if a key is absent; a test compares module defaults with `V2` row values. |
+| Ranking: ties in play order, no module hook | No hook added (§14.2). |
+| `RoundRecord` count = completed rounds | D30 as approved. |
+| D15: `ready` is advisory | The module never reads `ready`; start rules are untouched. |
