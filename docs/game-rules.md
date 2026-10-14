@@ -71,6 +71,7 @@ Phases of one round, in order: `WORD_CHOICE` → `DRAWING` → `ROUND_END` (name
 
 - Original English word list (A14), versioned resource. Each word has tier `EASY` or `HARD`, 3–20 characters, letters plus single spaces/hyphens, no leading/trailing separator, no offensive entries (blocklist test). Size: ≥ 150 per tier so that `players × cycles` (≤ 50) rounds never exhaust a tier.
 - `difficulty`: `easy` → EASY tier, `hard` → HARD tier, `mixed` → both tiers. The 3 choices are drawn uniformly without replacement from the pool minus **words already chosen earlier in this session** (offered-but-unchosen words may come back). Pool exhaustion falls back to allowing repeats. A new session (rematch) starts with an empty used set.
+- Word catalog (WP-01): the same words also live in the database catalog with a category and a stored difficulty `EASY`/`MEDIUM`/`HARD` (api-contracts §2.3). Gameplay does **not** read it yet; the tiers above are unchanged. Mapping (D32, proposed): legacy EASY ⊆ catalog `EASY`, legacy HARD ⊆ catalog `MEDIUM` ∪ `HARD`.
 
 ### Timers `[DG-17]`
 

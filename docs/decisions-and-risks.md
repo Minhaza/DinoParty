@@ -119,6 +119,12 @@ Design: `docs/draw-guess-design.md`. Contract: `api-contracts.md` §3.9. Rules: 
 | D30 | Early finish and the engine's completed-round count. | A `DRAWER_LEFT` round is recorded and counts as completed; a round in progress at an early finish is discarded (no drawer points, no record). | Do not record aborted rounds (needs a flag on `RoundRecord`). |
 | D31 | Word pool. | Tiers EASY/HARD, ≥ 150 words each, 3–20 chars, original; `mixed` = union; "used" = chosen words; repeats allowed only on exhaustion. | Per-choice tier mix (one easy, one hard, one any). |
 
+### WP-01 (word catalog) decision needing approval
+
+| ID | Decision | Recommendation | Alternative / consequence |
+|---|---|---|---|
+| D32 | Three stored difficulties (`EASY`/`MEDIUM`/`HARD`) in the new database word catalog vs D31's two game tiers (`EASY`/`HARD`, ≥ 150 each). | **PROPOSED.** D31 is unchanged and still governs gameplay, which keeps reading the two resource lists in WP-01. The catalog maps them explicitly: every legacy EASY word is catalog `EASY`; every legacy HARD word is catalog `MEDIUM` or `HARD`. When the game switches to the catalog, setting `easy` = `EASY`, `hard` = `MEDIUM` ∪ `HARD`, `mixed` = all, so both game tiers keep ≥ 150 words. The catalog guarantees ≥ 150 `EASY` and ≥ 150 `MEDIUM`; `HARD` is a smaller curated tier (D31 is **not** read as requiring 150 `HARD`). A new `medium` game setting, if wanted, is a separate `docs(contract)` change. | Require ≥ 150 `HARD` as well (needs ~35 more hard-to-draw entries of lower quality); or keep two catalog tiers (loses the finer filter the word-pack UI needs). |
+
 Phase 5 risks:
 
 | # | Risk | Mitigation |

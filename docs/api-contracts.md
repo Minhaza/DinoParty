@@ -43,6 +43,9 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `GET /rooms/{roomCode}/snapshot` | member | — | `200 SnapshotDto` (viewer-specific; `game` is `null` unless a session is `RUNNING`/`FINISHED`) | 403 `NOT_IN_ROOM`, 404 `ROOM_NOT_FOUND` |
 | `GET /sessions/{sessionId}/results` | member of the session's room | — | `200 ResultsDto` (read from the database only) | 404 `SESSION_NOT_FOUND`, 403 `NOT_IN_ROOM`, 409 `RESULTS_NOT_READY` (session `RUNNING`, or `FINISHED` but its result rows are not persisted yet; `Retry-After: 2`). `ABORTED`/`INTERRUPTED` sessions answer `200` with empty `standings` |
 | `GET /sessions/{sessionId}/albums/{chainIndex}` | member | — | `200 AlbumDto` (telephone, after reveal) | 404 |
+| `GET /word-catalog/categories?locale=` | yes | — | `200 WordCategoriesDto` (§2.3) | 400 `VALIDATION_FAILED` (`locale`), 401 |
+| `GET /word-catalog/difficulties` | yes | — | `200 WordDifficultiesDto` (§2.3) | 401 |
+| `GET /word-catalog/counts?locale=&category=&difficulty=` | yes | — | `200 WordCountsDto` (§2.3) | 400 `VALIDATION_FAILED` (`locale`, `category`, `difficulty`), 401 |
 
 ### 2.1 DTOs (shape summaries)
 
@@ -111,6 +114,25 @@ Stroke            { strokeId:uuid, tool:"PENCIL|ERASER", color:"#RRGGBB", size:i
                     points:[[x,y],…] /* integers 0..10000 = fixed-point fraction of canvas width/height (16:10); shared with Telephone (D28) */,
                     closed?:boolean /* Draw & Guess snapshots only; false while the drawer's stroke is still open */ }
 ```
+
+### 2.3 Word catalog (WP-01, read-only metadata)
+
+Built-in Draw & Guess words, stored in PostgreSQL (Flyway `V5`/`V6`, `docs/draw-guess-design.md` §18, decision D32). These endpoints return **metadata only**: they never list or reveal a word, so they cannot leak a word chosen or offered in a running game. Any authenticated guest may call them; no room membership is needed.
+
+```
+WordCategoriesDto   { locale, categories:[{key, label}] /* active, display order */,
+                      presets:[{key:"random-mix", label:"Random Mix", includes:[categoryKey]}] }
+WordDifficultiesDto { levels:[{key:"EASY|MEDIUM|HARD", label}],
+                      presets:[{key:"MIXED", label:"Mixed", includes:["EASY","MEDIUM","HARD"]}] }
+WordCountsDto       { locale, category /* key or "random-mix" */, difficulty:"EASY|MEDIUM|HARD|MIXED",
+                      total, byDifficulty:{EASY?:int, MEDIUM?:int, HARD?:int},
+                      byCategory:[{key, total, byDifficulty:{…}}] /* selected categories, display order */ }
+```
+
+- **Categories** have stable machine-readable keys: `animals`, `food-drinks`, `nature`, `objects`, `places`, `movies-games`, `sports`, `technology`, `actions`. Labels are localized per locale (falls back per category to English). `random-mix` is a selection preset (all active categories), never a stored category.
+- **Difficulties**: every word stores exactly one of `EASY`, `MEDIUM`, `HARD`. `MIXED` is a filter (all three), never stored. Difficulty and preset labels are English for now; clients may localize them by key.
+- **`counts` parameters** (all optional): `locale` (default `en`), `category` = a category key or `random-mix` (default), `difficulty` = `EASY|MEDIUM|HARD|MIXED` (case-insensitive, default `MIXED`). `byDifficulty` holds exactly the difficulties of the filter (zeros included); `total` is their sum. Only active words in active categories count. An unknown or inactive category key, an unknown difficulty, or a malformed locale is `400 VALIDATION_FAILED` with the parameter in `fieldErrors`.
+- **Locale**: input is a language tag `ll` or `ll-RR` (2–3 letter language, optional 2-letter region; case-insensitive; `_` accepted), normalized to `en`, `pt-BR`, … The catalog locale used is the first of *tag → language → `en`* that has active words, and is returned in `locale` (e.g. `en-US` → `en`). The built-in catalog is English only (`en`).
 
 ## 3. STOMP
 
