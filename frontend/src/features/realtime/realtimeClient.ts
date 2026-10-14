@@ -254,6 +254,20 @@ export class RealtimeClient {
     })
   }
 
+  public startGame(): string {
+    return this.sendCommand({
+      type: 'START_GAME',
+      payload: {},
+    })
+  }
+
+  public voteRematch(vote: boolean): string {
+    return this.sendCommand({
+      type: 'REMATCH_VOTE',
+      payload: { vote },
+    })
+  }
+
   private setupRoomSubscriptions(roomCode: string): void {
     if (!this.client?.connected) return
     this.clearSubscriptions()

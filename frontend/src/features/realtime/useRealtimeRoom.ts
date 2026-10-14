@@ -125,6 +125,12 @@ export function useRealtimeRoom(
     }
   }, [currentRoom, isHost, isStartingGame])
 
+  // Rematch vote action
+  const voteRematch = React.useCallback(async (vote: boolean) => {
+    if (!currentRoom) return
+    client.voteRematch(vote)
+  }, [currentRoom, client])
+
   return {
     room: currentRoom,
     currentPlayer,
@@ -142,5 +148,6 @@ export function useRealtimeRoom(
     clearLastError,
     toggleReady,
     startGame: handleStartGame,
+    voteRematch,
   }
 }

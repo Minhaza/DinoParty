@@ -1,6 +1,7 @@
 import type { RouteObject } from 'react-router'
 
 import { CreateRoomPage } from '@/pages/CreateRoomPage'
+import { GameSessionPage } from '@/pages/GameSessionPage'
 import { GamesPage } from '@/pages/GamesPage'
 import { HomePage } from '@/pages/HomePage'
 import { JoinRoomPage } from '@/pages/JoinRoomPage'
@@ -22,8 +23,8 @@ export const routes: RouteObject[] = [
       { path: 'rooms/new', element: <CreateRoomPage /> },
       { path: 'join/:code?', element: <JoinRoomPage /> },
       { path: 'rooms/:code', element: <LobbyPage /> },
-      { path: 'rooms/:code/play', element: <PlaceholderPage title="Game" phase={4} /> },
-      { path: 'rooms/:code/results', element: <PlaceholderPage title="Results" phase={4} /> },
+      { path: 'rooms/:code/play', element: <GameSessionPage /> },
+      { path: 'rooms/:code/results', element: <GameSessionPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],

@@ -37,6 +37,13 @@ export interface PlayerDto {
   score: number | null
 }
 
+export interface LastSessionDto {
+  sessionId: string
+  status: 'FINISHED' | 'ABORTED' | 'INTERRUPTED'
+  endReason: string
+  finishedAt: string
+}
+
 export interface RoomDto {
   id: string
   code: string
@@ -50,6 +57,7 @@ export interface RoomDto {
   players: PlayerDto[]
   sessionId: string | null
   createdAt: string
+  lastSession?: LastSessionDto | null
 }
 
 export interface RoomPreviewDto {
@@ -73,6 +81,58 @@ export interface UpdateRoomSettingsInput {
   settings?: SettingsMap
 }
 
+export type RosterPlayerStatus = 'ACTIVE' | 'DISCONNECTED' | 'LEFT'
+
+export interface SessionRosterPlayer {
+  guestId: string
+  status: RosterPlayerStatus
+}
+
+export interface StandingsEntry {
+  rank: number
+  guestId: string
+  nickname?: string
+  score: number
+  detail?: Record<string, unknown>
+}
+
+export interface RoundResultDto {
+  roundNo: number
+  startedAt: string
+  endedAt: string
+  endReason: string
+  scoreDeltas: Record<string, number>
+  meta?: Record<string, unknown>
+}
+
+export interface ResultsDto {
+  sessionId: string
+  gameKey: GameKey | string
+  status: 'FINISHED' | 'ABORTED' | 'INTERRUPTED'
+  endReason: string
+  startedAt: string
+  finishedAt: string
+  standings: StandingsEntry[]
+  rounds: RoundResultDto[]
+}
+
+export interface GameSnapshotHeader {
+  sessionId: string
+  gameKey: GameKey | string
+  status: 'RUNNING' | 'FINISHED'
+  order: string[]
+  phase: string
+  phaseId: string
+  phaseStartedAt: string
+  deadlineAt: string | null
+  scores: Record<string, number> | null
+  players: SessionRosterPlayer[]
+  results: { standings: StandingsEntry[] } | null
+  rematch: { votes: Record<string, boolean> } | null
+}
+
+export type GameSnapshot = GameSnapshotHeader & Record<string, unknown>
+
 export interface SnapshotSeq {
   room: number
   private: number
@@ -82,7 +142,7 @@ export interface SnapshotDto {
   room: RoomDto
   serverNow: string
   seq: SnapshotSeq
-  game: unknown | null
+  game: GameSnapshot | null
 }
 
 export type StreamType = 'ROOM' | 'PRIVATE'
@@ -145,7 +205,49 @@ export interface RoomClosedPayload {
 
 export interface RoomStatusChangedPayload {
   status: RoomStatus
+  reason?: string
   startsAt?: string
+}
+
+export interface GameStartedPayload {
+  sessionId: string
+  gameKey: GameKey | string
+  settings: SettingsMap
+  order: string[]
+}
+
+export interface PhaseStartedPayload {
+  phase: string
+  phaseId: string
+  round?: number
+  deadlineAt: string | null
+  [key: string]: unknown
+}
+
+export interface GameFinishedPayload {
+  sessionId: string
+  endReason: 'COMPLETED' | 'INSUFFICIENT_PLAYERS' | string
+  standings: StandingsEntry[]
+  resultsReady: boolean
+}
+
+export interface GameAbortedPayload {
+  sessionId: string
+  reason:
+    | 'NO_COMPLETED_ROUND'
+    | 'INTERNAL_ERROR'
+    | 'SERVER_RESTART'
+    | 'SERVER_SHUTDOWN'
+    | 'ROOM_CLOSED'
+    | string
+}
+
+export interface RematchVotesUpdatedPayload {
+  votes: Record<string, boolean>
+}
+
+export interface RematchVoteInput {
+  vote: boolean
 }
 
 export interface ActionAckPayload {
