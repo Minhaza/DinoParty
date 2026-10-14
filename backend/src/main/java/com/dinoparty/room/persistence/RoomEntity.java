@@ -106,6 +106,10 @@ public class RoomEntity {
     this.maxPlayers = maxPlayers;
   }
 
+  public void changeStatus(RoomStatus status) {
+    this.status = status;
+  }
+
   public void close(Instant now) {
     this.status = RoomStatus.CLOSED;
     this.closedAt = now;

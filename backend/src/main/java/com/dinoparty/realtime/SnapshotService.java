@@ -4,6 +4,7 @@ import com.dinoparty.common.Timestamps;
 import com.dinoparty.room.RoomDetails;
 import com.dinoparty.room.RoomProperties;
 import com.dinoparty.room.RoomService;
+import com.dinoparty.session.SessionService;
 import java.time.Clock;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 public class SnapshotService {
 
   private final RoomService rooms;
+  private final SessionService sessions;
   private final RoomEventPublisher publisher;
   private final PresenceTracker presence;
   private final RoomProperties roomProperties;
@@ -24,11 +26,13 @@ public class SnapshotService {
 
   SnapshotService(
       RoomService rooms,
+      SessionService sessions,
       RoomEventPublisher publisher,
       PresenceTracker presence,
       RoomProperties roomProperties,
       Clock clock) {
     this.rooms = rooms;
+    this.sessions = sessions;
     this.publisher = publisher;
     this.presence = presence;
     this.roomProperties = roomProperties;
@@ -44,7 +48,8 @@ public class SnapshotService {
           return build(
               details,
               publisher.currentRoomSeq(details.code()),
-              publisher.currentPrivateSeq(details.code(), guestId));
+              publisher.currentPrivateSeq(details.code(), guestId),
+              guestId);
         });
   }
 
@@ -61,16 +66,16 @@ public class SnapshotService {
               guestId,
               "ROOM_SNAPSHOT",
               actionId,
-              privateSeq -> build(details, roomSeq, privateSeq));
+              privateSeq -> build(details, roomSeq, privateSeq, guestId));
           return null;
         });
   }
 
-  private SnapshotDto build(RoomDetails details, long roomSeq, long privateSeq) {
+  private SnapshotDto build(RoomDetails details, long roomSeq, long privateSeq, UUID viewer) {
     return new SnapshotDto(
-        RoomDto.from(details, roomProperties.publicUrl(), presence),
+        RoomDto.from(details, roomProperties.publicUrl(), presence, sessions.info(details.code())),
         Timestamps.format(clock.instant()),
         new SnapshotDto.Seq(roomSeq, privateSeq),
-        null);
+        sessions.gameSnapshot(details.code(), viewer));
   }
 }

@@ -131,3 +131,31 @@ Live run, observed after the fixes: host and joiner both show "Live"; a join app
 - **STOMP `TRACE` logging prints raw headers** including `Authorization`. The default configuration pins the framework loggers to `INFO`; do not enable `TRACE` for `org.springframework.messaging` in production. Tests prove tokens are absent at `DEBUG`.
 - Sequence counters and duplicate-action windows are per process and restart at 1 after a restart; clients must replace their remembered `lastSeq` with `snapshot.seq` (documented in the contract).
 - Telemetry (spans/metrics) was checked by compiling and by the code path being exercised in tests, not by viewing the Aspire dashboard.
+
+## Phase 4 verification record (shared game engine, backend)
+
+Run on Windows 11, JDK 21.0.3, Docker Desktop (Testcontainers PostgreSQL 16). Frontend not touched and not re-run. Not run: Linux/CI.
+
+| Check | Result |
+|---|---|
+| `./mvnw verify` in `backend/` | passed: 130 unit tests, 133 integration tests, Spotless check |
+
+Coverage by layer:
+
+- **Engine units** (`TurnOrderTest`, `ScoreLedgerTest`, `RankingTest`, `DeadlineBookTest`, `GameRegistryTest`): shuffle is a permutation for n = 1..12 over 50 seeds; skip-left; ledger totals equal the sum of deltas for random sequences; overflow and non-roster rejection; competition ranking 1,2,2,4; deadline ordering, replacement, phase drop; registry startup failures (duplicate key, command, event) and catalog checks.
+- **Lifecycle and races with a manual clock, no sleeps** (`SessionServiceTest`, 44 tests): transition table rows including cancel, abort, finish, rematch, results timeout, shutdown, room close; `NOT_HOST`, `NOT_ENOUGH_PLAYERS`, idempotent start; stale, duplicate, spurious and after-abort wake-ups; an action exactly at the deadline is `STALE_ACTION` and 1 ms before is accepted; a phase changed by an action cancels the old deadline; the watchdog; a 200-thread storm racing a deadline (every command accepted or stale, ledger sum equals accepted commands); module faults (undeclared audience aborts with `INTERNAL_ERROR`, exception in `handle` is `SERVER_ERROR` and the game continues); secrecy of events and per-viewer snapshots; no leaked sessions or armed timers.
+- **Room status machine** (`RoomLifecycleIT`): allowed edges, forbidden edges leave the room unchanged, `ROOM_IN_PROGRESS` on join during a game, ready cleared on reset.
+- **Real STOMP with the test game** (`GameEngineIT`, `GameEngineSessionIT`): start, countdown, phases, scoring, finish, results rows, rematch and a second session; a secret is seen only by its owner until a later public event reveals it (three sockets); gapless room `seq`; non-host start, single-member start, outsider command, stale, missing `phaseId`, duplicate `actionId`, module rejection, other game's command, oversize payload, per-type rate limit; 8 concurrent starts give one countdown; leaving during the countdown cancels it; reconnect snapshots in `WAITING`, `PLAYING`, `RESULTS` and after the reset; REST start/kick/close with non-host rejections and idempotency; 40 accepted game commands executed 0 Hibernate statements.
+- **PostgreSQL** (`SessionPersistenceIT`): one `RUNNING` session per room (database constraint); rounds and results written and read through `GET /sessions/{id}/results`; `RESULTS_NOT_READY`, `NOT_IN_ROOM`, 401; **database outage** simulated by renaming `game_result` mid-session: the recorder call returns immediately, the session stays `RUNNING`, results appear after the table returns; **restart recovery** (`RUNNING` becomes `INTERRUPTED/SERVER_RESTART`, `PLAYING` room becomes `WAITING`, ready cleared, results endpoint answers 200 with empty standings, second run is a no-op).
+- **Architecture** (`ArchitectureTest`): engine depends only on `common`; games only on the engine; session reaches sockets and storage only through ports; history does not depend on transport or rooms; `room` does not know the engine; no `Instant.now`, `new Random` or `Math.random` in engine/session/games.
+
+### Not verified / known limitations (Phase 4)
+
+- **No frontend work**: task 4.8 is not done. The lobby Start button reaches a real backend start, but no production game module exists, so `draw-guess` and `telephone` answer `GAME_NOT_FOUND`.
+- **Process kill not exercised**: recovery is tested by seeding the rows a dead process leaves; the outage test renames a table rather than stopping the database.
+- **Not implemented**: `GET /games*`, `RoomDto.lastSession`, the `PATCH /guests/me` lock, orphan-room sweep, typed payload binding, the 320 KiB frame cap (D20), the snapshot replay-equivalence property test, `Retry-After` on `RESULTS_NOT_READY`.
+- **`GAME_FINISHED.resultsReady` is always `false`**; clients poll `GET /sessions/{id}/results`.
+- **Per-type rate limiting** is a fixed one-second window, not a token bucket, so a burst can straddle two windows.
+- **Single instance only**: recovery treats every `RUNNING` row as orphaned.
+- **Timing-dependent tests** use real 600 ms rounds in `GameEngineIT`; they passed on every full run here but are the likeliest to flake on a slow CI machine. The no-database-statements test waits for background activity of earlier tests to settle.
+- **Test contexts**: the Phase 4 ITs add one cached Spring context; the test profile now sets `hikari.minimum-idle=1` so the shared PostgreSQL container does not run out of connections.

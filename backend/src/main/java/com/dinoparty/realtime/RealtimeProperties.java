@@ -10,6 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("app.realtime")
 public record RealtimeProperties(
     Duration disconnectGrace,
+    Duration inGameDisconnectGrace,
     Duration sweepInterval,
     Duration sessionRecheckInterval,
     Integer maxMessageBytes,
@@ -21,6 +22,8 @@ public record RealtimeProperties(
 
   public RealtimeProperties {
     disconnectGrace = disconnectGrace == null ? Duration.ofSeconds(30) : disconnectGrace;
+    inGameDisconnectGrace =
+        inGameDisconnectGrace == null ? Duration.ofSeconds(60) : inGameDisconnectGrace;
     sweepInterval = sweepInterval == null ? Duration.ofSeconds(1) : sweepInterval;
     sessionRecheckInterval =
         sessionRecheckInterval == null ? Duration.ofSeconds(30) : sessionRecheckInterval;

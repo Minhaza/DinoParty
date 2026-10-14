@@ -95,11 +95,10 @@ class RealtimeCommandIT extends RealtimeFixture {
   }
 
   @Test
-  void reservedAndUnknownCommandTypesAreInvalidActionsForNow() {
+  void gameCommandsWithoutAModuleAndUnknownTypesAreInvalidActions() {
     joinRoom();
     for (String type :
         List.of(
-            "START_GAME",
             "CHOOSE_WORD",
             "DRAW_STROKE",
             "DRAW_UNDO",
@@ -109,7 +108,6 @@ class RealtimeCommandIT extends RealtimeFixture {
             "TELEPHONE_SUBMIT_DRAWING",
             "REVEAL_NEXT",
             "REVEAL_PREV",
-            "REMATCH_VOTE",
             "MAKE_ME_ADMIN")) {
       StompTestClient.Message error =
           errorFor(

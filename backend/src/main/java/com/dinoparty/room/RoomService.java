@@ -28,6 +28,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -55,6 +56,7 @@ public class RoomService {
   private final RoomProperties properties;
   private final TransactionTemplate tx;
   private final TransactionTemplate readOnlyTx;
+  private final TransactionTemplate independentTx;
   private final ObservationRegistry observations;
   private final ApplicationEventPublisher events;
   private final ObjectProvider<MemberPresence> presence;
@@ -90,6 +92,10 @@ public class RoomService {
     this.tx = new TransactionTemplate(transactionManager);
     this.readOnlyTx = new TransactionTemplate(transactionManager);
     this.readOnlyTx.setReadOnly(true);
+    // Lifecycle changes may be made from an after-commit listener, where the finished transaction
+    // is still bound to the thread; a new transaction guarantees they really commit.
+    this.independentTx = new TransactionTemplate(transactionManager);
+    this.independentTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
   public RoomDetails create(UUID guestId, CreateRoomCommand command) {
@@ -165,6 +171,147 @@ public class RoomService {
    */
   public <T> T inRoom(String rawCode, Supplier<T> action) {
     return mailbox.run(requireCode(rawCode), action);
+  }
+
+  /** Full details without an authorization check; callers hold the room mailbox. */
+  public RoomDetails detailsOf(String rawCode) {
+    String code = requireCode(rawCode);
+    return readOnlyTx.execute(
+        status -> details(rooms.findByCode(code).orElseThrow(RoomService::notFound)));
+  }
+
+  /**
+   * Moves the room along the game lifecycle (docs/game-engine.md §2.1). Only the session module
+   * calls this, inside the room mailbox; every other transition is rejected as {@code
+   * INVALID_PHASE}. Going back to {@code WAITING} clears every ready flag, except when a countdown
+   * was cancelled.
+   */
+  public void changeStatus(String rawCode, RoomStatus to, String reason, Instant startsAt) {
+    String code = requireCode(rawCode);
+    mailbox.run(
+        code,
+        () ->
+            independentTx.execute(
+                status -> {
+                  RoomEntity room =
+                      rooms.findByCodeForUpdate(code).orElseThrow(RoomService::notFound);
+                  if (!allowedTransition(room.getStatus(), to)) {
+                    throw new DomainException(
+                        ErrorCode.INVALID_PHASE,
+                        "Room cannot go from " + room.getStatus() + " to " + to + ".");
+                  }
+                  room.changeStatus(to);
+                  if (to == RoomStatus.WAITING && !"START_CANCELLED".equals(reason)) {
+                    participants
+                        .findByRoomIdAndLeftAtIsNullOrderByJoinedAtAscIdAsc(room.getId())
+                        .forEach(p -> p.setReady(false));
+                  }
+                  rooms.flush();
+                  log.info("Room status {} reason={}", to, reason);
+                  events.publishEvent(
+                      new RoomEvent.StatusChanged(room.getId(), code, to, reason, startsAt));
+                  return null;
+                }));
+  }
+
+  private static boolean allowedTransition(RoomStatus from, RoomStatus to) {
+    return switch (from) {
+      case WAITING -> to == RoomStatus.STARTING;
+      case STARTING -> to == RoomStatus.WAITING || to == RoomStatus.PLAYING;
+      case PLAYING -> to == RoomStatus.RESULTS || to == RoomStatus.WAITING;
+      case RESULTS -> to == RoomStatus.WAITING;
+      case CLOSED -> false;
+    };
+  }
+
+  /** Host removes another member; same effect as that member leaving with reason KICKED. */
+  public void kick(UUID hostGuestId, String rawCode, UUID target) {
+    String code = requireCode(rawCode);
+    observed(
+        "kick",
+        code,
+        () ->
+            mailbox.run(
+                code,
+                () ->
+                    tx.execute(
+                        status -> {
+                          RoomEntity room =
+                              rooms.findByCodeForUpdate(code).orElseThrow(RoomService::notFound);
+                          if (!room.getHostGuestId().equals(hostGuestId)) {
+                            throw new DomainException(
+                                ErrorCode.NOT_HOST, "Only the host can remove players.");
+                          }
+                          if (target.equals(hostGuestId)) {
+                            throw DomainException.invalid("guestId", "the host cannot be kicked");
+                          }
+                          if (room.getStatus() == RoomStatus.CLOSED) {
+                            throw new DomainException(
+                                ErrorCode.ROOM_CLOSED, "This room is closed.");
+                          }
+                          if (!isActiveMember(room, target)) {
+                            throw new DomainException(
+                                ErrorCode.ROOM_NOT_FOUND, "That player is not in this room.");
+                          }
+                          leaveInTx(target, code, LeaveReason.KICKED);
+                          return null;
+                        })));
+  }
+
+  /** Host closes the room; idempotent. Everybody is removed so they can join another room. */
+  public void closeByHost(UUID hostGuestId, String rawCode) {
+    String code = requireCode(rawCode);
+    observed(
+        "close",
+        code,
+        () ->
+            mailbox.run(
+                code,
+                () ->
+                    tx.execute(
+                        status -> {
+                          RoomEntity room =
+                              rooms.findByCodeForUpdate(code).orElseThrow(RoomService::notFound);
+                          if (!room.getHostGuestId().equals(hostGuestId)) {
+                            throw new DomainException(
+                                ErrorCode.NOT_HOST, "Only the host can close the room.");
+                          }
+                          if (room.getStatus() == RoomStatus.CLOSED) {
+                            return null;
+                          }
+                          Instant now = clock.instant();
+                          participants
+                              .findByRoomIdAndLeftAtIsNullOrderByJoinedAtAscIdAsc(room.getId())
+                              .forEach(p -> p.leave(now));
+                          room.close(now);
+                          participants.flush();
+                          events.publishEvent(
+                              new RoomEvent.Closed(room.getId(), code, "HOST_CLOSED"));
+                          return null;
+                        })));
+  }
+
+  /** True when the guest is an active member of the room with this id (results authorization). */
+  public boolean isMemberOfRoomId(UUID guestId, UUID roomId) {
+    return participants
+        .findByRoomIdAndGuestId(roomId, guestId)
+        .filter(RoomParticipantEntity::isActive)
+        .isPresent();
+  }
+
+  /**
+   * Startup recovery after a process death: rooms stuck in a game status return to {@code WAITING}
+   * with members kept and ready flags cleared. Returns the number of rooms reset.
+   */
+  public int resetInterruptedRooms() {
+    List<RoomStatus> stuck = List.of(RoomStatus.STARTING, RoomStatus.PLAYING, RoomStatus.RESULTS);
+    Integer count =
+        independentTx.execute(
+            status -> {
+              participants.clearReadyInRooms(stuck);
+              return rooms.resetStatuses(stuck);
+            });
+    return count == null ? 0 : count;
   }
 
   /** Full details for an active member; {@code NOT_IN_ROOM} for everybody else. */

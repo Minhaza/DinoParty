@@ -1,9 +1,12 @@
 package com.dinoparty.realtime;
 
+import com.dinoparty.common.Timestamps;
 import com.dinoparty.room.RoomEvent;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -35,6 +38,7 @@ class RoomEventBridge {
   }
 
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  @Order(0)
   void on(RoomEvent event) {
     try {
       switch (event) {
@@ -75,6 +79,15 @@ class RoomEventBridge {
                     "settings", e.settings(),
                     "minPlayers", e.minPlayers(),
                     "maxPlayers", e.maxPlayers()));
+        case RoomEvent.StatusChanged e -> {
+          Map<String, Object> payload = new LinkedHashMap<>();
+          payload.put("status", e.status().name());
+          payload.put("reason", e.reason());
+          if (e.startsAt() != null) {
+            payload.put("startsAt", Timestamps.format(e.startsAt()));
+          }
+          publisher.publish(e.roomCode(), e.roomId(), "ROOM_STATUS_CHANGED", payload);
+        }
         case RoomEvent.Closed e -> {
           publisher.publish(e.roomCode(), e.roomId(), "ROOM_CLOSED", Map.of("reason", e.reason()));
           subscriptions.revokeRoom(e.roomCode());

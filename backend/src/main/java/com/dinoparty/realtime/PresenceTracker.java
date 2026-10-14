@@ -5,6 +5,7 @@ import com.dinoparty.room.LeaveReason;
 import com.dinoparty.room.MemberPresence;
 import com.dinoparty.room.RoomRef;
 import com.dinoparty.room.RoomService;
+import com.dinoparty.session.SessionService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Collection;
@@ -37,6 +38,7 @@ public class PresenceTracker implements MemberPresence {
   private record Pending(UUID roomId, Instant graceEndsAt) {}
 
   private final RoomService rooms;
+  private final SessionService sessions;
   private final RoomEventPublisher publisher;
   private final ConnectionDirectory connections;
   private final Clock clock;
@@ -47,12 +49,14 @@ public class PresenceTracker implements MemberPresence {
 
   PresenceTracker(
       RoomService rooms,
+      SessionService sessions,
       RoomEventPublisher publisher,
       ConnectionDirectory connections,
       Clock clock,
       RealtimeProperties properties,
       @Qualifier("presenceExecutor") Executor executor) {
     this.rooms = rooms;
+    this.sessions = sessions;
     this.publisher = publisher;
     this.connections = connections;
     this.clock = clock;
@@ -106,9 +110,17 @@ public class PresenceTracker implements MemberPresence {
           log.info("Player reconnected within grace period");
           publisher.publish(
               room.code(), room.id(), "PLAYER_RECONNECTED", Map.of("guestId", guestId));
+          sessions.onConnection(room.code(), guestId, true);
         }
       } else {
-        Instant endsAt = clock.instant().plus(properties.disconnectGrace());
+        // A running game is more forgiving than a lobby: a blip must not cost a player their seat.
+        Instant endsAt =
+            clock
+                .instant()
+                .plus(
+                    sessions.info(room.code()).sessionId() != null
+                        ? properties.inGameDisconnectGrace()
+                        : properties.disconnectGrace());
         Pending previous =
             disconnected
                 .computeIfAbsent(room.code(), k -> new ConcurrentHashMap<>())
@@ -120,6 +132,7 @@ public class PresenceTracker implements MemberPresence {
               room.id(),
               "PLAYER_DISCONNECTED",
               Map.of("guestId", guestId, "graceEndsAt", Timestamps.format(endsAt)));
+          sessions.onConnection(room.code(), guestId, false);
         }
       }
     }

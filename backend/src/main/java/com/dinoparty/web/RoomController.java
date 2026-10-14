@@ -12,6 +12,7 @@ import com.dinoparty.room.RoomProperties;
 import com.dinoparty.room.RoomService;
 import com.dinoparty.room.RoomView;
 import com.dinoparty.room.UpdateRoomSettingsCommand;
+import com.dinoparty.session.SessionService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,20 +35,23 @@ class RoomController {
   private final RoomProperties properties;
   private final MemberPresence presence;
   private final SnapshotService snapshots;
+  private final SessionService sessions;
 
   RoomController(
       RoomService roomService,
       RoomProperties properties,
       MemberPresence presence,
-      SnapshotService snapshots) {
+      SnapshotService snapshots,
+      SessionService sessions) {
     this.roomService = roomService;
     this.properties = properties;
     this.presence = presence;
     this.snapshots = snapshots;
+    this.sessions = sessions;
   }
 
   private RoomDto dto(RoomDetails room) {
-    return RoomDto.from(room, properties.publicUrl(), presence);
+    return RoomDto.from(room, properties.publicUrl(), presence, sessions.info(room.code()));
   }
 
   @PostMapping
@@ -103,6 +107,28 @@ class RoomController {
       @PathVariable String roomCode,
       @Valid @RequestBody SetReadyRequest request) {
     return dto(roomService.setReady(caller.guestId(), roomCode, request.ready()));
+  }
+
+  @PostMapping("/{roomCode}/start")
+  @ResponseStatus(HttpStatus.ACCEPTED)
+  RoomDto start(@AuthenticationPrincipal AuthenticatedGuest caller, @PathVariable String roomCode) {
+    sessions.start(roomCode, caller.guestId());
+    return dto(roomService.getForMember(caller.guestId(), roomCode));
+  }
+
+  @PostMapping("/{roomCode}/kick")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void kick(
+      @AuthenticationPrincipal AuthenticatedGuest caller,
+      @PathVariable String roomCode,
+      @Valid @RequestBody KickRequest request) {
+    roomService.kick(caller.guestId(), roomCode, request.guestId());
+  }
+
+  @PostMapping("/{roomCode}/close")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void close(@AuthenticationPrincipal AuthenticatedGuest caller, @PathVariable String roomCode) {
+    roomService.closeByHost(caller.guestId(), roomCode);
   }
 
   @GetMapping("/{roomCode}/snapshot")

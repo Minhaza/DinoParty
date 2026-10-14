@@ -1,5 +1,6 @@
 package com.dinoparty.room;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -35,4 +36,9 @@ public sealed interface RoomEvent {
       implements RoomEvent {}
 
   record Closed(UUID roomId, String roomCode, String reason) implements RoomEvent {}
+
+  /** Room status moved because of the game lifecycle (start, countdown, results, reset). */
+  record StatusChanged(
+      UUID roomId, String roomCode, RoomStatus status, String reason, Instant startsAt)
+      implements RoomEvent {}
 }

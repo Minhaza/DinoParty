@@ -5,15 +5,19 @@ import com.dinoparty.common.ErrorCode;
 import com.dinoparty.common.RateLimitedException;
 import com.dinoparty.common.RateLimiter;
 import com.dinoparty.common.Timestamps;
+import com.dinoparty.engine.CommandSpec;
+import com.dinoparty.engine.GameRegistry;
 import com.dinoparty.room.RoomCodes;
 import com.dinoparty.room.RoomRef;
 import com.dinoparty.room.RoomService;
+import com.dinoparty.session.SessionService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -36,10 +40,12 @@ class CommandRouter {
   private static final Logger log = LoggerFactory.getLogger(CommandRouter.class);
   private static final Pattern TYPE = Pattern.compile("[A-Z_]{1,40}");
 
-  /** Reserved for later phases; answered with INVALID_ACTION until the engine exists. */
+  /**
+   * Game commands of later phases; answered with INVALID_ACTION until a game module that declares
+   * them is registered (registered ones take the game path, see {@link #handleGameCommand}).
+   */
   private static final Set<String> RESERVED =
       Set.of(
-          "START_GAME",
           "CHOOSE_WORD",
           "DRAW_STROKE",
           "DRAW_UNDO",
@@ -48,8 +54,7 @@ class CommandRouter {
           "TELEPHONE_SUBMIT_TEXT",
           "TELEPHONE_SUBMIT_DRAWING",
           "REVEAL_NEXT",
-          "REVEAL_PREV",
-          "REMATCH_VOTE");
+          "REVEAL_PREV");
 
   /** Client-facing validation failure; the message is authored here and never echoes input. */
   private static final class InvalidCommand extends RuntimeException {
@@ -58,11 +63,13 @@ class CommandRouter {
     }
   }
 
-  private record Command(String type, String actionId, JsonNode payload) {}
+  private record Command(String type, String actionId, String phaseId, JsonNode payload) {}
 
   private final RoomService rooms;
   private final RoomEventPublisher publisher;
   private final SnapshotService snapshots;
+  private final SessionService sessions;
+  private final GameRegistry games;
   private final ActionDeduper deduper;
   private final RateLimiter rateLimiter;
   private final RealtimeProperties properties;
@@ -75,6 +82,8 @@ class CommandRouter {
       RoomService rooms,
       RoomEventPublisher publisher,
       SnapshotService snapshots,
+      SessionService sessions,
+      GameRegistry games,
       ActionDeduper deduper,
       RateLimiter rateLimiter,
       RealtimeProperties properties,
@@ -85,6 +94,8 @@ class CommandRouter {
     this.rooms = rooms;
     this.publisher = publisher;
     this.snapshots = snapshots;
+    this.sessions = sessions;
+    this.games = games;
     this.deduper = deduper;
     this.rateLimiter = rateLimiter;
     this.properties = properties;
@@ -109,6 +120,16 @@ class CommandRouter {
       if (frame.length > properties.maxMessageBytes()) {
         error(guestId, code, null, ErrorCode.PAYLOAD_TOO_LARGE, "The command is too large.");
         count(type, "rejected");
+        return;
+      }
+      Command early = parseOrNull(frame);
+      Optional<CommandSpec> gameSpec =
+          early == null ? Optional.empty() : games.commandSpec(early.type());
+      if (gameSpec.isPresent()) {
+        type = early.type();
+        observation.lowCardinalityKeyValue("command.type", type);
+        observation.highCardinalityKeyValue("room.code", code);
+        handleGameCommand(guestId, code, early, gameSpec.get());
         return;
       }
       try {
@@ -167,8 +188,12 @@ class CommandRouter {
             dispatch(guestId, room, command);
             count(metricType, "accepted");
           } catch (DomainException e) {
-            privateError(
-                guestId, room, command.actionId(), e.code(), e.getMessage(), isRetryable(e));
+            if (e.code() == ErrorCode.SERVER_ERROR) {
+              errorsQueue(guestId, room.code(), command.actionId(), e.code(), e.getMessage(), true);
+            } else {
+              privateError(
+                  guestId, room, command.actionId(), e.code(), e.getMessage(), isRetryable(e));
+            }
             count(metricType, "rejected");
           } catch (InvalidCommand e) {
             privateError(
@@ -192,6 +217,18 @@ class CommandRouter {
           throw new InvalidCommand("payload.ready must be a boolean.");
         }
         rooms.setReady(guestId, room.code(), ready.asBoolean());
+        ack(guestId, room, command);
+      }
+      case "START_GAME" -> {
+        sessions.start(room.code(), guestId);
+        ack(guestId, room, command);
+      }
+      case "REMATCH_VOTE" -> {
+        JsonNode vote = command.payload().get("vote");
+        if (vote == null || !vote.isBoolean()) {
+          throw new InvalidCommand("payload.vote must be a boolean.");
+        }
+        sessions.rematchVote(room.code(), guestId, vote.asBoolean());
         ack(guestId, room, command);
       }
       case "REQUEST_SNAPSHOT" -> {
@@ -221,6 +258,97 @@ class CommandRouter {
         Map.of("actionId", command.actionId(), "accepted", true));
   }
 
+  /**
+   * A game command takes its own path: per-type size and rate limits from the module's spec instead
+   * of the generic bucket, and authorization from the in-memory roster instead of the database, so
+   * a stroke costs no query.
+   */
+  private void handleGameCommand(UUID guestId, String code, Command command, CommandSpec spec) {
+    String type = command.type();
+    if (command.payload().toString().length() > spec.maxPayloadBytes()) {
+      errorsQueue(
+          guestId,
+          code,
+          command.actionId(),
+          ErrorCode.PAYLOAD_TOO_LARGE,
+          "The command is too large.",
+          false);
+      count(type, "rejected");
+      return;
+    }
+    try {
+      int perSecond = Math.max(spec.burst(), (int) Math.ceil(spec.ratePerSecond()));
+      rateLimiter.check("ws-game:" + guestId + ":" + type, perSecond, 1);
+    } catch (RateLimitedException e) {
+      errorsQueue(
+          guestId, code, command.actionId(), ErrorCode.RATE_LIMITED, "Too many commands.", true);
+      count(type, "rate-limited");
+      return;
+    }
+    rooms.inRoom(
+        code,
+        () -> {
+          try {
+            sessions.authorize(code, guestId);
+          } catch (DomainException e) {
+            errorsQueue(guestId, code, command.actionId(), e.code(), e.getMessage(), false);
+            count(type, "rejected");
+            return null;
+          }
+          RoomRef room =
+              sessions
+                  .activeRoomId(code)
+                  .map(id -> new RoomRef(id, code))
+                  .or(() -> rooms.find(code))
+                  .orElse(null);
+          if (room == null) {
+            error(
+                guestId,
+                code,
+                command.actionId(),
+                ErrorCode.ROOM_NOT_FOUND,
+                "No room with that code exists.");
+            return null;
+          }
+          if (!deduper.firstSeen(code, guestId, command.actionId())) {
+            privateError(
+                guestId,
+                room,
+                command.actionId(),
+                ErrorCode.DUPLICATE_ACTION,
+                "This action was already received.",
+                false);
+            count(type, "duplicate");
+            return null;
+          }
+          try {
+            Map<String, Object> payload =
+                json.convertValue(
+                    command.payload(), new tools.jackson.core.type.TypeReference<>() {});
+            sessions.submit(code, guestId, type, command.phaseId(), payload);
+            ack(guestId, room, command);
+            count(type, "accepted");
+          } catch (DomainException e) {
+            if (e.code() == ErrorCode.SERVER_ERROR) {
+              errorsQueue(guestId, code, command.actionId(), e.code(), e.getMessage(), true);
+            } else {
+              privateError(
+                  guestId, room, command.actionId(), e.code(), e.getMessage(), isRetryable(e));
+            }
+            count(type, "rejected");
+          }
+          return null;
+        });
+  }
+
+  private Command parseOrNull(byte[] frame) {
+    try {
+      return parse(frame);
+    } catch (InvalidCommand e) {
+      return null;
+    }
+  }
+
   private Command parse(byte[] frame) {
     JsonNode root;
     try {
@@ -247,8 +375,12 @@ class CommandRouter {
       throw new InvalidCommand("actionId is required.");
     }
     JsonNode phaseNode = root.get("phaseId");
-    if (phaseNode != null && !phaseNode.isNull() && uuidOrNull(phaseNode) == null) {
-      throw new InvalidCommand("phaseId must be a UUID or null.");
+    String phaseId = null;
+    if (phaseNode != null && !phaseNode.isNull()) {
+      phaseId = uuidOrNull(phaseNode);
+      if (phaseId == null) {
+        throw new InvalidCommand("phaseId must be a UUID or null.");
+      }
     }
     JsonNode payload = root.get("payload");
     if (payload == null || payload.isNull()) {
@@ -256,7 +388,7 @@ class CommandRouter {
     } else if (!payload.isObject()) {
       throw new InvalidCommand("payload must be an object.");
     }
-    return new Command(type, actionId, payload);
+    return new Command(type, actionId, phaseId, payload);
   }
 
   private static String uuidOrNull(JsonNode node) {
@@ -271,7 +403,11 @@ class CommandRouter {
   }
 
   private static boolean isKnown(String type) {
-    return "SET_READY".equals(type) || "REQUEST_SNAPSHOT".equals(type) || "PING".equals(type);
+    return "SET_READY".equals(type)
+        || "REQUEST_SNAPSHOT".equals(type)
+        || "PING".equals(type)
+        || "START_GAME".equals(type)
+        || "REMATCH_VOTE".equals(type);
   }
 
   private static boolean isRetryable(DomainException e) {
