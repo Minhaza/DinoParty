@@ -94,13 +94,21 @@ GameSnapshotHeader { sessionId, gameKey, status:"RUNNING|FINISHED", order:[guest
 `phase` is the game's phase name; the engine adds no phases of its own inside a session (`STARTING` and `RESULTS` are room statuses). `deadlineAt` is the absolute server time at which the phase ends (the advertised deadline; a game may close the phase slightly later, never earlier). The game-specific parts, for reference:
 
 ```
-DrawGuessSnapshot { phase:"WORD_CHOICE|DRAWING|ROUND_END|…", phaseId, round, totalRounds, drawerGuestId,
-                    deadlineAt, hint, word|null /*drawer only*/, wordChoices|null /*drawer, WORD_CHOICE only*/,
-                    strokes:Stroke[], guessedGuestIds[], scores:{guestId:int}, recentChat[] }
+DrawGuessSnapshot { /* phase ∈ WORD_CHOICE|DRAWING|ROUND_END, phaseId, deadlineAt and scores are in the common header */
+                    round, totalRounds, drawerGuestId,
+                    hint:string|null /* null in WORD_CHOICE; "____ ___" pattern, see §3.9 */,
+                    word:string|null /* DRAWING: drawer only; ROUND_END: everyone; else null */,
+                    wordChoices:string[3]|null /* WORD_CHOICE, drawer only */,
+                    strokes:Stroke[] /* complete live canvas, in drawing order */,
+                    guessedGuestIds:[guestId] /* solvers of this round, in guess order */,
+                    recentChat:[{guestId, text, scope:"PUBLIC|GUESSERS", ts}] /* ≤ 50, viewer-filtered, oldest first */,
+                    roundEnd:{reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}}|null /* ROUND_END only */ }
 TelephoneSnapshot { phase:"PROMPT|DRAW|DESCRIBE|WAITING|REVEAL", phaseId, step, totalSteps, deadlineAt,
                     task:{kind, source:{kind, text|strokes}|null} /*viewer only*/, submitted:boolean,
                     waitingOn:int, reveal:{chainIndex, entryIndex}|null }
-Stroke            { strokeId, tool:"PENCIL|ERASER", color:"#RRGGBB", size:int(1-4 index), points:[[x,y],…] /*0..1*/ }
+Stroke            { strokeId:uuid, tool:"PENCIL|ERASER", color:"#RRGGBB", size:int(1-4 index),
+                    points:[[x,y],…] /* integers 0..10000 = fixed-point fraction of canvas width/height (16:10); shared with Telephone (D28) */,
+                    closed?:boolean /* Draw & Guess snapshots only; false while the drawer's stroke is still open */ }
 ```
 
 ## 3. STOMP
@@ -145,11 +153,11 @@ Implemented in Phase 3: `SET_READY`, `REQUEST_SNAPSHOT`, `PING`. Phase 4 adds `S
 | `REQUEST_SNAPSHOT` | member | `{}` | Reply: private `ROOM_SNAPSHOT` (consumes one private `seq`; `snapshot.seq.private` equals that envelope's `seq`) |
 | `PING` | any member | `{}` | Reply: private `PONG {serverNow}`; no `actionId` required |
 | `START_GAME` | host (`WAITING`) | `{}` | *Phase 4*. Same effect as REST start; no `phaseId`. `NOT_HOST`, `INVALID_PHASE` (not `WAITING`/`STARTING`), `NOT_ENOUGH_PLAYERS`. Repeating it while `STARTING` is acknowledged without effect |
-| `CHOOSE_WORD` | drawer (WORD_CHOICE) | `{wordIndex:0-2}` | *Phase 5*. Index only; server holds words |
-| `DRAW_STROKE` | drawer (DRAWING) | `{strokeId, tool, color, size, points:[[x,y]…], final}` | *Phase 5*. ≤200 points, normalized |
-| `DRAW_UNDO` | drawer | `{}` | *Phase 5*. Removes last stroke |
-| `DRAW_CLEAR` | drawer | `{}` | *Phase 5* |
-| `SUBMIT_GUESS` | non-drawer | `{text}` | *Phase 5*. Also serves as chat in Draw & Guess |
+| `CHOOSE_WORD` | drawer (WORD_CHOICE) | `{wordIndex:0-2}` | *Phase 5*, specified in §3.9. Index only; server holds words |
+| `DRAW_STROKE` | drawer (DRAWING) | `{strokeId, batchNo, tool, color, size, points:[[x,y]…], final}` | *Phase 5*, §3.9. 0–200 points, integers 0–10000 |
+| `DRAW_UNDO` | drawer (DRAWING) | `{}` | *Phase 5*, §3.9. Removes last stroke |
+| `DRAW_CLEAR` | drawer (DRAWING) | `{}` | *Phase 5*, §3.9 |
+| `SUBMIT_GUESS` | non-drawer (DRAWING) | `{text}` | *Phase 5*, §3.9. Also serves as chat in Draw & Guess (solvers: restricted chat) |
 | `TELEPHONE_SUBMIT_TEXT` | active player | `{text}` | *Phase 6*. prompt or description |
 | `TELEPHONE_SUBMIT_DRAWING` | active player | `{strokes:Stroke[]}` | *Phase 6*. one-shot |
 | `REVEAL_NEXT` / `REVEAL_PREV` | host (REVEAL) | `{}` | *Phase 6* |
@@ -187,11 +195,11 @@ Public stream (`/topic/rooms/{code}`):
 | `ROOM_STATUS_CHANGED` | `{status, reason, startsAt?}` — `reason`: `HOST_STARTED` (→`STARTING`, with `startsAt`), `COUNTDOWN_DONE` (→`PLAYING`), `GAME_FINISHED` (→`RESULTS`), `START_CANCELLED` (→`WAITING`, fewer than `minPlayers` connected), `REMATCH`, `RESULTS_TIMEOUT`, `GAME_ABORTED` (→`WAITING`), `SERVER_RESTART` (→`WAITING`, see §3.8). Its position relative to `GAME_STARTED`/`GAME_FINISHED`/`GAME_ABORTED` is fixed in §3.7 | 4 |
 | `GAME_STARTED` | `{sessionId, gameKey, settings, order:[guestId]}` — `order` is the engine's shuffled play order (roster, fixed for the session) | 4 |
 | `PHASE_STARTED` | `{phase, phaseId, round, deadlineAt, … game-specific public data}` (e.g. `drawerGuestId`, `hint`). Emitted by the engine for **every** phase change of every game, always after the state change and never carrying secrets; `phaseId` is fresh for every phase | 4 (engine), 5 (content) |
-| `DRAWING_UPDATED` | `{kind:"STROKE|UNDO|CLEAR", stroke?, strokeId?}`. Delivered on the public stream, therefore **also to the drawer**, whose client must ignore it (it is its own echo). Changed from "not sent to the drawer": per-recipient delivery would consume one private `seq` per member per stroke | 5 |
-| `HINT_UPDATED` | `{hint}` | 5 |
-| `GUESS_ACCEPTED` | `{guestId, scoreDelta, totalScore}` (no word) | 5 |
-| `GUESS_REJECTED_PUBLIC`/chat | `{guestId, text}` shown as chat | 5 |
-| `ROUND_ENDED` | `{round, word, reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}, scores:{guestId:int}}` | 5 |
+| `DRAWING_UPDATED` | `{kind:"STROKE", strokeId, batchNo, tool, color, size, points, final}` \| `{kind:"UNDO", strokeId}` \| `{kind:"CLEAR"}` (§3.9). Delivered on the public stream, therefore **also to the drawer**, whose client must ignore it (it is its own echo). Changed from "not sent to the drawer": per-recipient delivery would consume one private `seq` per member per stroke | 5 |
+| `HINT_UPDATED` | `{hint}` — `"_a__ ___"` pattern (§3.9) | 5 |
+| `GUESS_ACCEPTED` | `{guestId, scoreDelta, totalScore, order}` (no word; `order` = 0-based solver index) | 5 |
+| `GUESS_CHAT` | `{guestId, text}` — a wrong guess shown as public chat (replaces the earlier name `GUESS_REJECTED_PUBLIC`) | 5 |
+| `ROUND_ENDED` | `{round, drawerGuestId, word, reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}, scores:{guestId:int}}`; `word` is `null` only when the drawer left before a word was chosen | 5 |
 | `TELEPHONE_PROGRESS` | `{submittedCount, total}` | 6 |
 | `ALBUM_REVEALED` | `{chainIndex, entryIndex, entry}` | 6 |
 | `GAME_FINISHED` | `{sessionId, endReason:"COMPLETED|INSUFFICIENT_PLAYERS", standings:[{rank, guestId, score, detail}], resultsReady}` — nicknames are not repeated, clients use the roster. `standings` is empty for unscored games. `resultsReady:false` means `GET …/results` may still answer `RESULTS_NOT_READY` | 4 |
@@ -206,12 +214,13 @@ Private stream (`/user/queue/rooms/{code}`):
 |---|---|---|
 | `ROOM_SNAPSHOT` | `SnapshotDto` | 3 |
 | `ACTION_ACK` | `{actionId, accepted:true}` (envelope `actionId` echoes it) | 3 |
-| `GAME_ERROR` | `{actionId?, code, message, retryable}` — rejected command of a member (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `DUPLICATE_ACTION`, `STALE_ACTION`; `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `NOT_IN_ROOM` and `SERVER_ERROR` arrive as `ERROR` on `/user/queue/errors` with the same payload) | 3 |
+| `GAME_ERROR` | `{actionId?, code, message, retryable}` — rejected command of a member (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `DUPLICATE_ACTION`, `STALE_ACTION`; `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `NOT_IN_ROOM` and `SERVER_ERROR` arrive as `ERROR` on `/user/queue/errors` with the same payload; exception: `PAYLOAD_TOO_LARGE`, `NOT_DRAWER` and `IS_DRAWER` raised by a *game module* — e.g. the Draw & Guess stroke budgets — are private `GAME_ERROR`s like any module rejection, because only the transport-level byte caps are decided before the mailbox) | 3 |
 | `PONG` | `{serverNow}` | 3 |
 | `SESSION_REPLACED` | `{}` then the connection is closed | 3 |
 | `WORD_CHOICES` | `{phaseId, choices:[string×3], deadlineAt}` — drawer only | 5 |
 | `DRAWER_WORD` | `{phaseId, word}` — drawer only | 5 |
-| `GUESS_FEEDBACK` | `{result:"CLOSE|DUPLICATE|ALREADY_GUESSED"}` | 5 |
+| `GUESS_FEEDBACK` | `{result:"CLOSE|DUPLICATE"}` — only to the sender of the guess (`ALREADY_GUESSED` is dropped: a solver's text is restricted chat) | 5 |
+| `GUESSER_CHAT` | `{guestId, text}` — restricted chat from a solver, delivered only to the other solvers and the drawer | 5 |
 | `TELEPHONE_TASK` | `{phaseId, step, kind:"PROMPT|DRAW|DESCRIBE", source:{kind, text?, strokes?}|null, deadlineAt}` | 6 |
 
 `SESSION_REPLACED` is delivered to the *replaced* connection only; `ACTION_ACK`, `GAME_ERROR`, `ROOM_SNAPSHOT` and `PONG` go to the guest's current connection.
@@ -253,6 +262,40 @@ Active games are in memory and do not survive a restart (see `docs/game-engine.m
 - Commands for the lost session (`phaseId` of a phase that no longer exists) are answered `STALE_ACTION`.
 - Before a *graceful* shutdown the server publishes `GAME_ABORTED {SERVER_SHUTDOWN}` and `ROOM_STATUS_CHANGED {WAITING, GAME_ABORTED}` to every active session, then closes sockets; the room is `WAITING` in the database when it comes back.
 
+### 3.9 Draw & Guess (Phase 5 — specified, not implemented; items marked D24–D31 await approval)
+
+Rules: `docs/game-rules.md` (`[DG-*]`); design and state machine: `docs/draw-guess-design.md`. Phases (`PHASE_STARTED.phase`): `WORD_CHOICE`, `DRAWING`, `ROUND_END`. All commands carry `actionId` and the current `phaseId` (§3.3); the validation order is the engine pipeline (`game-engine.md` §4.1), so the checks below run after membership, dedupe, due deadlines and the phase guard. `Retry` = `retryable` in `GAME_ERROR`.
+
+**Commands**
+
+| `type` | Sender | Legal phase | Payload (all fields required unless noted) | Per-type limits | Effect | Errors (code — when) |
+|---|---|---|---|---|---|---|
+| `CHOOSE_WORD` | the round's drawer | `WORD_CHOICE` | `{wordIndex:int 0–2}` | 256 B; 2/s, burst 3 | Starts `DRAWING` with that word | `NOT_DRAWER` (sender is not the drawer), `VALIDATION_FAILED` (index missing/outside 0–2/not an int), `STALE_ACTION` (wrong `phaseId`, or deadline already passed), `INVALID_PHASE` (current phase is not `WORD_CHOICE`) |
+| `DRAW_STROKE` | drawer | `DRAWING` | `{strokeId:uuid, batchNo:int ≥ 0, tool:"PENCIL"\|"ERASER", color:"#RRGGBB", size:int 1–4, points:[[x,y]] 0–200 items, x,y integers 0–10000, final:boolean}`; `points` may be empty only when `final` is true and `batchNo > 0`; the first batch (`batchNo` 0) needs ≥ 1 point | 32 KiB; 30/s, burst 40 | Appends the batch to the stroke, publishes `DRAWING_UPDATED{STROKE}` | `NOT_DRAWER`, `VALIDATION_FAILED` (schema, coordinates out of range, > 200 points, bad uuid/colour/tool/size), `INVALID_ACTION` (`batchNo` is not the expected next number for this `strokeId`; style differs from batch 0; batch for a stroke already `final`), `PAYLOAD_TOO_LARGE` (stroke would exceed 2000 points, round would exceed 300 live strokes or 15 000 live points; the stroke so far stays), `RATE_LIMITED` (transport), `STALE_ACTION`, `INVALID_PHASE` |
+| `DRAW_UNDO` | drawer | `DRAWING` | `{}` | 128 B; 5/s, burst 5 | Removes the last stroke (open or closed); no-op ack on an empty canvas | `NOT_DRAWER`, `STALE_ACTION`, `INVALID_PHASE` |
+| `DRAW_CLEAR` | drawer | `DRAWING` | `{}` | 128 B; 2/s, burst 3 | Removes all strokes; no-op ack on an empty canvas | same as `DRAW_UNDO` |
+| `SUBMIT_GUESS` | any roster member that is not the drawer and not `LEFT` | `DRAWING` | `{text:string 1–80 chars after trim}` | 1 KiB; 2/s, burst 5 | Non-solver: correct → `GUESS_ACCEPTED`; close → private `GUESS_FEEDBACK{CLOSE}`; duplicate wrong → private `GUESS_FEEDBACK{DUPLICATE}`; otherwise public `GUESS_CHAT`. Solver: `GUESSER_CHAT` to the other solvers and the drawer (never evaluated) | `IS_DRAWER` (sender is the drawer), `VALIDATION_FAILED` (empty after trim/normalization, > 80 chars), `RATE_LIMITED`, `STALE_ACTION`, `INVALID_PHASE` (`WORD_CHOICE`/`ROUND_END`), `NOT_IN_ROOM` (left the session) |
+
+All rejections leave game state unchanged and never end the round. `ACTION_ACK` follows accepted commands (after their events). A command from a guest who left the session is `NOT_IN_ROOM`. Role is decided from the authenticated principal; the payload carries no guest id.
+
+**Drawing protocol.** One stroke = one or more `DRAW_STROKE` batches with the same `strokeId`, `batchNo` 0, 1, 2 … without gaps, the last with `final:true`. Batch 0 fixes `tool`, `color` and `size`; later batches repeat them and must match (rejected otherwise). The server stores the stroke at batch 0 and publishes each accepted batch unchanged as `DRAWING_UPDATED{kind:"STROKE", strokeId, batchNo, tool, color, size, points, final}` on the public stream, in acceptance order (gapless `seq`; a gap ⇒ resync, §3.2). A new `strokeId` from the drawer implicitly closes any still-open stroke. `DRAW_UNDO` publishes `{kind:"UNDO", strokeId}` naming the removed stroke; `DRAW_CLEAR` publishes `{kind:"CLEAR"}`. Eraser strokes are strokes (the client paints them with the background colour; `color` is ignored), they count against the budgets and undo removes them like any other. Clients should batch every ≈ 50 ms, simplify before sending and send at most ≈ 20 batches/s; a client that gets a rejection for a batch ends the stroke locally and continues with a new `strokeId` from its last point, and may request a snapshot. The drawer's client ignores its own `DRAWING_UPDATED` echoes (it recognizes them by `strokeId`/the drawer id in the roster). Canvas state is *not* persisted and *not* sent per recipient: a reconnecting viewer gets all live strokes from the snapshot (`strokes`).
+
+**Hint format.** `hint` is a string with one character per character of the word: `_` hidden letter, a revealed letter in lowercase, and `' '`/`'-'` as in the word. `"ice cream"` → `"___ _____"`; after a reveal `"i__ _____"`. It never reveals more than ⌈letters/2⌉ letters. It is `null` outside `DRAWING`/`ROUND_END` snapshots (in `ROUND_END` the full word is public).
+
+**Phase events and secrets (what each audience sees)**
+
+| Moment | Public stream | Private stream |
+|---|---|---|
+| Round starts | `PHASE_STARTED{phase:"WORD_CHOICE", phaseId, round, totalRounds, deadlineAt, drawerGuestId}` | drawer: `WORD_CHOICES{phaseId, choices, deadlineAt}` |
+| Word chosen/auto-picked | `PHASE_STARTED{phase:"DRAWING", phaseId, round, totalRounds, deadlineAt, drawerGuestId, hint}` | drawer: `DRAWER_WORD{phaseId, word}` |
+| During drawing | `DRAWING_UPDATED`, `HINT_UPDATED`, `GUESS_CHAT`, `GUESS_ACCEPTED` | sender: `GUESS_FEEDBACK`; solvers + drawer: `GUESSER_CHAT` |
+| Round ends | `GUESS_ACCEPTED` (if the last guess ended it), `ROUND_ENDED{… word …}`, `PHASE_STARTED{phase:"ROUND_END", phaseId, round, totalRounds, deadlineAt, drawerGuestId}` | — |
+| Last round done | after its `ROUND_END` phase: `GAME_FINISHED` + status event (§3.7) | — |
+
+The word and the three choices appear on no public event, in no other viewer's snapshot, in no error message and in no log line before `ROUND_ENDED`; the two unchosen words are never revealed at all.
+
+**Standings detail** (`GAME_FINISHED.standings[].detail`, `ResultsDto.standings[].detail`): `{correctGuesses, guesserPoints, drawerPoints, roundsDrawn}`. `ResultsDto.rounds[].meta`: `{drawerGuestId, word|null, autoPicked, correctGuessers:[guestId in guess order]}`; `endReason` ∈ `TIME|ALL_GUESSED|DRAWER_LEFT`.
+
 ## 4. Phase 4 changes to existing contract text
 
 Everything below is additive unless stated.
@@ -269,3 +312,13 @@ Everything below is additive unless stated.
 | §3.4 `GAME_FINISHED` | Payload fixed (`endReason`, `resultsReady`; no nicknames) |
 | §3.4 | New event `GAME_ABORTED` |
 | §3.2 | No change: envelope, `seq`, `actionId` semantics are untouched |
+
+### Phase 5 contract changes (Draw & Guess, design pending approval D24–D31)
+
+| Where | Change |
+|---|---|
+| §2.1 `Stroke`, `DrawGuessSnapshot` | `points` are integers 0–10000 (was floats 0–1; shared with Telephone, D28); `closed` flag; `DrawGuessSnapshot` drops fields duplicated by the common header and gains `roundEnd`; `recentChat` is viewer-filtered |
+| §3.3 | `DRAW_STROKE` gains `batchNo`; every Draw & Guess command now lists its legal phase; per-type limits and errors in §3.9 |
+| §3.4 | `GUESS_REJECTED_PUBLIC` renamed `GUESS_CHAT`; new `GUESSER_CHAT` (private, restricted audience); `GUESS_ACCEPTED` gains `order`; `ROUND_ENDED` gains `drawerGuestId`; `GUESS_FEEDBACK` loses `ALREADY_GUESSED`; `DRAWING_UPDATED` payload specified per `kind` |
+| §3.4 `GAME_ERROR` | Module-raised `PAYLOAD_TOO_LARGE`/`NOT_DRAWER`/`IS_DRAWER` are private `GAME_ERROR`s |
+| §3.9 | New: Draw & Guess commands, drawing protocol, hint format, phase/secret table, standings detail |
