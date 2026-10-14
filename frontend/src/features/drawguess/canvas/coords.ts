@@ -75,8 +75,7 @@ export function getStrokePixelWidth(
   canvasWidth: number,
   isEraser = false,
 ): number {
-  const config =
-    BRUSH_SIZES.find((s) => s.size === sizeIndex) ?? BRUSH_SIZES[1] // default medium
+  const config = BRUSH_SIZES.find((s) => s.size === sizeIndex) ?? BRUSH_SIZES[1] // default medium
 
   const calculated = canvasWidth * config.scale * (isEraser ? 1.5 : 1)
   return Math.max(config.minPx, calculated)

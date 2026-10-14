@@ -83,7 +83,9 @@ export function GuessFeed({
                   >
                     {sender?.nickname ?? 'Unknown'}
                   </span>
-                  {isMe && <span className="text-[10px] text-muted-foreground font-semibold">(You)</span>}
+                  {isMe && (
+                    <span className="text-[10px] text-muted-foreground font-semibold">(You)</span>
+                  )}
                   {isSolverChat && (
                     <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold bg-primary/20 text-primary uppercase">
                       Solver Chat

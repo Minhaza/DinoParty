@@ -52,12 +52,7 @@ describe('GuessInput', () => {
 
   it('is disabled for drawer with clear message', () => {
     render(
-      <GuessInput
-        isDrawer={true}
-        isSolved={false}
-        isDrawingPhase={true}
-        onSubmitGuess={vi.fn()}
-      />,
+      <GuessInput isDrawer={true} isSolved={false} isDrawingPhase={true} onSubmitGuess={vi.fn()} />,
     )
 
     const input = screen.getByRole('textbox')
@@ -67,12 +62,7 @@ describe('GuessInput', () => {
 
   it('shows solver chat placeholder for players who already guessed', () => {
     render(
-      <GuessInput
-        isDrawer={false}
-        isSolved={true}
-        isDrawingPhase={true}
-        onSubmitGuess={vi.fn()}
-      />,
+      <GuessInput isDrawer={false} isSolved={true} isDrawingPhase={true} onSubmitGuess={vi.fn()} />,
     )
 
     const input = screen.getByRole('textbox')
