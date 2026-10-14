@@ -3,6 +3,7 @@ package com.dinoparty.games.drawguess;
 import com.dinoparty.drawing.CanvasBuffer;
 import com.dinoparty.drawing.CanvasLimits;
 import com.dinoparty.engine.GameState;
+import com.dinoparty.words.WordPool;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -47,7 +48,13 @@ final class DrawGuessState implements GameState {
   // ---- session
   final DrawGuessSettings settings;
   final List<UUID> turns;
+
+  /** Frozen at start; later room or pack changes never reach it. */
+  final WordPool pool;
+
+  /** Words chosen in this session ([DG-15]); a rematch is a new state, so it starts empty. */
   final Set<String> usedWords = new HashSet<>();
+
   final Set<UUID> left = new HashSet<>();
   final Map<UUID, Integer> totals = new LinkedHashMap<>();
   final Map<UUID, Stats> stats = new LinkedHashMap<>();
@@ -73,8 +80,9 @@ final class DrawGuessState implements GameState {
   final Map<UUID, Integer> roundDeltas = new HashMap<>();
   String endReason;
 
-  DrawGuessState(DrawGuessSettings settings, List<UUID> order) {
+  DrawGuessState(DrawGuessSettings settings, List<UUID> order, WordPool pool) {
     this.settings = settings;
+    this.pool = pool;
     List<UUID> list = new ArrayList<>(order.size() * settings.cycles());
     for (int c = 0; c < settings.cycles(); c++) {
       list.addAll(order);

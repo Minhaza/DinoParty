@@ -1,6 +1,7 @@
 package com.dinoparty.games.drawguess;
 
 import com.dinoparty.common.ErrorCode;
+import com.dinoparty.common.RandomSource;
 import com.dinoparty.common.Timestamps;
 import com.dinoparty.drawing.StrokeBatch;
 import com.dinoparty.engine.ActionRejected;
@@ -13,6 +14,7 @@ import com.dinoparty.engine.GameContext;
 import com.dinoparty.engine.GameDefinition;
 import com.dinoparty.engine.GameModule;
 import com.dinoparty.engine.GameOutcome;
+import com.dinoparty.engine.GameSetup;
 import com.dinoparty.engine.GameState;
 import com.dinoparty.engine.OutboundEvent;
 import com.dinoparty.engine.PhaseChange;
@@ -25,6 +27,7 @@ import com.dinoparty.engine.Transition;
 import com.dinoparty.games.drawguess.DrawGuessState.ChatLine;
 import com.dinoparty.games.drawguess.DrawGuessState.Phase;
 import com.dinoparty.games.drawguess.DrawGuessState.Stats;
+import com.dinoparty.words.WordPoolService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -78,14 +81,18 @@ public class DrawGuessModule implements GameModule {
           Set.of("DRAWING_UPDATED", "HINT_UPDATED", "GUESS_ACCEPTED", "GUESS_CHAT", "ROUND_ENDED"),
           Set.of("WORD_CHOICES", "DRAWER_WORD", "GUESS_FEEDBACK", "GUESSER_CHAT"));
 
-  private final WordPool words;
+  private final WordPoolService words;
 
-  public DrawGuessModule() {
-    this(WordPool.load());
-  }
+  /**
+   * Draws the word choices. The server's cryptographically strong source, not the session's seeded
+   * {@code ctx.random()}: the session seed is stored with the session, and the offered words must
+   * not be reconstructible from it ([DG-2]: unchosen words are never persisted or revealed).
+   */
+  private final RandomSource wordRandom;
 
-  DrawGuessModule(WordPool words) {
+  public DrawGuessModule(WordPoolService words, RandomSource wordRandom) {
     this.words = words;
+    this.wordRandom = wordRandom;
   }
 
   @Override
@@ -95,9 +102,23 @@ public class DrawGuessModule implements GameModule {
 
   // ------------------------------------------------------------------ engine calls
 
+  /**
+   * Resolves and freezes the word pool when the host starts ([DG-15]): rejected with {@code
+   * VALIDATION_FAILED} or {@code WORD_POOL_TOO_SMALL} unless it has at least one draw of words.
+   */
+  @Override
+  public GameSetup prepare(Map<String, Object> settings, UUID host) {
+    DrawGuessSettings s = DrawGuessSettings.from(settings);
+    return new DrawGuessSetup(words.build(s.words(), host, WORD_CHOICES));
+  }
+
   @Override
   public Transition init(GameContext ctx) {
-    DrawGuessState s = new DrawGuessState(DrawGuessSettings.from(ctx.settings()), ctx.order());
+    if (!(ctx.setup() instanceof DrawGuessSetup setup)) {
+      throw new IllegalStateException("Draw & Guess started without a prepared word pool");
+    }
+    DrawGuessState s =
+        new DrawGuessState(DrawGuessSettings.from(ctx.settings()), ctx.order(), setup.pool());
     return nextTurnOrFinish(s, ctx);
   }
 
@@ -351,7 +372,7 @@ public class DrawGuessModule implements GameModule {
     Instant now = ctx.clock().instant();
     s.roundStartedAt = now;
     s.totalRounds = totalRounds(s);
-    s.wordChoices = words.draw(s.settings.difficulty(), s.usedWords, ctx.random(), WORD_CHOICES);
+    s.wordChoices = s.pool.draw(s.usedWords, wordRandom, WORD_CHOICES);
     Instant deadline = now.plusSeconds(s.settings.wordChoiceSeconds());
     Map<String, Object> secret = new LinkedHashMap<>();
     secret.put("phaseId", ctx.nextPhaseId());

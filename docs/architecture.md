@@ -45,10 +45,10 @@ Single Maven module, strictly layered packages; boundaries enforced by **ArchUni
 | `room` | room lifecycle, codes, membership, capacity, ready, host transfer, settings, room mailbox, room status transitions (called by `session`) | `common`, `guest`, `engine` (api) |
 | `engine` | game SPI (`GameModule`, `GameDefinition`, `CommandSpec`, `GameContext`), registry, phase identity, deadline book + `DeadlineScheduler` port, action gate, score ledger/ranking, turn order, rematch votes — pure, no Spring Web/JPA | `common` |
 | `session` | Phase 4: one room's game lifecycle (start countdown, `ActiveSessions`, finish/abort/rematch/restart recovery); defines ports `SessionEventSink`, `SessionRecorder`, `SessionHistoryQuery` | `common`, `guest`, `room`, `engine` |
-| `games.drawguess` | Draw & Guess rules, words, scoring, stroke model | `engine`, `drawing` |
+| `games.drawguess` | Draw & Guess rules, scoring, stroke model; freezes its word pool at start through `words` (WP-02) | `engine`, `drawing`, `words` (api, never `words.persistence`) |
 | `games.telephone` | chain allocation, phases, album reveal | `engine`, `drawing` |
 | `drawing` | shared stroke model, validation/limits, bounded stroke buffer, (de)serialization | `common` |
-| `words` | WP-01 built-in word catalog: categories, difficulties, locales, counts and filtered word reads (read-only reference data; `words.persistence` is private) | `common` |
+| `words` | WP-01 built-in word catalog: categories, difficulties, locales, counts and filtered word reads (read-only reference data; `words.persistence` is private). WP-02 word pool: `WordPoolService` (selection, filters, de-duplication, start check), frozen `WordPool` (drawing), providers `BuiltInWordProvider` (the catalog) and `CustomWordProvider` (WP-03 implements it; `NoCustomWordPacks` until then) | `common` |
 | `realtime` | STOMP config, auth interceptor, destination conventions, envelope, sequencing, presence tracking, command routing; implements `SessionEventSink` | `room`, `session`, `engine`, `guest` |
 | `history` | persistence of `game_session`, `game_round`, `game_submission`, `game_result`; implements `SessionRecorder`/`SessionHistoryQuery`; restart recovery SQL | `common`, `session`, `engine` |
 | `web` | REST controllers, DTOs, exception mapper, OpenAPI | all service APIs (never entities) |

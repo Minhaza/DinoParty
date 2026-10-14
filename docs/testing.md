@@ -386,3 +386,22 @@ New tests:
 | `ArchitectureTest` | `words` depends on `common` only; `words.persistence` private |
 
 Not verified: no frontend or browser check (no UI in scope); gameplay still reads the resource lists, so no game test exercises the catalog yet; word drawability/appropriateness was reviewed by hand, not by players.
+
+## WP-02 verification record (word filtering and game integration, backend)
+
+Command: `./mvnw -f backend verify` (Windows 11, Java 21, Docker 29.8, Testcontainers `postgres:16-alpine`) — **BUILD SUCCESS**: surefire 265 tests, failsafe 179 ITs, 0 failures, 0 errors, 0 skipped; Spotless check passed.
+
+New or changed tests:
+
+| Test | Covers |
+|---|---|
+| `WordPoolServiceTest` (unit, in-memory providers) | One category; several categories × difficulty; each of `EASY`/`MEDIUM`/`HARD`; `MIXED`; empty filters and Random Mix = every active category; unknown/deactivated category → `VALIDATION_FAILED settings.wordCategories`; custom words never filtered by category/difficulty or missing metadata; combined pool order and `[DG-4]` de-duplication (`Ice-Cream`/`icecream`/`CAT`/`café`/`cafe`); missing, unknown and other-owner packs → `settings.wordPackIds`; unusable entries not counted; `WORD_POOL_TOO_SMALL` with `details {required, available}` (duplicates and empty filters); exactly one draw suffices; frozen against catalog and pack edits; no word in `toString`; draw without repeats, exhaustion fallback, per-seed determinism |
+| `DrawGuessWordSelectionTest` (module in the real engine, manual clock) | Too-small pool and invalid settings reject the start with nothing initialized (no status change, event, session, timer, history row) and no word in the error; offered words obey category + difficulty filters over a whole game; combined games; settings and pack edits during countdown/game ignored, `GAME_STARTED.settings` frozen; rematch uses a fresh used set and the current settings; exhaustion repeats instead of stopping; pool words reach only the drawer before `ROUND_ENDED` |
+| `SessionServiceTest` (+3) | Engine `prepare` hook: rejection initializes nothing, a crash is `SERVER_ERROR`, settings and setup frozen at host start |
+| `DrawGuessRulesTest` | Pool duplicate key = `[DG-4]` correct-guess equivalence (`WordKey`); legacy lists (now test fixtures) well formed; settings parsing for the new keys and every difficulty, lenient fallback |
+| `DrawGuessSettingsSchemaTest` (+2) | Room schema accepts every value the module reads (sources, `[]`, Random Mix, nine categories, 10 packs) and rejects malformed ones (case, duplicates, Random Mix combined, non-lists, bad/uppercase UUIDs, too many) |
+| `DrawGuessWordSelectionIT` (STOMP + REST, test `CustomWordProvider` bean) | Settings validated on `PATCH` and defaults filled; REST start `409 WORD_POOL_TOO_SMALL` with `details`, room stays `WAITING`; STOMP `START_GAME` → private `GAME_ERROR` with `details`, no words, only to the host; built-in game choices are catalog words of the selected categories/difficulty (checked against PostgreSQL); custom game frozen at start; only the drawer's socket receives `WORD_CHOICES` |
+| `WordPoolIT` (PostgreSQL) | Pool size equals `counts` for every category × difficulty and Random Mix (653); inactive words/categories excluded; production provider has no packs (`settings.wordPackIds`) |
+| `DrawGuessIT` | `theModuleDefaultsEqualTheCatalogRow` now checks the `V7` defaults; fixed a pre-existing order-dependent flake (when the host was the guesser who reconnected, its new socket never saw round 1's `WORD_CHOICE`, so waiting for the second one timed out) |
+
+Not verified: no frontend or browser check (no UI change in scope; the frontend's `SettingsMap` type does not list string arrays yet, see design §19); custom packs only through test providers (WP-03 builds the storage); no load measurement of the start-time pool query (≈ 650 rows, inside the room mailbox).

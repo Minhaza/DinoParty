@@ -15,6 +15,7 @@ import com.dinoparty.engine.GameDefinition;
 import com.dinoparty.engine.GameModule;
 import com.dinoparty.engine.GameOutcome;
 import com.dinoparty.engine.GameRegistry;
+import com.dinoparty.engine.GameSetup;
 import com.dinoparty.engine.OutboundEvent;
 import com.dinoparty.engine.PhaseChange;
 import com.dinoparty.engine.PlayerAction;
@@ -467,8 +468,14 @@ public class SessionService {
           ErrorCode.NOT_ENOUGH_PLAYERS,
           "At least " + definition.minPlayers() + " connected players are needed.");
     }
+    // Settings and the module's setup (e.g. the word pool) are resolved and frozen here, before
+    // anything exists: a rejection leaves no session, no countdown and an unchanged room.
+    Map<String, Object> settings = room.settings();
+    GameSetup setup = prepare(module, settings, caller);
     Instant startsAt = clock.instant().plus(properties.startCountdown());
     ActiveSession s = new ActiveSession(code, room.roomId(), module, newId());
+    s.settings = settings;
+    s.setup = setup;
     s.deadlines.set(START_COUNTDOWN, DeadlineBook.Kind.ENGINE, null, startsAt);
     sessions.put(code, s);
     try {
@@ -482,6 +489,23 @@ public class SessionService {
     }
     count("lifecycle", "starting");
     rearm(s);
+  }
+
+  private GameSetup prepare(GameModule module, Map<String, Object> settings, UUID host) {
+    GameSetup setup;
+    try {
+      setup = module.prepare(settings, host);
+    } catch (DomainException e) {
+      throw e;
+    } catch (RuntimeException e) {
+      log.error("Game module failed to prepare a start", e);
+      throw new DomainException(ErrorCode.SERVER_ERROR, "Something went wrong.");
+    }
+    if (setup == null) {
+      log.error("Game module returned no setup");
+      throw new DomainException(ErrorCode.SERVER_ERROR, "Something went wrong.");
+    }
+    return setup;
   }
 
   private void recheckCountdown(ActiveSession s) {
@@ -527,7 +551,6 @@ public class SessionService {
                         new PlayerInfo(m.guestId(), m.nickname(), m.avatarKey(), m.avatarColor()),
                         m.connected() ? PlayerStatus.ACTIVE : PlayerStatus.DISCONNECTED)));
     s.sessionId = newId();
-    s.settings = room.settings();
     s.startedAt = clock.instant();
     s.ledger = definition.scored() ? new ScoreLedger(s.order) : null;
     try (MDC.MDCCloseable ignored = scope(s)) {
@@ -964,7 +987,7 @@ public class SessionService {
     // Minted per module call and consumed by apply() if that call's transition starts a phase.
     s.nextPhaseId = newId();
     return new GameContext(
-        s.sessionId, clock, s.random, s.rosterInfos(), s.order, s.settings, s.nextPhaseId);
+        s.sessionId, clock, s.random, s.rosterInfos(), s.order, s.settings, s.setup, s.nextPhaseId);
   }
 
   private <T> T inRoom(String code, Supplier<T> action) {

@@ -30,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @Transactional(readOnly = true)
-public class WordCatalogService {
+public class WordCatalogService implements BuiltInWordProvider {
 
   private static final Pattern CATEGORY_KEY = Pattern.compile("[a-z][a-z0-9-]{0,39}");
 
@@ -110,6 +110,27 @@ public class WordCatalogService {
         .toList();
   }
 
+  @Override
+  public List<String> activeCategoryKeys() {
+    return categories.findByActiveTrueOrderBySortOrderAsc().stream()
+        .map(WordCategoryEntity::getKey)
+        .toList();
+  }
+
+  /** Game words come from the default catalog locale ({@code en}, the only built-in one). */
+  @Override
+  public List<CatalogWord> words(List<String> categoryKeys, DifficultyFilter difficulty) {
+    if (categoryKeys.isEmpty()) {
+      return List.of();
+    }
+    return entries
+        .findByLocaleAndActiveTrueAndCategoryKeyInAndDifficultyInOrderByDisplayTextAsc(
+            resolve(CatalogLocales.DEFAULT), categoryKeys, difficulty.difficulties())
+        .stream()
+        .map(WordCatalogService::toWord)
+        .toList();
+  }
+
   private String resolve(String requested) {
     for (String candidate : CatalogLocales.fallbackChain(requested)) {
       if (entries.existsByLocaleAndActiveTrue(candidate)) {
@@ -136,10 +157,7 @@ public class WordCatalogService {
   }
 
   private List<String> selectCategories(String category) {
-    List<String> active =
-        categories.findByActiveTrueOrderBySortOrderAsc().stream()
-            .map(WordCategoryEntity::getKey)
-            .toList();
+    List<String> active = activeCategoryKeys();
     String name = categoryName(category);
     if (WordCatalogTypes.RANDOM_MIX.equals(name)) {
       return active;

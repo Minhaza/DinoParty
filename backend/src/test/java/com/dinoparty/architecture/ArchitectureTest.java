@@ -205,7 +205,10 @@ class ArchitectureTest {
               "..persistence..",
               "jakarta.persistence..");
 
-  /** Draw & Guess uses the engine SPI, the drawing library and common only (design §10). */
+  /**
+   * Draw & Guess uses the engine SPI, the drawing library, the word pool and common only (design
+   * §10; the word catalog's persistence stays private to {@code words}).
+   */
   @ArchTest
   static final ArchRule drawGuessUsesEngineDrawingAndCommonOnly =
       classes()
@@ -217,6 +220,7 @@ class ArchitectureTest {
               "com.dinoparty.games.drawguess..",
               "com.dinoparty.engine..",
               "com.dinoparty.drawing..",
+              "com.dinoparty.words",
               "com.dinoparty.common..",
               "org.springframework.stereotype..",
               "java..");

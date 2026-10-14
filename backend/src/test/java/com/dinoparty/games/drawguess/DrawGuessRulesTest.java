@@ -3,17 +3,27 @@ package com.dinoparty.games.drawguess;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.dinoparty.common.SeededRandomSource;
-import com.dinoparty.games.drawguess.DrawGuessSettings.Difficulty;
+import com.dinoparty.words.DifficultyFilter;
+import com.dinoparty.words.TestWords;
+import com.dinoparty.words.WordCatalogTypes;
+import com.dinoparty.words.WordKey;
+import com.dinoparty.words.WordSelection;
+import com.dinoparty.words.WordSource;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 /** Pure Draw & Guess rules: [DG-4] normalization, [DG-5] close, [DG-12]/[DG-13], [DG-3] hint. */
 class DrawGuessRulesTest {
+
+  private static final String MIX = WordCatalogTypes.RANDOM_MIX;
+  private static final UUID PACK = UUID.fromString("6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b");
 
   // ------------------------------------------------------------------ [DG-4] / [DG-5]
 
@@ -153,81 +163,37 @@ class DrawGuessRulesTest {
 
   // ------------------------------------------------------------------ [DG-15] word pool
 
-  private static final Set<String> BLOCKLIST =
-      Set.of(
-          "kill",
-          "gun",
-          "drug",
-          "drugs",
-          "beer",
-          "wine",
-          "vodka",
-          "sex",
-          "naked",
-          "blood",
-          "bomb",
-          "die",
-          "dead",
-          "hell",
-          "damn",
-          "weed",
-          "knife",
-          "murder",
-          "drunk",
-          "cigarette",
-          "nazi",
-          "slave",
-          "suicide",
-          "poop",
-          "butt");
+  /** The pool's duplicate key is the [DG-4] correct-guess equivalence (pool: words module). */
+  @ParameterizedTest
+  @CsvSource(
+      delimiter = '|',
+      value = {
+        "Ice Cream",
+        "ice-cream",
+        "icecream",
+        "crème brûlée",
+        "Café",
+        "ＦＵＬＬＷＩＤＴＨ",
+        "ﬁsh",
+        "İstanbul",
+        "tug-of-war",
+        "snake_case",
+        "dino 42",
+      })
+  void DG15_poolDuplicatesAreExactlyTheWordsOneGuessMatches(String word) {
+    assertThat(WordKey.of(word)).isEqualTo(GuessMatcher.spaceless(GuessMatcher.normalize(word)));
+  }
 
   @Test
-  void DG15_tiersAreLargeWellFormedDisjointAndClean() {
-    WordPool pool = WordPool.load();
-    List<String> easy = pool.words(Difficulty.EASY);
-    List<String> hard = pool.words(Difficulty.HARD);
-
-    assertThat(easy).hasSizeGreaterThanOrEqualTo(150).doesNotHaveDuplicates();
-    assertThat(hard).hasSizeGreaterThanOrEqualTo(150).doesNotHaveDuplicates();
-    assertThat(easy).doesNotContainAnyElementsOf(hard);
-    assertThat(pool.words(Difficulty.MIXED)).hasSize(easy.size() + hard.size());
-    for (String w : pool.words(Difficulty.MIXED)) {
-      assertThat(w).hasSizeBetween(3, 20).matches("[a-z]+(?:[ -][a-z]+)*");
-      for (String token : w.split("[ -]")) {
-        assertThat(BLOCKLIST).as(w).doesNotContain(token);
+  void DG15_theLegacyWordListsAreGuessableDistinctWords() {
+    Set<String> keys = new HashSet<>();
+    for (String resource :
+        List.of("/games/drawguess/words-easy.txt", "/games/drawguess/words-hard.txt")) {
+      for (String w : TestWords.read(resource)) {
+        assertThat(w).hasSizeBetween(3, 20).matches("[a-z]+(?:[ -][a-z]+)*");
+        assertThat(HintMasker.letters(w)).isGreaterThanOrEqualTo(2);
+        assertThat(keys.add(WordKey.of(w))).as(w).isTrue();
       }
-      assertThat(HintMasker.letters(w)).isGreaterThanOrEqualTo(2);
-    }
-  }
-
-  @Test
-  void DG15_drawsThreeDistinctUnusedWordsAndFallsBackWhenExhausted() {
-    WordPool pool = new WordPool(List.of("aaa", "bbb", "ccc", "ddd"), List.of("eee", "fff", "ggg"));
-    SeededRandomSource random = new SeededRandomSource(1);
-
-    List<String> first = pool.draw(Difficulty.EASY, Set.of("aaa"), random, 3);
-    assertThat(first).containsExactlyInAnyOrder("bbb", "ccc", "ddd");
-
-    // Only one unused word left: the whole tier is used again (repeats allowed).
-    List<String> fallback = pool.draw(Difficulty.EASY, Set.of("aaa", "bbb", "ccc"), random, 3);
-    assertThat(fallback).hasSize(3).doesNotHaveDuplicates();
-    assertThat(pool.words(Difficulty.EASY)).containsAll(fallback);
-
-    assertThat(pool.draw(Difficulty.HARD, Set.of(), random, 3))
-        .containsExactlyInAnyOrder("eee", "fff", "ggg");
-  }
-
-  @Test
-  void DG15_noRepeatsWithinASessionAndSeededDeterminism() {
-    WordPool pool = WordPool.load();
-    SeededRandomSource a = new SeededRandomSource(42);
-    SeededRandomSource b = new SeededRandomSource(42);
-    Set<String> used = new HashSet<>();
-    for (int round = 0; round < 50; round++) {
-      List<String> choices = pool.draw(Difficulty.MIXED, used, a, 3);
-      assertThat(choices).isEqualTo(pool.draw(Difficulty.MIXED, used, b, 3));
-      assertThat(choices).noneMatch(used::contains);
-      used.add(choices.get(round % 3));
     }
   }
 
@@ -235,29 +201,79 @@ class DrawGuessRulesTest {
 
   @Test
   void settingsFallBackToTheCatalogDefaults() {
+    WordSelection defaultWords =
+        new WordSelection(WordSource.BUILT_IN, List.of(MIX), DifficultyFilter.MIXED, List.of());
     assertThat(DrawGuessSettings.from(Map.of()))
-        .isEqualTo(new DrawGuessSettings(2, 80, 15, true, Difficulty.MIXED));
-    assertThat(
-            DrawGuessSettings.from(
-                Map.of(
-                    "cycles",
-                    5,
-                    "drawSeconds",
-                    30L,
-                    "wordChoiceSeconds",
-                    99,
-                    "hintReveal",
-                    false,
-                    "difficulty",
-                    "hard")))
-        .isEqualTo(new DrawGuessSettings(5, 30, 15, false, Difficulty.HARD));
+        .isEqualTo(
+            new DrawGuessSettings(
+                2,
+                80,
+                15,
+                true,
+                new WordSelection(
+                    WordSource.BUILT_IN, List.of(), DifficultyFilter.MIXED, List.of())));
+    assertThat(DrawGuessSettings.from(DrawGuessSettings.defaults()))
+        .isEqualTo(new DrawGuessSettings(2, 80, 15, true, defaultWords));
+    Map<String, Object> custom = new HashMap<>();
+    custom.put("cycles", 5);
+    custom.put("drawSeconds", 30L);
+    custom.put("wordChoiceSeconds", 99);
+    custom.put("hintReveal", false);
+    custom.put("difficulty", "hard");
+    custom.put("wordSource", "combined");
+    custom.put("wordCategories", List.of("animals", "sports"));
+    custom.put("wordPackIds", List.of(PACK.toString()));
+    assertThat(DrawGuessSettings.from(custom))
+        .isEqualTo(
+            new DrawGuessSettings(
+                5,
+                30,
+                15,
+                false,
+                new WordSelection(
+                    WordSource.COMBINED,
+                    List.of("animals", "sports"),
+                    DifficultyFilter.HARD,
+                    List.of(PACK))));
     assertThat(DrawGuessSettings.defaults())
         .isEqualTo(
             Map.of(
-                "cycles", 2,
-                "drawSeconds", 80,
-                "wordChoiceSeconds", 15,
-                "hintReveal", true,
-                "difficulty", "mixed"));
+                "cycles",
+                2,
+                "drawSeconds",
+                80,
+                "wordChoiceSeconds",
+                15,
+                "hintReveal",
+                true,
+                "difficulty",
+                "mixed",
+                "wordSource",
+                "built-in",
+                "wordCategories",
+                List.of(MIX),
+                "wordPackIds",
+                List.of()));
+  }
+
+  @Test
+  void DG15_everyDifficultySettingMapsToItsCatalogFilter() {
+    for (String value : List.of("easy", "medium", "hard", "mixed")) {
+      assertThat(DrawGuessSettings.from(Map.of("difficulty", value)).words().difficulty().name())
+          .isEqualTo(value.toUpperCase(java.util.Locale.ROOT));
+    }
+  }
+
+  @Test
+  void unusableWordSettingsFallBackInsteadOfFailingTheGame() {
+    Map<String, Object> broken = new HashMap<>();
+    broken.put("difficulty", "extreme");
+    broken.put("wordSource", "BUILT_IN");
+    broken.put("wordCategories", List.of("animals", 7));
+    broken.put("wordPackIds", List.of("not-a-uuid"));
+
+    assertThat(DrawGuessSettings.from(broken).words())
+        .isEqualTo(
+            new WordSelection(WordSource.BUILT_IN, List.of(), DifficultyFilter.MIXED, List.of()));
   }
 }

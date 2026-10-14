@@ -1,5 +1,6 @@
 package com.dinoparty.games.testgame;
 
+import com.dinoparty.common.DomainException;
 import com.dinoparty.common.ErrorCode;
 import com.dinoparty.engine.ActionRejected;
 import com.dinoparty.engine.CommandSpec;
@@ -9,6 +10,7 @@ import com.dinoparty.engine.GameContext;
 import com.dinoparty.engine.GameDefinition;
 import com.dinoparty.engine.GameModule;
 import com.dinoparty.engine.GameOutcome;
+import com.dinoparty.engine.GameSetup;
 import com.dinoparty.engine.GameState;
 import com.dinoparty.engine.OutboundEvent;
 import com.dinoparty.engine.PhaseChange;
@@ -35,6 +37,10 @@ import org.springframework.stereotype.Component;
  * "turn" player and privately learns a secret. Anyone may score points with {@code TEST_SCORE};
  * only the turn player may end the round early with {@code TEST_NEXT}. When the round ends (by time
  * or by {@code TEST_NEXT}) the secret becomes public in {@code TEST_ROUND_ENDED}.
+ *
+ * <p>Start preparation: setting {@code secretPrefix} (default {@code secret}) is frozen into the
+ * setup and prefixes every secret; {@code rejectStart: true} rejects the start, {@code crashStart:
+ * true} makes {@link #prepare} fail unexpectedly.
  */
 @Component
 public class TestGameModule implements GameModule {
@@ -48,6 +54,9 @@ public class TestGameModule implements GameModule {
     String secret;
     Instant roundStartedAt;
   }
+
+  /** Frozen at start; every secret of the session uses this prefix. */
+  public record TestSetup(String secretPrefix) implements GameSetup {}
 
   private final Duration roundLength;
   private final int rounds;
@@ -72,6 +81,17 @@ public class TestGameModule implements GameModule {
             new CommandSpec("TEST_NEXT", 256, 5, 5, Set.of("ROUND"))),
         Set.of("TEST_SCORED", "TEST_ROUND_ENDED"),
         Set.of("TEST_SECRET"));
+  }
+
+  @Override
+  public GameSetup prepare(Map<String, Object> settings, UUID host) {
+    if (Boolean.TRUE.equals(settings.get("rejectStart"))) {
+      throw DomainException.invalid("settings.rejectStart", "rejects the start");
+    }
+    if (Boolean.TRUE.equals(settings.get("crashStart"))) {
+      throw new IllegalStateException("prepare failed");
+    }
+    return new TestSetup(settings.get("secretPrefix") instanceof String prefix ? prefix : "secret");
   }
 
   @Override
@@ -163,7 +183,7 @@ public class TestGameModule implements GameModule {
   private Transition startRound(TestState state, GameContext ctx) {
     state.round++;
     state.turn = ctx.order().get((state.round - 1) % ctx.order().size());
-    state.secret = "secret-" + ctx.random().nextInt(1_000_000);
+    state.secret = ((TestSetup) ctx.setup()).secretPrefix() + "-" + ctx.random().nextInt(1_000_000);
     state.roundStartedAt = ctx.clock().instant();
     return Transition.stay(state)
         .withPhase(

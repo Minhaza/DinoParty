@@ -15,6 +15,7 @@ public enum ErrorCode {
   ALREADY_IN_ROOM(HttpStatus.CONFLICT, "Already in a room"),
   NOT_IN_ROOM(HttpStatus.FORBIDDEN, "Not a member of this room"),
   NOT_ENOUGH_PLAYERS(HttpStatus.CONFLICT, "Not enough players"),
+  WORD_POOL_TOO_SMALL(HttpStatus.CONFLICT, "Not enough words"),
   GAME_NOT_FOUND(HttpStatus.NOT_FOUND, "Game not found"),
   SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Session not found"),
   RESULTS_NOT_READY(HttpStatus.CONFLICT, "Results are not ready"),
