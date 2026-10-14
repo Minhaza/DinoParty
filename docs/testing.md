@@ -16,6 +16,8 @@ Current coverage (Phase 1): health service/probe units, `GET /api/v1/health` (20
 
 Vitest + Testing Library (`npm --prefix frontend test`). Current coverage (Phase 1): health API client (200, 503-as-DOWN, bad shape, error), system-status widget (UP/DOWN/unreachable), routing and placeholder labelling, theme resolution. Playwright E2E arrives with the phases that have flows to test.
 
+Playwright E2E (since P5-05): `frontend/e2e/*.e2e.ts`, run with `npm --prefix frontend run e2e`. It needs the backend on `:8080` with its database (for example `scripts/dev.sh`, or the compose `db` plus `spring-boot:run -Dspring-boot.run.profiles=dev`); the config starts the Vite dev server unless one is already running. Chromium only, one worker, not yet in CI. Multi-user runs use one browser context per player; `e2e/support.ts` provides the canvas pixel probes, mouse/touch (CDP) drags and a WebSocket "network cut" built on `routeWebSocket`.
+
 ## Phase 1 verification record
 
 Run on Windows 11, JDK 21.0.3, Node 22, Docker Desktop.
@@ -295,3 +297,77 @@ A manual Playwright script (not committed; Phase 8 adds the E2E suite) ran again
 - The drawer canvas keeps per-point preview data in Zustand and redraws everything on each change (P5-03 design). This is fine at the budget sizes, but it is not the imperative-only rendering `AGENTS.md` asks for.
 - The word-choice overlay has no `role="dialog"`. (Seven P5-03 files that were not Prettier-clean, which would fail CI's `format:check`, were reformatted in this change.)
 - Not run: Linux/CI, Firefox/WebKit, mobile touch input, the committed Playwright suite (Phase 8).
+
+## Phase 5 integration verification record (P5-05, Draw & Guess)
+
+Run 2026-10-14 on Windows 11, JDK 21.0.3, Node 22.18, Docker Desktop 29.8, Playwright 1.64 (Chromium 156), against `main` at `4174511` plus this branch. No production code changed: the backend and frontend behaved correctly; the changes are tests, the E2E harness and docs.
+
+### Defects found and fixed
+
+| Defect | Effect | Fix |
+|---|---|---|
+| `DrawGuessIT.aFullGame…` kept awaiting events on the host's socket after dropping it. The play order is random, so in about a third of runs the host was the guesser who "refreshed" | Baseline `verify` failed (`ConditionTimeout` at the `ROUND_ENDED` wait); 1 of 2 isolated reruns failed too. A debug dump showed the server had delivered every event to the live sockets: a test defect, not a product bug | The test re-points `host` to the new socket when the host is the one reconnecting; 6 consecutive `DrawGuessIT` runs green afterwards |
+
+No product defect was found in this pass.
+
+### Automated tests executed
+
+| Check | Result |
+|---|---|
+| `./backend/mvnw -f backend verify` (before the fix) | **failed**: 198 unit passed; 137 IT, 1 error (flaky `DrawGuessIT`, above) |
+| `./backend/mvnw -f backend verify` (after) | passed: 198 unit, 139 integration, 0 failures, 0 skipped, Spotless clean |
+| `DrawGuessIT` alone, 6 consecutive runs after the fix | 6 × 5 tests passed |
+| `npm --prefix frontend run format:check` / `lint` / `typecheck` / `build` | passed (build prints the existing > 500 kB chunk warning) |
+| `npm --prefix frontend test` | passed: 33 files, 180 tests |
+| `npm --prefix frontend run e2e` | passed 4 of 4 runs (1 single + `--repeat-each=3`), about 60 s each |
+
+New backend ITs (`realtime.DrawGuessIT`, real STOMP):
+
+- `scoresComeOnlyFromTheServerAndADrawerReconnectKeepsTheRound`: the drawer's socket dies mid-`DRAWING` and comes back (`PLAYER_DISCONNECTED`/`RECONNECTED`); the same phase, word and drawer role remain, and a new stroke is acked. A `SET_SCORE` command → `INVALID_ACTION`. A correct guess carrying forged `scoreDelta`/`totalScore`/`guestId`/`order` is scored by the server for the sender only (100–500). Resending its `actionId` → `DUPLICATE_ACTION`. The word again under a new id becomes restricted solver chat: no second `GUESS_ACCEPTED`, and the unsolved guesser never sees the word.
+- `aRematchStartsFreshAndLeavesThePreviousResultsUntouched`: 2-player game to `GAME_FINISHED`; stored results = broadcast standings; rematch → new session with zero scores, round 1 and an empty canvas; after scoring in the new session, `GET /sessions/{first}/results` is byte-identical and the room has exactly one `FINISHED` session.
+
+### Backend checklist → evidence
+
+| Requirement | Evidence |
+|---|---|
+| Only the active drawer can draw | `DrawGuessIT` full game (`NOT_DRAWER` for stroke/undo/choose), `DrawGuessSessionTest` DG14/DG2; E2E guesser drag sends nothing |
+| Only eligible guessers can guess | `IS_DRAWER`, `INVALID_PHASE` after the round, solver re-guess → restricted chat (new IT), D25 disconnected guesser |
+| Secret word never leaks | DG18 tests, IT socket-level secrecy before `ROUND_ENDED` and for unchosen words, new IT; E2E checks the guesser's DOM before/after refresh |
+| Scores not client-controllable | new IT (no score command, forged fields ignored); ledger = deltas invariant in `DrawGuessSessionTest` |
+| Concurrent correct guesses | `C7_…` (5 threads) and the IT's 2-socket race: distinct orders, one `ROUND_ENDED` |
+| Duplicate actions | `DUPLICATE_ACTION` for a stroke (existing) and a correct guess (new), no extra points |
+| Stale actions after transitions | `STALE_ACTION` for a late `CHOOSE_WORD` (IT) and a guess exactly at the deadline (unit) |
+| Timer authoritative | DG9/DG12 with a manual clock; E2E round 2 ends by the server's 30 s deadline with nobody guessing |
+| Disconnects don't corrupt the game | DG10/D24/D25/DG16/C1 unit tests; IT guesser refresh and drawer socket drop; E2E network cut and both refreshes |
+| Rematch fresh, old results intact | DG11 unit, new IT, E2E rematch (new session, zero scores, empty canvas, old results unchanged) |
+
+### Browser scenarios executed (committed suite `frontend/e2e/drawguess.e2e.ts`)
+
+Two players against the dev backend (`spring-boot:run`, compose PostgreSQL) and Vite: a desktop Chrome context (mouse, 1280×860) and a Pixel 7 context (touch via CDP touch events, DPR 2.625, 412 px wide). The drawer is random, so each run drew one round with the mouse and one with touch. Steps, all asserted in every run:
+
+1. Lobby: both ready up, the host starts, both land on `/play`.
+2. Only the drawer gets word choices, sees the word and the toolbar. The guesser sees the hint, never the word text. The countdowns on both screens are within 2 s of each other.
+3. Red, then blue crossing strokes: both canvases show blue at the crossing (stroke order kept) and red elsewhere. The mobile backing store is scaled by its DPR.
+4. Guesser drags on its canvas: neither canvas changes.
+5. Mobile layout: no horizontal scroll, the canvas is in the viewport and wider than 250 px.
+6. Guesser reload mid-`DRAWING`: canvas restored, word still hidden.
+7. Network interruption: the guesser's STOMP socket is cut on both ends and reconnects are refused. The guesser shows "Reconnecting" and the drawer's scoreboard shows the guesser "Offline". The drawer draws a green stroke meanwhile. After the network is restored, the guesser recovers and its canvas contains the green stroke and the earlier ones.
+8. Drawer reload: word, toolbar and canvas restored.
+9. Wrong guess appears in the drawer's feed. The correct guess (different case) ends the round on both screens with the word revealed, and the server's scores for both players appear on both scoreboards.
+10. Round 2: roles rotate, the other input type draws, the guesser receives it, nobody guesses, and the server timer ends the round (word revealed on both).
+11. Results: identical "Final Standings" rows on both screens.
+12. Rematch (guest votes, host starts rematch): both screens return to a lobby with ready cleared. The second game starts with a new session, zero scores and empty canvases, and the first session's stored results are unchanged.
+13. No uncaught page errors in either context.
+
+### Not verified
+
+- Three or more browsers. A drawer or guesser *leaving* (grace expiry → `LEFT`) in the browser is covered by backend tests only.
+- Raw wrong-role STOMP commands from a browser page (P5-04 did this ad hoc; the committed suite only checks that the guesser UI sends nothing).
+- Firefox/WebKit, real mobile devices (touch was emulated through CDP in Chromium), axe/keyboard walk-through, Linux/CI (E2E is not wired into CI yet).
+- Load: 10-player fan-out, mailbox hold times, zero-Hibernate-statements per command (as in P5-02).
+
+### Remaining risks
+
+- E2E relies on a manually started backend and database; a CI job (Phase 8.3) is still needed before it can gate merges.
+- The E2E pixel checks assume the canvas background `#FFFDF8` and the palette in `coords.ts`; a design change there must update `e2e/support.ts`.
+- The known P5-04 limitations still apply: the brief local double-draw after a reconnect mid-stroke, the canvas budget enforced only by the server, per-point preview data in Zustand, and no `role="dialog"` on the word-choice overlay.
