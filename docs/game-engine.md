@@ -1,6 +1,6 @@
 # DinoParty — Shared Game Engine (Phase 4 design)
 
-Status: **design, not implemented.** Written against the Phase 3 code (`room`, `realtime`) as it exists on `main`. Wire formats live in `docs/api-contracts.md` (single source of truth); gameplay rules in `docs/game-rules.md` (`[C-4]…[C-12]` are the engine rules); decisions that need approval are D13–D23 in `docs/decisions-and-risks.md` and are marked **(D#)** below. Nothing here changes Draw & Guess or Telephone gameplay; it defines the host they run in.
+Status: **implemented in Phase 4** (see section 13 for what differs from this design). Written against the Phase 3 code (`room`, `realtime`) as it existed on `main`. Wire formats live in `docs/api-contracts.md` (single source of truth); gameplay rules in `docs/game-rules.md` (`[C-4]…[C-12]` are the engine rules); decisions that need approval are D13–D23 in `docs/decisions-and-risks.md` and are marked **(D#)** below. Nothing here changes Draw & Guess or Telephone gameplay; it defines the host they run in.
 
 ## 0. Starting point (what Phase 3 actually has)
 
@@ -424,3 +424,19 @@ Logs carry `roomCode`, `guestId`, `sessionId`, `phaseId` in MDC for every mailbo
 | Architecture | the ArchUnit rules of §1.1 plus "no `Instant.now`/`new Random`/`Thread`/`synchronized` in `engine`/`games`" |
 
 Verification before the phase is declared done is listed in `docs/implementation-plan.md` (Phase 4 exit).
+
+## 13. Implementation notes (what was built, and where it differs)
+
+Built and verified (see `docs/testing.md`, "Phase 4 verification record"): modules `engine`, `session`, `history`; migration `V4`; test-scope game `test-game` (`src/test/java/com/dinoparty/games/testgame`; its catalog row lives in `src/test/resources/db/test-migration`, outside `db/migration`, so it can never reach a real database). It is not a product feature and has no UI.
+
+Differences from the design above, all deliberate:
+
+- **SPI shape.** `Transition` has a separate `closing` list (events of the ending phase, published before `PHASE_STARTED`) next to `events` (published after it); this guarantees the order of api-contracts 3.7 without the module knowing about `PHASE_STARTED`. Commands carry a `Map<String,Object>` payload that the module validates; typed binding of `CommandSpec.payload` was not built. `GameModule.init(ctx)` takes no roster or settings parameters: both are in `GameContext`.
+- **Ports.** `session` defines `RoomLifecycle` (room status, mailbox, membership view), `SessionEventSink`, `SessionRecorder` and `DeadlineScheduler`; tests run the whole engine against in-memory fakes with a manual clock. `SessionHistoryQuery` is `history.SessionHistory`, used directly by the REST controller.
+- **Room status changes** go through `RoomService.changeStatus` (explicit transition table, `REQUIRES_NEW` transaction because it can be called from an after-commit listener) and publish `RoomEvent.StatusChanged`.
+- **Deadlines** are `DeadlineBook` entries inside the session; the countdown and the results timeout are engine deadlines in the same book. One timer thread only posts a `DeadlineWake`; the work runs on a virtual thread inside the mailbox. The watchdog runs from `RealtimeMaintenance` (every sweep, tolerance 1 s) instead of a separate 5 s task.
+- **Authorization of game commands** uses the in-memory roster (`SessionService.authorize`) and is tested to cost zero Hibernate statements per accepted command; lobby commands and `SUBSCRIBE` still check the database.
+- **Persistence.** `JdbcSessionRecorder` uses `JdbcClient` (no JPA entities for `game_*`). One writer thread with retry and backoff: results and abort markers retry until they succeed or the application stops; rounds give up after `max-attempts` and are counted; round records are dropped oldest-first when the queue is full. `game_submission` is not created (Telephone adds it in Phase 6).
+- **Startup.** `SessionLifecycleCallbacks` runs recovery in `afterSingletonsInstantiated` (before the web server starts) and aborts running games on a graceful stop. A catalog row without a module is only logged unless `app.engine.strict-registry=true`, because `draw-guess` and `telephone` are enabled in the database but have no module until Phases 5-6 (such a room answers `GAME_NOT_FOUND` on start).
+- **Not built:** moving the settings schema behind the registry (`room.SettingsSchema` is unchanged), `GET /games*`, `lastSession`, the `PATCH /guests/me` lock, the orphan-room sweep, the 320 KiB frame cap (D20), typed payload binding, the snapshot replay-equivalence property test, and the frontend plugin registry (task 4.8, Antigravity).
+- **Grace.** `app.realtime.in-game-disconnect-grace` (default 60 s) is chosen by `PresenceTracker` while the room has a session.

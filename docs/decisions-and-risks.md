@@ -77,7 +77,7 @@ Please approve, amend or reject. Anything unanswered is implemented as PROPOSED.
 
 ## 5. Phase 4 decisions needing approval (shared game engine)
 
-Design: `docs/game-engine.md`. Contract: `docs/api-contracts.md` §3.7, §3.8, §4. Rules: `docs/game-rules.md` `[C-4]…[C-12]`. Status of every row: **PROPOSED**; anything unanswered is implemented as recommended. D13 is the one that changes what users see when the server restarts and needs an explicit answer.
+Design: `docs/game-engine.md`. Contract: `docs/api-contracts.md` §3.7, §3.8, §4. Rules: `docs/game-rules.md` `[C-4]…[C-12]`. Status of every row: **approved as recommended** by the Phase 4 implementation brief and implemented, except D20 (frame size), which stays open until Phase 6 and is not implemented. D13 is the one that changes what users see when the server restarts and needs an explicit answer.
 
 | ID | Decision | Recommendation | Alternatives / consequence |
 |---|---|---|---|

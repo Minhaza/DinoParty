@@ -1,6 +1,6 @@
 # DinoParty — Architecture
 
-Status: design document; Phases 1–3 are implemented, Phase 4 (engine) is specified in `docs/game-engine.md` and not yet built. Requirements source: `docs/MASTER_PROMPT.md`. Open decisions: `docs/decisions-and-risks.md`.
+Status: design document; Phases 1–4 are implemented (Phase 4 = shared game engine, `docs/game-engine.md`, exercised by a test-scope game only; Draw & Guess and Telephone are not built). Requirements source: `docs/MASTER_PROMPT.md`. Open decisions: `docs/decisions-and-risks.md`.
 
 ## 1. System overview
 
