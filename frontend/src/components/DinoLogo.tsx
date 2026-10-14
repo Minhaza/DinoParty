@@ -1,3 +1,4 @@
+import sheet from '@/assets/characters/dinosaurs.png'
 import { cn } from '@/lib/utils'
 
 export interface DinoLogoProps {
@@ -14,36 +15,14 @@ export function DinoLogo({ size = 'md', showText = true, className }: DinoLogoPr
     <div
       className={cn('inline-flex items-center gap-2 font-display font-bold select-none', className)}
     >
-      {/* Rex's head with beret: the brand mark */}
+      {/* Crop the current Rex atlas to keep his face and orange beret legible at header size. */}
       <svg
         aria-hidden="true"
-        viewBox="90 8 225 185"
+        focusable="false"
+        viewBox="65 0 300 270"
         className={cn('shrink-0 drop-shadow-sm', ICON_SIZES[size])}
-        fill="none"
       >
-        <path
-          d="M100 108 C98 52 152 28 202 42 C252 54 304 90 304 130 C304 170 266 182 228 180 C190 182 126 176 108 146 Z"
-          fill="#2cb8a2"
-          stroke="#10213d"
-          strokeWidth="9"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M214 146 Q262 184 300 140 Q262 160 214 146 Z"
-          fill="#7a2e3b"
-          stroke="#10213d"
-          strokeWidth="7"
-          strokeLinejoin="round"
-        />
-        <circle cx="214" cy="96" r="19" fill="#fff" stroke="#10213d" strokeWidth="7" />
-        <circle cx="220" cy="98" r="10" fill="#10213d" />
-        <path
-          d="M112 70 C112 26 196 14 226 42 C206 56 150 70 112 70 Z"
-          fill="#2f4f8f"
-          stroke="#10213d"
-          strokeWidth="9"
-          strokeLinejoin="round"
-        />
+        <image href={sheet} width="1536" height="1024" />
       </svg>
       {showText && (
         <span className={cn('leading-none tracking-tight', TEXT_SIZES[size])}>
