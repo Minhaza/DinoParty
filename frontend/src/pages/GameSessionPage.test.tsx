@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { GameSnapshot, RoomDto } from '@/api/types'
+import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
 import { useRoomStore } from '@/stores/roomStore'
@@ -148,8 +149,10 @@ describe('GameSessionPage', () => {
       'GET /rooms/AB3D7K': { status: 200, body: room },
     })
 
-    // Seed gameSessionStore with active session snapshot
+    // Seed gameSessionStore with active session snapshot; the drawer is named by the module's
+    // part of the snapshot, never inferred from the play order.
     useGameSessionStore.getState().applySnapshot(gameSnapshot, room)
+    useDrawGuessStore.setState({ drawerGuestId: GUEST.id })
 
     renderSessionPage()
 

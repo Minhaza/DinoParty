@@ -190,8 +190,14 @@ export const sampleDrawingSnapshotDrawer: DrawGuessSnapshot = {
   guessedGuestIds: ['guest-2'],
   recentChat: [
     { guestId: 'guest-3', text: 'mountain', scope: 'PUBLIC', ts: '2026-10-14T10:00:30.000Z' },
-    { guestId: 'guest-2', text: 'nice drawing!', scope: 'GUESSERS', ts: '2026-10-14T10:00:35.000Z' },
+    {
+      guestId: 'guest-2',
+      text: 'nice drawing!',
+      scope: 'GUESSERS',
+      ts: '2026-10-14T10:00:35.000Z',
+    },
   ],
+  canvasBudget: { points: 3, maxPoints: 12000, strokes: 1, maxStrokes: 300 },
   roundEnd: null,
 }
 

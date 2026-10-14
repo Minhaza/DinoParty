@@ -27,6 +27,13 @@ export interface RoundEndInfo {
   scoreDeltas: Record<string, number>
 }
 
+export interface CanvasBudget {
+  points: number
+  maxPoints: number
+  strokes: number
+  maxStrokes: number
+}
+
 export interface DrawGuessSnapshot extends GameSnapshotHeader {
   round: number
   totalRounds: number
@@ -37,6 +44,7 @@ export interface DrawGuessSnapshot extends GameSnapshotHeader {
   strokes: Stroke[]
   guessedGuestIds: string[]
   recentChat: DrawGuessChatMessage[]
+  canvasBudget: CanvasBudget
   roundEnd: RoundEndInfo | null
 }
 
@@ -62,10 +70,7 @@ export interface DrawingClearUpdate {
   kind: 'CLEAR'
 }
 
-export type DrawingUpdatedPayload =
-  | DrawingStrokeUpdate
-  | DrawingUndoUpdate
-  | DrawingClearUpdate
+export type DrawingUpdatedPayload = DrawingStrokeUpdate | DrawingUndoUpdate | DrawingClearUpdate
 
 export interface HintUpdatedPayload {
   hint: string

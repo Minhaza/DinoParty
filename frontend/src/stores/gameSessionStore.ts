@@ -169,14 +169,8 @@ export const useGameSessionStore = create<GameSessionState>((set) => ({
   },
 
   applyRematchVotesUpdated: (payload) => {
-    set((state) => ({
-      rematch: {
-        votes: {
-          ...(state.rematch?.votes ?? {}),
-          ...payload.votes,
-        },
-      },
-    }))
+    // The payload is the full tally (api-contracts §3.4): voters who disconnected drop out of it.
+    set({ rematch: { votes: { ...payload.votes } } })
   },
 
   applyRoomStatusChanged: (payload) => {
