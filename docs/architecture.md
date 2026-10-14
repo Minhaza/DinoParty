@@ -48,6 +48,7 @@ Single Maven module, strictly layered packages; boundaries enforced by **ArchUni
 | `games.drawguess` | Draw & Guess rules, words, scoring, stroke model | `engine`, `drawing` |
 | `games.telephone` | chain allocation, phases, album reveal | `engine`, `drawing` |
 | `drawing` | shared stroke model, validation/limits, bounded stroke buffer, (de)serialization | `common` |
+| `words` | WP-01 built-in word catalog: categories, difficulties, locales, counts and filtered word reads (read-only reference data; `words.persistence` is private) | `common` |
 | `realtime` | STOMP config, auth interceptor, destination conventions, envelope, sequencing, presence tracking, command routing; implements `SessionEventSink` | `room`, `session`, `engine`, `guest` |
 | `history` | persistence of `game_session`, `game_round`, `game_submission`, `game_result`; implements `SessionRecorder`/`SessionHistoryQuery`; restart recovery SQL | `common`, `session`, `engine` |
 | `web` | REST controllers, DTOs, exception mapper, OpenAPI | all service APIs (never entities) |
@@ -120,6 +121,9 @@ PostgreSQL, Flyway (`db/migration/V1__…`), `ddl-auto=validate`. UUID primary k
 | `game_round` | `id`, `session_id`, `round_no`, `started_at`, `ended_at`, `end_reason`, `score_deltas` JSONB, `meta` JSONB (game-specific, e.g. drawer, word; written at round end) |
 | `game_submission` | `id`, `session_id`, `round_id` NULL, `author_guest_id`, `kind` (`TEXT`/`DRAWING`), `chain_index` NULL, `step_no` NULL, `text` NULL, `payload` JSONB/`bytea` NULL, `timed_out`, `submitted_at` |
 | `game_result` | `id`, `session_id`, `guest_id`, `nickname`, `rank`, `score`, `detail` JSONB (no FK to `guest_identity`, D21) |
+| `word_category` | `key` PK (stable, `animals`, `food-drinks`, …), `sort_order` UNIQUE, `active` (WP-01, `V5`) |
+| `word_category_label` | PK(`category_key`, `locale`), `label` — localized category labels |
+| `word_catalog_entry` | `id` UUID (stable: `md5('dinoparty-word:'‖locale‖':'‖text)`), `locale`, `display_text`, `category_key` FK, `difficulty` (`EASY/MEDIUM/HARD`), `active`; UNIQUE(`locale`, text without spaces/hyphens); seeded by `V6` |
 
 Phase 4 persistence rules (what is written when, sync vs async, failure handling, restart recovery): `docs/game-engine.md` §8–§9; migration `V4` creates these four tables.
 

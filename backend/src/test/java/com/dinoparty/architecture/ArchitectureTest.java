@@ -84,6 +84,35 @@ class ArchitectureTest {
           .resideInAPackage("com.dinoparty.room.persistence..");
 
   @ArchTest
+  static final ArchRule wordsPersistenceIsPrivateToWords =
+      noClasses()
+          .that()
+          .resideOutsideOfPackage("com.dinoparty.words..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.words.persistence..");
+
+  /** The word catalog is reference data: it knows nothing of rooms, sessions or games. */
+  @ArchTest
+  static final ArchRule wordsDependOnlyOnCommon =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.words..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.guest..",
+              "com.dinoparty.room..",
+              "com.dinoparty.engine..",
+              "com.dinoparty.session..",
+              "com.dinoparty.games..",
+              "com.dinoparty.drawing..",
+              "com.dinoparty.history..",
+              "com.dinoparty.realtime..",
+              "com.dinoparty.web..",
+              "com.dinoparty.health..");
+
+  @ArchTest
   static final ArchRule realtimeDoesNotTouchPersistence =
       noClasses()
           .that()

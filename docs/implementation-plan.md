@@ -131,6 +131,12 @@ Design: `docs/draw-guess-design.md`; contract: `api-contracts.md` §3.9; rules `
 
 Exit: three browsers play a complete game (word choice, drawing, guessing, scoring, round summaries, results, rematch); every `[DG-n]` has a test; secrecy, authorization and limit tests pass; reconnect restores canvas and state; `backend verify`, frontend lint/typecheck/test/build and E2E green.
 
+### Word Pack System
+
+| ID | Task | Owner | Depends | Acceptance |
+|---|---|---|---|---|
+| WP-01 | Word catalog and database: categorized, difficulty-tagged built-in words (Flyway `V5`/`V6`), `words` module, read-only metadata endpoints (api-contracts §2.3); no gameplay change | CC | 5.2 | ≥ 150 `EASY` and ≥ 150 `MEDIUM`, curated `HARD`; legacy words all present with consistent tiers (D32); duplicate/format constraints, filtering, locale fallback and API contract tested; `backend verify` green. **Done** (design §18) |
+
 ## Phase 6 — Telephone Drawing  (parallel with Phase 5)
 
 | ID | Task | Owner | Depends | Acceptance |

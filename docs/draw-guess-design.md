@@ -261,3 +261,28 @@ Tests: `CanvasBufferTest`, `StrokeBatchTest` (limits at ±1, rejection leaves th
 
 Not done here (later tasks): 5.8 shared JSON contract fixtures, the replay-equivalence property test (snapshot + later events ≡ uninterrupted stream), the 10-player fan-out load test and mailbox hold-time measurement, the "zero Hibernate statements per Draw & Guess command" assertion (the engine's generic test covers the code path), whole-token answer detection in chat (H4), and everything frontend.
 
+
+## 18. Word catalog (WP-01, data foundation for word packs)
+
+Status: implemented (backend). Contract: `api-contracts.md` §2.3. Decision: D32 (proposed).
+
+- **Storage.** Flyway `V5__word_catalog.sql` (schema) and `V6__word_catalog_seed.sql` (data, version 1). Three tables: `word_category` (stable keys, display order, `active`), `word_category_label` (label per category and locale) and `word_catalog_entry` (stable UUID, `locale`, `display_text`, `category_key`, `difficulty`, `active`). There was no word table before; the legacy resource lists were migrated into the seed rather than replaced.
+- **Constraints.** One entry per locale and normalized text (spaces and hyphens ignored, like `[DG-4]` matching), whatever its category or difficulty; `difficulty IN (EASY, MEDIUM, HARD)` (`MIXED` cannot be stored); `[DG-15]` text shape for every locale (3–20 chars, lowercase, no leading/trailing/double separators, no digits/control chars), plus ASCII letters only for `en`; locale tags `ll`/`ll-RR`; category FK. Random Mix is not a row.
+- **Stable ids.** `md5('dinoparty-word:' || locale || ':' || text)::uuid`, computed in the migration, so every database has the same ids; an id never changes after insert (a corrected text keeps its row).
+- **Seed (English).** 653 words: 254 `EASY`, 283 `MEDIUM`, 116 `HARD`, in nine categories. All 387 legacy words are kept: the 203 legacy EASY words are `EASY`; the 184 legacy HARD words are split into 127 `MEDIUM` and 57 `HARD` (D32). 266 new words fill the categories (Sports, Technology, Actions, Places had few or none). A word has one category, its best fit; people go where they work (`chef` → Food & Drinks, `librarian` → Places), body parts are Nature.
+- **Gameplay unchanged.** `WordPool` still loads `words-easy.txt`/`words-hard.txt`; `games.drawguess` may not depend on `words` (ArchUnit) and no game, scoring, STOMP or engine code changed. `WordCatalogSeedIT` fails if a legacy word is missing from the catalog or has an inconsistent tier, so the two cannot drift until the game reads the catalog (later work package).
+- **Module.** `com.dinoparty.words` (`WordCatalogService`, `DifficultyFilter`, `CatalogLocales`, read records; `words.persistence` private), depends on `common` only. `WordCatalogService.words(...)` returns filtered words for future server-side drawing; no REST endpoint lists words.
+- **Locale handling.** Normalized tag → fallback chain tag, language, `en`; the first locale with active words is the catalog locale; labels fall back per category along the same chain.
+
+| Category (key) | EASY | MEDIUM | HARD | Total |
+|---|---:|---:|---:|---:|
+| Animals (`animals`) | 55 | 30 | 11 | 96 |
+| Food & Drinks (`food-drinks`) | 31 | 30 | 10 | 71 |
+| Nature (`nature`) | 35 | 28 | 19 | 82 |
+| Objects (`objects`) | 63 | 47 | 14 | 124 |
+| Places (`places`) | 17 | 30 | 10 | 57 |
+| Movies & Games (`movies-games`) | 18 | 37 | 17 | 72 |
+| Sports (`sports`) | 12 | 29 | 10 | 51 |
+| Technology (`technology`) | 8 | 30 | 12 | 50 |
+| Actions (`actions`) | 15 | 22 | 13 | 50 |
+| **Total** | **254** | **283** | **116** | **653** |

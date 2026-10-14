@@ -371,3 +371,18 @@ Two players against the dev backend (`spring-boot:run`, compose PostgreSQL) and 
 - E2E relies on a manually started backend and database; a CI job (Phase 8.3) is still needed before it can gate merges.
 - The E2E pixel checks assume the canvas background `#FFFDF8` and the palette in `coords.ts`; a design change there must update `e2e/support.ts`.
 - The known P5-04 limitations still apply: the brief local double-draw after a reconnect mid-stroke, the canvas budget enforced only by the server, per-point preview data in Zustand, and no `role="dialog"` on the word-choice overlay.
+
+## WP-01 verification record (word catalog and database, backend)
+
+Command: `./mvnw -f backend verify` (Windows 11, Java 21, Docker 29.8, Testcontainers `postgres:16-alpine`) — **BUILD SUCCESS**: surefire 223 tests, failsafe 171 ITs, 0 failures, 0 errors, 0 skipped; Spotless check passed.
+
+New tests:
+
+| Test | Covers |
+|---|---|
+| `CatalogSelectionTest` (unit) | Locale normalization (`EN`, `en_US`, `PT-br`, 3-letter languages), malformed tags rejected with `fieldErrors[locale]`, fallback chain tag → language → `en`; `MIXED` is a filter over all stored difficulties and never a stored value; case-insensitive difficulty parsing; unknown difficulties rejected |
+| `WordCatalogSeedIT` | Flyway `V5`/`V6` applied; nine categories in order with English labels, no Random Mix row; ≥ 150 `EASY`, ≥ 150 `MEDIUM`, ≥ 100 `HARD`, every category × difficulty cell populated; [DG-15] format, blocklist, no duplicates or simple plurals; stable md5-derived ids; every legacy word present with a consistent tier (D32); DB rejects duplicates ignoring spaces/hyphens (`ice-cream`, `hotdog`), `MIXED`, unknown categories, bad shapes/case, non-ASCII English and malformed locales; same text allowed in another locale; accented text allowed outside `en` |
+| `WordCatalogApiIT` | 401 on all three endpoints without a token; categories/difficulties/counts response contracts (§2.3); default counts equal the database; filtering by category × difficulty (incl. `random-mix`, case-insensitive); service `words(...)` honours the same filters; no response contains a word; 400 `VALIDATION_FAILED` per bad parameter; `en-US`/`de`/`pt-BR` fall back to `en`; an added `fr` catalog is served for `fr-CA`/`FR` with per-category label fallback; inactive words and categories excluded |
+| `ArchitectureTest` | `words` depends on `common` only; `words.persistence` private |
+
+Not verified: no frontend or browser check (no UI in scope); gameplay still reads the resource lists, so no game test exercises the catalog yet; word drawability/appropriateness was reviewed by hand, not by players.
