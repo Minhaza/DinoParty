@@ -47,6 +47,8 @@ export interface GameSessionState {
   applyRematchVotesUpdated: (payload: RematchVotesUpdatedPayload) => void
   applyRoomStatusChanged: (payload: RoomStatusChangedPayload) => void
   applyPlayerStatusChanged: (guestId: string, status: RosterPlayerStatus) => void
+  updateScore: (guestId: string, totalScore: number) => void
+  updateScores: (scores: Record<string, number>) => void
   clearInterruptedNotice: () => void
   reset: () => void
 }
@@ -220,6 +222,19 @@ export const useGameSessionStore = create<GameSessionState>((set) => ({
         players: state.players.map((p) => (p.guestId === guestId ? { ...p, status } : p)),
       }
     })
+  },
+
+  updateScore: (guestId, totalScore) => {
+    set((state) => ({
+      scores: {
+        ...(state.scores ?? {}),
+        [guestId]: totalScore,
+      },
+    }))
+  },
+
+  updateScores: (scores) => {
+    set({ scores })
   },
 
   clearInterruptedNotice: () => set({ interruptedSession: null }),

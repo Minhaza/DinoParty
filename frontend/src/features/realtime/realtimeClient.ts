@@ -268,6 +268,57 @@ export class RealtimeClient {
     })
   }
 
+  public chooseWord(wordIndex: number, phaseId: string): string {
+    return this.sendCommand({
+      type: 'CHOOSE_WORD',
+      phaseId,
+      payload: { wordIndex },
+    })
+  }
+
+  public drawStroke(
+    payload: {
+      strokeId: string
+      batchNo: number
+      tool: 'PENCIL' | 'ERASER'
+      color: string
+      size: number
+      points: [number, number][]
+      final: boolean
+    },
+    phaseId: string,
+  ): string {
+    return this.sendCommand({
+      type: 'DRAW_STROKE',
+      phaseId,
+      payload,
+    })
+  }
+
+  public drawUndo(phaseId: string): string {
+    return this.sendCommand({
+      type: 'DRAW_UNDO',
+      phaseId,
+      payload: {},
+    })
+  }
+
+  public drawClear(phaseId: string): string {
+    return this.sendCommand({
+      type: 'DRAW_CLEAR',
+      phaseId,
+      payload: {},
+    })
+  }
+
+  public submitGuess(text: string, phaseId: string): string {
+    return this.sendCommand({
+      type: 'SUBMIT_GUESS',
+      phaseId,
+      payload: { text },
+    })
+  }
+
   private setupRoomSubscriptions(roomCode: string): void {
     if (!this.client?.connected) return
     this.clearSubscriptions()
