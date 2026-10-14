@@ -10,7 +10,8 @@ Verification commands (once scaffolded; `<…>` = exact versions chosen in Phase
 Backend:   ./mvnw -f backend verify                      # unit + IT (Docker needed for ITs)
            ./mvnw -f backend test                        # unit only
 Frontend:  npm --prefix frontend ci
-           npm --prefix frontend run lint | typecheck | test | build
+           npm --prefix frontend run format              # Prettier write; then:
+           npm --prefix frontend run format:check | lint | typecheck | test | build   # all run in CI
 E2E:       npm --prefix frontend run e2e                 # Playwright, needs backend + db up
 Stack:     docker compose -f deploy/compose.dev.yml up -d --build
 Health:    curl -fsS http://localhost:8080/api/v1/health

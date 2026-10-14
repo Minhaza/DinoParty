@@ -37,9 +37,7 @@ export function WordBanner({
             <span className="text-sm font-bold text-foreground leading-tight">
               {isDrawer ? 'You' : drawerNickname || 'Waiting…'}
             </span>
-            {isDrawer && (
-              <span className="text-xs font-bold text-primary">(Your Turn)</span>
-            )}
+            {isDrawer && <span className="text-xs font-bold text-primary">(Your Turn)</span>}
           </div>
         </div>
       </div>

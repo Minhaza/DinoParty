@@ -31,9 +31,8 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
   // Draw & Guess module store
   const round = useDrawGuessStore((s) => s.round)
   const totalRounds = useDrawGuessStore((s) => s.totalRounds)
-  const sessionTurnGuestId = useGameSessionStore((s) => (s.order.length > 0 ? s.order[0] : null))
-  const storeDrawerGuestId = useDrawGuessStore((s) => s.drawerGuestId)
-  const drawerGuestId = storeDrawerGuestId || sessionTurnGuestId
+  // Only the server names the drawer; until it has, nobody gets drawer controls.
+  const drawerGuestId = useDrawGuessStore((s) => s.drawerGuestId)
   const word = useDrawGuessStore((s) => s.word)
   const wordChoices = useDrawGuessStore((s) => s.wordChoices)
   const hint = useDrawGuessStore((s) => s.hint)
@@ -43,6 +42,7 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
   const roundEnd = useDrawGuessStore((s) => s.roundEnd)
   const feedback = useDrawGuessStore((s) => s.feedback)
   const clearFeedback = useDrawGuessStore((s) => s.clearFeedback)
+  const trackCommand = useDrawGuessStore((s) => s.trackCommand)
 
   // Drawer toolbar state
   const [tool, setTool] = React.useState<StrokeTool>('PENCIL')
@@ -58,59 +58,53 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
   const drawerPlayer = players.find((p) => p.guestId === drawerGuestId)
   const drawerNickname = drawerPlayer?.nickname ?? 'Drawer'
 
-  // STOMP Command Dispatchers
+  /**
+   * Sends a game command for the current phase. Returns `false` instead of throwing while the
+   * socket is down: the reconnect snapshot restores the authoritative state afterwards.
+   */
+  const sendGameCommand = React.useCallback(
+    (type: string, payload: object, strokeId?: string): boolean => {
+      if (!phaseId) return false
+      try {
+        const actionId = client.sendCommand({ type, phaseId, payload })
+        trackCommand(actionId, type, strokeId)
+        return true
+      } catch {
+        return false
+      }
+    },
+    [client, phaseId, trackCommand],
+  )
+
   const handleChooseWord = React.useCallback(
     (wordIndex: number) => {
-      if (!phaseId) return
-      client.sendCommand({
-        type: 'CHOOSE_WORD',
-        phaseId,
-        payload: { wordIndex },
-      })
+      sendGameCommand('CHOOSE_WORD', { wordIndex })
     },
-    [client, phaseId],
+    [sendGameCommand],
   )
 
   const handleSendStrokeBatch = React.useCallback(
-    (batchPayload: DrawStrokePayload) => {
-      if (!phaseId) return
-      client.sendCommand({
-        type: 'DRAW_STROKE',
-        phaseId,
-        payload: batchPayload,
-      })
-    },
-    [client, phaseId],
+    (batchPayload: DrawStrokePayload) =>
+      sendGameCommand('DRAW_STROKE', batchPayload, batchPayload.strokeId),
+    [sendGameCommand],
   )
 
   const handleUndo = React.useCallback(() => {
-    if (!phaseId || !isDrawer || strokes.length === 0) return
-    client.sendCommand({
-      type: 'DRAW_UNDO',
-      phaseId,
-      payload: {},
-    })
-  }, [client, phaseId, isDrawer, strokes.length])
+    if (!isDrawer || strokes.length === 0) return
+    sendGameCommand('DRAW_UNDO', {})
+  }, [sendGameCommand, isDrawer, strokes.length])
 
   const handleClear = React.useCallback(() => {
-    if (!phaseId || !isDrawer || strokes.length === 0) return
-    client.sendCommand({
-      type: 'DRAW_CLEAR',
-      phaseId,
-      payload: {},
-    })
-  }, [client, phaseId, isDrawer, strokes.length])
+    if (!isDrawer || strokes.length === 0) return
+    sendGameCommand('DRAW_CLEAR', {})
+  }, [sendGameCommand, isDrawer, strokes.length])
 
   const handleSubmitGuess = React.useCallback(
     (text: string) => {
-      if (!phaseId || isDrawer) return
-      client.sendCommand({
-        type: 'SUBMIT_GUESS',
-        phaseId,
-        payload: { text },
-      })
+      if (isDrawer) return
+      sendGameCommand('SUBMIT_GUESS', { text })
     },
-    [client, phaseId, isDrawer],
+    [sendGameCommand, isDrawer],
   )
 
   return (

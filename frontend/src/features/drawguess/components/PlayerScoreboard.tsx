@@ -85,7 +85,9 @@ export function PlayerScoreboard({
                     <span className="text-xs font-bold truncate text-foreground">
                       {player.nickname}
                     </span>
-                    {isMe && <span className="text-[10px] text-muted-foreground font-semibold">(You)</span>}
+                    {isMe && (
+                      <span className="text-[10px] text-muted-foreground font-semibold">(You)</span>
+                    )}
                     {isDisconnected && (
                       <span title="Disconnected" className="inline-flex shrink-0">
                         <WifiOff className="size-3 text-destructive" />

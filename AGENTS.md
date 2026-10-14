@@ -45,6 +45,7 @@ Modular monolith, single instance. No microservices, Kafka, Kubernetes, or messa
 
 ### Frontend
 - TypeScript `strict`, no `any` (use `unknown` + narrowing). ESLint + Prettier clean.
+- Every frontend feature or update: run `npm --prefix frontend run format` (Prettier write), then `npm --prefix frontend run format:check` before committing. CI runs `format:check` over the whole `frontend/` tree, so an unformatted file anywhere fails the build — formatting only the files you touched is not enough.
 - Server state → TanStack Query; local/real-time state → Zustand. Never copy server-authoritative values into a second store. Game/room state is replaced wholesale by snapshots.
 - Canvas rendering is imperative (refs); do not store per-point data in React state.
 - Subscriptions/listeners are created in effects and always cleaned up; sending commands includes `actionId`.

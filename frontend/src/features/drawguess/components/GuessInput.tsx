@@ -11,12 +11,7 @@ export interface GuessInputProps {
   onSubmitGuess: (text: string) => void
 }
 
-export function GuessInput({
-  isDrawer,
-  isSolved,
-  isDrawingPhase,
-  onSubmitGuess,
-}: GuessInputProps) {
+export function GuessInput({ isDrawer, isSolved, isDrawingPhase, onSubmitGuess }: GuessInputProps) {
   const [value, setValue] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
 

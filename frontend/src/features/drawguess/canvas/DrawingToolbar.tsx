@@ -112,7 +112,9 @@ export function DrawingToolbar({
               aria-label={`Select ${c.label} color`}
               aria-pressed={isSelected}
               className={`size-6 sm:size-6.5 rounded-full border border-black/20 shadow-xs transition-transform hover:scale-110 active:scale-95 disabled:opacity-40 disabled:pointer-events-none relative ${
-                isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110' : ''
+                isSelected
+                  ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110'
+                  : ''
               }`}
               style={{ backgroundColor: c.hex }}
             />

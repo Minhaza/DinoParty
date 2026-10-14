@@ -95,7 +95,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     if (envelope.type === 'ERROR' || envelope.seq === 0) {
       const payload = envelope.payload as GameErrorPayload | undefined
       if (payload && typeof payload.message === 'string') {
-        set({ lastError: payload.message })
+        const outcome = useDrawGuessStore.getState().applyCommandError(payload, envelope.actionId)
+        if (outcome === 'resync') set({ needsResync: true })
+        else if (outcome === 'unhandled') set({ lastError: payload.message })
       }
       return 'applied'
     }
@@ -141,12 +143,15 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
     let terminalNotice = state.terminalNotice
     let lastError = state.lastError
+    let needsResync = state.needsResync
 
     if (envelope.type === 'SESSION_REPLACED') {
       terminalNotice = 'SESSION_REPLACED'
     } else if (envelope.type === 'GAME_ERROR') {
       const err = envelope.payload as GameErrorPayload
-      lastError = err.message || err.code
+      const outcome = useDrawGuessStore.getState().applyCommandError(err, envelope.actionId)
+      if (outcome === 'resync') needsResync = true
+      else if (outcome === 'unhandled') lastError = err.message || err.code
     }
 
     set({
@@ -155,6 +160,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       serverNow: envelope.ts || state.serverNow,
       terminalNotice,
       lastError,
+      needsResync,
     })
 
     return 'applied'
@@ -207,10 +213,13 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
       break
     }
     case 'GUESS_CHAT':
-      drawGuessStore.applyGuessChat(envelope.payload as GuessChatPayload)
+      drawGuessStore.applyGuessChat(envelope.payload as GuessChatPayload, envelope.ts)
       break
     case 'GUESSER_CHAT':
-      drawGuessStore.applyGuesserChat(envelope.payload as GuesserChatPayload)
+      drawGuessStore.applyGuesserChat(envelope.payload as GuesserChatPayload, envelope.ts)
+      break
+    case 'ACTION_ACK':
+      drawGuessStore.applyActionAck(envelope.actionId)
       break
     case 'ROUND_ENDED': {
       const payload = envelope.payload as RoundEndedPayload
