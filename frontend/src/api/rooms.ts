@@ -1,6 +1,7 @@
 import { apiJson, apiRequest, ApiError } from './client'
 import type {
   CreateRoomInput,
+  ResultsDto,
   RoomDto,
   RoomPreviewDto,
   SnapshotDto,
@@ -90,6 +91,21 @@ export async function startRoom(code: string, signal?: AbortSignal): Promise<Roo
 
 export async function kickPlayer(code: string, guestId: string): Promise<void> {
   await apiJson(`/rooms/${encodeURIComponent(code)}/kick`, 'POST', { guestId })
+}
+
+export async function closeRoom(code: string): Promise<void> {
+  await apiRequest(`/rooms/${encodeURIComponent(code)}/close`, { method: 'POST' })
+}
+
+export async function getSessionResults(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<ResultsDto> {
+  const body = await apiRequest(`/sessions/${encodeURIComponent(sessionId)}/results`, { signal })
+  if (!isObject(body) || typeof body.sessionId !== 'string') {
+    throw new ApiError(502, null)
+  }
+  return body as unknown as ResultsDto
 }
 
 export async function updateRoomSettings(

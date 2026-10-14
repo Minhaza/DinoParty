@@ -2,19 +2,27 @@ import { create } from 'zustand'
 
 import type {
   EventEnvelope,
+  GameAbortedPayload,
   GameErrorPayload,
+  GameFinishedPayload,
+  GameStartedPayload,
   HostChangedPayload,
+  PhaseStartedPayload,
   PlayerDisconnectedPayload,
   PlayerJoinedPayload,
   PlayerLeftPayload,
   PlayerReconnectedPayload,
   ReadyUpdatedPayload,
+  RematchVotesUpdatedPayload,
   RoomDto,
   RoomSettingsUpdatedPayload,
   RoomStatusChangedPayload,
   SnapshotDto,
   SnapshotSeq,
 } from '@/api/types'
+import { updateServerClockOffset } from '@/lib/serverClock'
+
+import { useGameSessionStore } from './gameSessionStore'
 
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error'
 
@@ -47,6 +55,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   terminalNotice: null,
 
   applySnapshot: (snapshot: SnapshotDto) => {
+    updateServerClockOffset(snapshot.serverNow)
+    useGameSessionStore.getState().applySnapshot(snapshot.game, snapshot.room)
+
     set({
       room: snapshot.room,
       serverNow: snapshot.serverNow,
@@ -59,6 +70,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   applyEnvelope: (envelope: EventEnvelope<unknown>) => {
     const state = get()
 
+    if (envelope.ts) {
+      updateServerClockOffset(envelope.ts)
+    }
+
     // Handle errors arriving on /user/queue/errors (seq = 0, unsequenced)
     if (envelope.type === 'ERROR' || envelope.seq === 0) {
       const payload = envelope.payload as GameErrorPayload | undefined
@@ -68,9 +83,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       return 'applied'
     }
 
-    // A snapshot replaces the remembered seq wholesale (contract §3.2), so it is exempt from the
-    // dedupe/gap checks: after a server restart the counters start again at 1 and a snapshot at
-    // seq 1 would otherwise be dropped as a duplicate, leaving the client deaf to every later event.
+    // A snapshot replaces the remembered seq wholesale (contract §3.2)
     if (envelope.type === 'ROOM_SNAPSHOT') {
       state.applySnapshot(envelope.payload as SnapshotDto)
       return 'applied'
@@ -95,6 +108,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       ...state.lastSeq,
       [streamKey]: envelope.seq,
     }
+
+    // Forward game lifecycle events to gameSessionStore
+    dispatchGameLifecycleEvents(envelope)
 
     // Dispatch event to update room state
     const currentRoom = state.room
@@ -131,7 +147,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setNeedsResync: (needsResync) => set({ needsResync }),
   clearLastError: () => set({ lastError: null }),
 
-  reset: () =>
+  reset: () => {
+    useGameSessionStore.getState().reset()
     set({
       room: null,
       serverNow: null,
@@ -140,8 +157,50 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       needsResync: false,
       lastError: null,
       terminalNotice: null,
-    }),
+    })
+  },
 }))
+
+function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
+  const sessionStore = useGameSessionStore.getState()
+  switch (envelope.type) {
+    case 'GAME_STARTED':
+      sessionStore.applyGameStarted(envelope.payload as GameStartedPayload)
+      break
+    case 'PHASE_STARTED':
+      sessionStore.applyPhaseStarted(envelope.payload as PhaseStartedPayload, envelope.ts)
+      break
+    case 'GAME_FINISHED':
+      sessionStore.applyGameFinished(envelope.payload as GameFinishedPayload)
+      break
+    case 'GAME_ABORTED':
+      sessionStore.applyGameAborted(envelope.payload as GameAbortedPayload)
+      break
+    case 'REMATCH_VOTES_UPDATED':
+      sessionStore.applyRematchVotesUpdated(envelope.payload as RematchVotesUpdatedPayload)
+      break
+    case 'ROOM_STATUS_CHANGED':
+      sessionStore.applyRoomStatusChanged(envelope.payload as RoomStatusChangedPayload)
+      break
+    case 'PLAYER_LEFT': {
+      const { guestId } = envelope.payload as PlayerLeftPayload
+      sessionStore.applyPlayerStatusChanged(guestId, 'LEFT')
+      break
+    }
+    case 'PLAYER_DISCONNECTED': {
+      const { guestId } = envelope.payload as PlayerDisconnectedPayload
+      sessionStore.applyPlayerStatusChanged(guestId, 'DISCONNECTED')
+      break
+    }
+    case 'PLAYER_RECONNECTED': {
+      const { guestId } = envelope.payload as PlayerReconnectedPayload
+      sessionStore.applyPlayerStatusChanged(guestId, 'ACTIVE')
+      break
+    }
+    default:
+      break
+  }
+}
 
 function reduceRoomEvent(room: RoomDto, envelope: EventEnvelope<unknown>): RoomDto {
   switch (envelope.type) {
@@ -208,8 +267,33 @@ function reduceRoomEvent(room: RoomDto, envelope: EventEnvelope<unknown>): RoomD
     }
 
     case 'ROOM_STATUS_CHANGED': {
-      const { status } = envelope.payload as RoomStatusChangedPayload
-      return { ...room, status }
+      const { status, reason } = envelope.payload as RoomStatusChangedPayload
+      const resetReasons = [
+        'REMATCH',
+        'RESULTS_TIMEOUT',
+        'GAME_ABORTED',
+        'SERVER_RESTART',
+        'START_CANCELLED',
+      ]
+      const shouldReset = reason && resetReasons.includes(reason)
+      const players = shouldReset
+        ? room.players.map((p) => ({ ...p, ready: false, score: null }))
+        : room.players
+      const sessionId = shouldReset && status === 'WAITING' ? null : room.sessionId
+      return { ...room, status, sessionId, players }
+    }
+
+    case 'GAME_STARTED': {
+      const { sessionId } = envelope.payload as GameStartedPayload
+      return { ...room, status: 'PLAYING', sessionId }
+    }
+
+    case 'GAME_FINISHED': {
+      return { ...room, status: 'RESULTS' }
+    }
+
+    case 'GAME_ABORTED': {
+      return { ...room, status: 'WAITING', sessionId: null }
     }
 
     case 'ROOM_SNAPSHOT': {

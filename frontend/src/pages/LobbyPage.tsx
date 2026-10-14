@@ -202,6 +202,12 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
     }
   }
 
+  React.useEffect(() => {
+    if (currentRoom.status === 'PLAYING' || currentRoom.status === 'RESULTS') {
+      void navigate(`/rooms/${currentRoom.code}/play`)
+    }
+  }, [currentRoom.status, currentRoom.code, navigate])
+
   const leave = useMutation({
     mutationFn: () => leaveRoom(currentRoom.code),
     onSuccess: () => {

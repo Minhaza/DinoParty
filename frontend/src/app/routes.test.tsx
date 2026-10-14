@@ -40,10 +40,10 @@ describe('routes', () => {
   })
 
   it('labels unbuilt pages as coming in a later phase', () => {
-    renderAt('/rooms/AB3D7K/play')
+    renderAt('/games/draw-guess')
 
-    expect(screen.getByRole('heading', { name: 'Game' })).toBeInTheDocument()
-    expect(screen.getByText('Coming in Phase 4')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Game info' })).toBeInTheDocument()
+    expect(screen.getByText('Coming in Phase 2')).toBeInTheDocument()
   })
 
   it('renders the games catalog with game titles and rules', () => {

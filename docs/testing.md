@@ -159,3 +159,27 @@ Coverage by layer:
 - **Single instance only**: recovery treats every `RUNNING` row as orphaned.
 - **Timing-dependent tests** use real 600 ms rounds in `GameEngineIT`; they passed on every full run here but are the likeliest to flake on a slow CI machine. The no-database-statements test waits for background activity of earlier tests to settle.
 - **Test contexts**: the Phase 4 ITs add one cached Spring context; the test profile now sets `hikari.minimum-idle=1` so the shared PostgreSQL container does not run out of connections.
+
+## Phase 4 Frontend coverage (game-session infrastructure)
+
+Vitest + Testing Library (`npm --prefix frontend test`):
+
+| Area | Tests |
+|---|---|
+| Server clock sync | `src/lib/serverClock.test.ts` (5 tests): offset tracking from server timestamps, monotonic drift correction, target remaining time and seconds calculation, clock reset |
+| Game session store | `src/stores/gameSessionStore.test.ts` (8 tests): wholesale snapshot application, game started/aborted/finished reductions, rematch vote aggregation, server restart interrupted session detection and clearance, scores and standings synchronization |
+| Server countdown presentation | `src/features/session/useServerCountdown.test.ts` (4 tests): high-frequency smooth ticker, mm:ss formatting, screen reader milestone announcements (60s, 30s, 15s, 10s, 5s..1s), urgent threshold styling (<= 5s), completion callback trigger |
+| Reusable session components | `src/features/session/SessionComponents.test.tsx` (9 tests): `ServerCountdown` badge and ARIA attributes, `PhaseIndicator` polite announcements and round badges, `PlayerRoster` avatars/nicknames/host crown/turn indicator/kick dialog, `Scoreboard` medal rankings, `RematchControls` vote toggle and ready ratio, `GameStartingOverlay` 3-second countdown, `GameInterruptedBanner` dismissal and server restart banner |
+| Game session page & routing | `src/pages/GameSessionPage.test.tsx` (5 tests): loading and room connection states, non-member preview gate, playing stage presentation with phase/countdown, results phase with standings and rematch voting, player leave dialog and navigation |
+
+### Phase 4 Frontend verification record
+
+Run on Windows 11, Node 22.
+
+| Check | Result |
+|---|---|
+| `npm --prefix frontend run lint` | passed: 0 errors, 0 warnings |
+| `npm --prefix frontend run typecheck` | passed: strict TypeScript compilation (`tsc -b`) |
+| `npm --prefix frontend test -- --run` | passed: 20 test files, 113 tests |
+| `npm --prefix frontend run build` | passed: Vite production build succeeded |
+
