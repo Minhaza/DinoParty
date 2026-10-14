@@ -160,6 +160,31 @@ Coverage by layer:
 - **Timing-dependent tests** use real 600 ms rounds in `GameEngineIT`; they passed on every full run here but are the likeliest to flake on a slow CI machine. The no-database-statements test waits for background activity of earlier tests to settle.
 - **Test contexts**: the Phase 4 ITs add one cached Spring context; the test profile now sets `hikari.minimum-idle=1` so the shared PostgreSQL container does not run out of connections.
 
+### Phase 4 final integration verification (2026-10-14, all branches merged)
+
+Run on `main` + this branch (docs only), Windows 11, JDK 21.0.3, Node 22, Docker Desktop.
+
+| Check | Result |
+|---|---|
+| `./mvnw verify` in `backend/` | passed: 130 unit, 133 integration, Spotless |
+| `npm ci`, `lint`, `typecheck`, `test -- --run`, `build` in `frontend/` | passed: 20 files, 113 tests; Vite build succeeded |
+
+Checklist mapped to existing tests (no new defects found, no code changed):
+
+| # | Requirement | Evidence |
+|---|---|---|
+| 1 | Only the host starts | `SessionServiceTest`, `GameEngineIT` (`NOT_HOST` for non-host and non-member, REST and WS) |
+| 2 | Minimum players; ready | `NOT_ENOUGH_PLAYERS` tested; `ready` is advisory by design (`[C-4]`, D15), so it is deliberately **not** required |
+| 3-4 | One session per room; concurrent starts | DB constraint in `SessionPersistenceIT`; 8 concurrent starts give one countdown in `GameEngineIT` |
+| 5 | Authenticated and validated actions | outsider, wrong game, oversize, rate-limit and missing `phaseId` cases in `GameEngineIT` |
+| 6 | Duplicate/stale action IDs | duplicate `actionId` and stale `phaseId` tests; 200-thread storm in `SessionServiceTest` |
+| 7-8 | Timers exactly once; timer vs action races | manual-clock tests: replaced/duplicate/after-abort wake-ups, exactly-at-deadline |
+| 9-10 | Room scoping, secrecy, reconnect snapshots | three-socket secrecy test; per-viewer snapshots in `WAITING`/`PLAYING`/`RESULTS`/after reset |
+| 11-12 | Durable results; rematch | `SessionPersistenceIT`, rematch loop with second session in `GameEngineSessionIT` |
+| 13 | Test-only game proves lifecycle | test game module drives start, phases, finish, rematch over real STOMP |
+
+Not verified in this pass: Playwright E2E (not present until Phase 8), Linux/CI, a live process kill, and the browser UI against a real game (no production game module exists). Full Draw & Guess and Telephone Drawing gameplay is **not** implemented.
+
 ## Phase 4 Frontend coverage (game-session infrastructure)
 
 Vitest + Testing Library (`npm --prefix frontend test`):

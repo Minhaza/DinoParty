@@ -87,7 +87,7 @@ Exit: lobby changes propagate in real time; refresh/reconnect restores state; di
 
 ## Phase 4 — Shared game engine
 
-**Status (backend, 2026-10-14):** 4.1-4.7 implemented with the deviations listed in `game-engine.md` section 13. **Not done:** 4.8 (frontend shell), the optional orphan-room sweep of 4.7, and part of 4.1 (`GET /games*`, settings-schema move). Evidence: `testing.md` "Phase 4 verification record". Restart recovery and the database outage are tested against PostgreSQL by seeding state; a live process kill was not exercised.
+**Status (backend, 2026-10-14):** 4.1-4.7 implemented with the deviations listed in `game-engine.md` section 13. **Final verification 2026-10-14 (all branches merged; backend `verify` and frontend lint/typecheck/test/build green; see `testing.md` "Phase 4 final integration verification").** Frontend shell 4.8 landed in PR #10 with fixture/store tests only. **Not done:** live-backend browser check of the shell, the optional orphan-room sweep of 4.7, and part of 4.1 (`GET /games*`, settings-schema move). Evidence: `testing.md` "Phase 4 verification record". Restart recovery and the database outage are tested against PostgreSQL by seeding state; a live process kill was not exercised.
 
 Design: `docs/game-engine.md`; contract: `api-contracts.md` §3.7–§3.8, §4; rules `game-rules.md` `[C-4]…[C-12]`; decisions D13–D23 (`decisions-and-risks.md` §5) must be approved or amended **before task 4.1 starts**. No Draw & Guess or Telephone gameplay is built in this phase; the engine is proven with a test-scope game module.
 
