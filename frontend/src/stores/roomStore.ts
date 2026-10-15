@@ -34,6 +34,14 @@ import type {
   WordChoicesPayload,
 } from '@/features/drawguess/types'
 import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
+import { useTelephoneStore, type CommandErrorOutcome } from '@/features/telephone/telephoneStore'
+import type {
+  TelephonePhaseStartedPayload,
+  TelephoneProgressPayload,
+  TelephoneSnapshot,
+  TelephoneStepEndedPayload,
+  TelephoneTaskPayload,
+} from '@/features/telephone/types'
 
 import { useGameSessionStore } from './gameSessionStore'
 
@@ -74,6 +82,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     if (snapshot.room.gameKey === 'draw-guess' || snapshot.game?.gameKey === 'draw-guess') {
       useDrawGuessStore.getState().applySnapshot(snapshot.game as unknown as DrawGuessSnapshot)
     }
+    if (snapshot.room.gameKey === 'telephone' || snapshot.game?.gameKey === 'telephone') {
+      useTelephoneStore.getState().applySnapshot(snapshot.game as unknown as TelephoneSnapshot)
+    }
 
     set({
       room: snapshot.room,
@@ -95,7 +106,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     if (envelope.type === 'ERROR' || envelope.seq === 0) {
       const payload = envelope.payload as GameErrorPayload | undefined
       if (payload && typeof payload.message === 'string') {
-        const outcome = useDrawGuessStore.getState().applyCommandError(payload, envelope.actionId)
+        const outcome = routeCommandError(payload, envelope.actionId)
         if (outcome === 'resync') set({ needsResync: true })
         else if (outcome === 'unhandled') set({ lastError: payload.message })
       }
@@ -149,7 +160,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       terminalNotice = 'SESSION_REPLACED'
     } else if (envelope.type === 'GAME_ERROR') {
       const err = envelope.payload as GameErrorPayload
-      const outcome = useDrawGuessStore.getState().applyCommandError(err, envelope.actionId)
+      const outcome = routeCommandError(err, envelope.actionId)
       if (outcome === 'resync') needsResync = true
       else if (outcome === 'unhandled') lastError = err.message || err.code
     }
@@ -173,6 +184,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   reset: () => {
     useGameSessionStore.getState().reset()
     useDrawGuessStore.getState().reset()
+    useTelephoneStore.getState().reset()
     set({
       room: null,
       serverNow: null,
@@ -185,21 +197,46 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   },
 }))
 
+/** Each game store only claims the actionIds it sent; the first one that knows the command wins. */
+function routeCommandError(
+  payload: GameErrorPayload,
+  actionId: string | null | undefined,
+): CommandErrorOutcome {
+  const outcome = useTelephoneStore.getState().applyCommandError(payload, actionId)
+  if (outcome !== 'unhandled') return outcome
+  return useDrawGuessStore.getState().applyCommandError(payload, actionId)
+}
+
 function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
   const sessionStore = useGameSessionStore.getState()
   const drawGuessStore = useDrawGuessStore.getState()
+  const telephoneStore = useTelephoneStore.getState()
 
   switch (envelope.type) {
     case 'GAME_STARTED':
       sessionStore.applyGameStarted(envelope.payload as GameStartedPayload)
       drawGuessStore.reset()
+      telephoneStore.reset()
       break
     case 'PHASE_STARTED': {
       const payload = envelope.payload as DrawGuessPhaseStartedPayload
       sessionStore.applyPhaseStarted(payload, envelope.ts)
-      drawGuessStore.applyPhaseStarted(payload)
+      if (useGameSessionStore.getState().gameKey === 'telephone') {
+        telephoneStore.applyPhaseStarted(envelope.payload as TelephonePhaseStartedPayload)
+      } else {
+        drawGuessStore.applyPhaseStarted(payload)
+      }
       break
     }
+    case 'TELEPHONE_TASK':
+      telephoneStore.applyTask(envelope.payload as TelephoneTaskPayload)
+      break
+    case 'TELEPHONE_PROGRESS':
+      telephoneStore.applyProgress(envelope.payload as TelephoneProgressPayload)
+      break
+    case 'TELEPHONE_STEP_ENDED':
+      telephoneStore.applyStepEnded(envelope.payload as TelephoneStepEndedPayload)
+      break
     case 'DRAWING_UPDATED':
       drawGuessStore.applyDrawingUpdated(envelope.payload as DrawingUpdatedPayload)
       break
@@ -220,6 +257,7 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
       break
     case 'ACTION_ACK':
       drawGuessStore.applyActionAck(envelope.actionId)
+      telephoneStore.applyActionAck(envelope.actionId)
       break
     case 'ROUND_ENDED': {
       const payload = envelope.payload as RoundEndedPayload
@@ -244,6 +282,7 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
     case 'GAME_ABORTED':
       sessionStore.applyGameAborted(envelope.payload as GameAbortedPayload)
       drawGuessStore.reset()
+      telephoneStore.reset()
       break
     case 'REMATCH_VOTES_UPDATED':
       sessionStore.applyRematchVotesUpdated(envelope.payload as RematchVotesUpdatedPayload)
@@ -253,6 +292,7 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
       sessionStore.applyRoomStatusChanged(payload)
       if (payload.status === 'WAITING') {
         drawGuessStore.reset()
+        telephoneStore.reset()
       }
       break
     }
