@@ -422,3 +422,22 @@ Contract: api-contracts §2.5, decision D34. Migration `V8__word_packs.sql`. New
 | `ArchitectureTest` (+3) | `wordpacks.persistence` private; `wordpacks` knows nothing of web/realtime/session/games; `words` never depends on `wordpacks` |
 
 Not verified: no frontend or browser check (no UI in scope); no malware scanning, no antivirus or content moderation of imported words; multipart behaviour is exercised through MockMvc (the container-level limits `spring.servlet.multipart.*` are configured but not hit by a real HTTP client here). Words longer than 20 characters or containing digits are stored but never drawn (`[DG-15]` shape), and no response flags them yet.
+
+## P6-02 verification record (Dino Telephone steps, backend)
+
+Scope: `games.telephone` (`PROMPT`/`DRAW`/`DESCRIBE`); reveal, persistence and album REST are P6-03. Decisions D35–D48 were implemented as recommended.
+
+### Automated tests
+- Unit: `ChainAllocatorTest` (`[TP-1]` for n = 3…12, every E ≤ n), `TelephoneSettingsTest` (`[TP-2]`), `TelephoneTextTest` (`[TP-14]`), `PromptPoolTest` (`[TP-3]`), `TelephoneModuleTest` (registration next to Draw & Guess, frozen EASY ∪ MEDIUM pool), `SettingsSchemaTest` (`entriesPerChain`, `allowSkipTimeout` only `true`).
+- Session tests with a manual clock (`TelephoneSessionTest`): full 4-, 5- and 8-player games, `[TP-4]` early end and DISCONNECTED/LEFT handling, `[TP-5]` timeout fills, `[TP-7]` finality, `[TP-8]` secrecy (public events, other snapshots), `[TP-9]` drafts/budgets/snapshot restore, `[TP-10]`/`[C-1]` leaving and early end, `[C-6]` staleness, maximal-draft and maximal-source snapshots < 262 144 B, and a seeded random-interleaving invariant walk (12 seeds).
+- Real STOMP (`TelephoneIT`): a complete 4-player game where each entry reaches only its next holder, error/authorization cells (wrong phase kind, empty text, already submitted, stale, outsider), private 12 000-point draft restore and delivery of the maximal task, catalog defaults equal `TelephoneSettings.defaults()`.
+- ArchUnit rule for `games.telephone`; `RealtimeCommandIT` now treats the Telephone commands as registered.
+- `./mvnw -f backend verify`: 228 integration tests plus unit tests, 0 failures, BUILD SUCCESS (Docker PostgreSQL via Testcontainers).
+
+### Defect found and fixed
+- `SessionService.apply` evaluated `s.ledger::apply` even for transitions without scores, so any **unscored** game failed at its first phase (`NullPointerException` when the countdown completed). Fixed with a guard; covered by every Telephone test (Telephone is the first unscored game).
+
+### Not verified / limitations
+- No reveal yet: the game finishes when the last step ends and the entries are only held in memory (lost with the session) until P6-03.
+- Rematch (new shuffle) and a restart mid-game were not exercised for Telephone in this task.
+- No frontend or browser verification (backend-only task).

@@ -71,4 +71,26 @@ class SettingsSchemaTest {
     assertThat(SettingsSchema.resolve("telephone", Map.of(), Map.of("promptSeconds", 20)))
         .containsEntry("promptSeconds", 20);
   }
+
+  @Test
+  void TP2_entriesPerChainIsAutoOrFourToEight() {
+    for (int ok : new int[] {0, 4, 5, 8}) {
+      assertThat(SettingsSchema.resolve("telephone", Map.of(), Map.of("entriesPerChain", ok)))
+          .containsEntry("entriesPerChain", ok);
+    }
+    for (int bad : new int[] {-1, 1, 3, 9}) {
+      assertThatThrownBy(
+              () -> SettingsSchema.resolve("telephone", Map.of(), Map.of("entriesPerChain", bad)))
+          .isInstanceOf(DomainException.class);
+    }
+  }
+
+  @Test
+  void TP5_allowSkipTimeoutAcceptsOnlyTrue() {
+    assertThat(SettingsSchema.resolve("telephone", Map.of(), Map.of("allowSkipTimeout", true)))
+        .containsEntry("allowSkipTimeout", true);
+    assertThatThrownBy(
+            () -> SettingsSchema.resolve("telephone", Map.of(), Map.of("allowSkipTimeout", false)))
+        .isInstanceOf(DomainException.class);
+  }
 }

@@ -23,6 +23,7 @@ public enum ErrorCode {
   INVALID_PHASE(HttpStatus.CONFLICT, "Not allowed in the current phase"),
   INVALID_ACTION(HttpStatus.BAD_REQUEST, "Action not supported"),
   DUPLICATE_ACTION(HttpStatus.CONFLICT, "Duplicate action"),
+  ALREADY_SUBMITTED(HttpStatus.CONFLICT, "Already submitted"),
   NOT_DRAWER(HttpStatus.FORBIDDEN, "Only the drawer can do this"),
   IS_DRAWER(HttpStatus.FORBIDDEN, "The drawer cannot do this"),
   WORD_PACK_NOT_FOUND(HttpStatus.NOT_FOUND, "Word pack not found"),

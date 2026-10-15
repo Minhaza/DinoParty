@@ -52,6 +52,10 @@ class CommandRouter {
           "DRAW_CLEAR",
           "SUBMIT_GUESS",
           "TELEPHONE_SUBMIT_TEXT",
+          "TELEPHONE_TEXT_DRAFT",
+          "TELEPHONE_DRAW_STROKE",
+          "TELEPHONE_DRAW_UNDO",
+          "TELEPHONE_DRAW_CLEAR",
           "TELEPHONE_SUBMIT_DRAWING",
           "REVEAL_NEXT",
           "REVEAL_PREV");

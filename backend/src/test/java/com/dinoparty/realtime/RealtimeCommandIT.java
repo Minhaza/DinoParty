@@ -95,15 +95,9 @@ class RealtimeCommandIT extends RealtimeFixture {
   }
 
   @Test
-  void gameCommandsWithoutAModuleAndUnknownTypesAreInvalidActions() {
+  void unregisteredGameCommandsAndUnknownTypesAreInvalidActions() {
     joinRoom();
-    for (String type :
-        List.of(
-            "TELEPHONE_SUBMIT_TEXT",
-            "TELEPHONE_SUBMIT_DRAWING",
-            "REVEAL_NEXT",
-            "REVEAL_PREV",
-            "MAKE_ME_ADMIN")) {
+    for (String type : List.of("REVEAL_NEXT", "REVEAL_PREV", "MAKE_ME_ADMIN")) {
       StompTestClient.Message error =
           errorFor(
               "{\"type\":\"%s\",\"actionId\":\"%s\",\"payload\":{}}".formatted(type, actionId()));
@@ -112,10 +106,21 @@ class RealtimeCommandIT extends RealtimeFixture {
   }
 
   @Test
-  void registeredDrawGuessCommandsAreRefusedWhileNoGameRuns() {
+  void registeredGameCommandsAreRefusedWhileNoGameRuns() {
     joinRoom(); // a draw-guess room in WAITING: the module exists, but no session does
     for (String type :
-        List.of("CHOOSE_WORD", "DRAW_STROKE", "DRAW_UNDO", "DRAW_CLEAR", "SUBMIT_GUESS")) {
+        List.of(
+            "CHOOSE_WORD",
+            "DRAW_STROKE",
+            "DRAW_UNDO",
+            "DRAW_CLEAR",
+            "SUBMIT_GUESS",
+            "TELEPHONE_SUBMIT_TEXT",
+            "TELEPHONE_TEXT_DRAFT",
+            "TELEPHONE_DRAW_STROKE",
+            "TELEPHONE_DRAW_UNDO",
+            "TELEPHONE_DRAW_CLEAR",
+            "TELEPHONE_SUBMIT_DRAWING")) {
       StompTestClient.Message error =
           errorFor(
               "{\"type\":\"%s\",\"actionId\":\"%s\",\"phaseId\":null,\"payload\":{}}"

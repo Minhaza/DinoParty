@@ -41,6 +41,26 @@ final class SettingsSchema {
     }
   }
 
+  /** {@code 0} (automatic) or a whole number from {@code min} to {@code max}. */
+  private record AutoOrIntRule(int min, int max) implements Rule {
+    @Override
+    public String check(Object value) {
+      boolean ok = value instanceof Integer || value instanceof Long;
+      long n = ok ? ((Number) value).longValue() : -1;
+      return ok && (n == 0 || (n >= min && n <= max))
+          ? null
+          : "must be 0 (automatic) or a whole number from " + min + " to " + max;
+    }
+  }
+
+  /** Accepts exactly one value; for keys whose other values have no defined behavior yet. */
+  private record OnlyRule(Object accepted) implements Rule {
+    @Override
+    public String check(Object value) {
+      return accepted.equals(value) ? null : "must be " + accepted;
+    }
+  }
+
   private record EnumRule(Set<String> options) implements Rule {
     @Override
     public String check(Object value) {
@@ -118,7 +138,8 @@ final class SettingsSchema {
               "promptSeconds", new IntRule(20, 120),
               "drawSeconds", new IntRule(30, 180),
               "describeSeconds", new IntRule(20, 90),
-              "allowSkipTimeout", new BoolRule()));
+              "entriesPerChain", new AutoOrIntRule(4, 8),
+              "allowSkipTimeout", new OnlyRule(true)));
 
   private SettingsSchema() {}
 
