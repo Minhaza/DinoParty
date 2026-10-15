@@ -3,8 +3,8 @@ import * as React from 'react'
 import type { PlayerDto } from '@/api/types'
 import { useRealtimeClient } from '@/features/realtime/realtimeContext'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
-import { DrawCanvas } from './canvas/DrawCanvas'
-import { DrawingToolbar } from './canvas/DrawingToolbar'
+import { DrawCanvas } from '@/features/drawing/DrawCanvas'
+import { DrawingToolbar } from '@/features/drawing/DrawingToolbar'
 import { GuessFeed } from './components/GuessFeed'
 import { GuessInput } from './components/GuessInput'
 import { PlayerScoreboard } from './components/PlayerScoreboard'
@@ -37,6 +37,10 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
   const wordChoices = useDrawGuessStore((s) => s.wordChoices)
   const hint = useDrawGuessStore((s) => s.hint)
   const strokes = useDrawGuessStore((s) => s.strokes)
+  const canvasFull = useDrawGuessStore((s) => s.canvasFull)
+  const strokeRejection = useDrawGuessStore((s) => s.strokeRejection)
+  const addLocalStroke = useDrawGuessStore((s) => s.addLocalStroke)
+  const appendLocalPoints = useDrawGuessStore((s) => s.appendLocalPoints)
   const guessedGuestIds = useDrawGuessStore((s) => s.guessedGuestIds)
   const chat = useDrawGuessStore((s) => s.chat)
   const roundEnd = useDrawGuessStore((s) => s.roundEnd)
@@ -135,7 +139,12 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
               tool={tool}
               color={color}
               size={size}
+              strokes={strokes}
+              canvasFull={canvasFull}
+              strokeRejection={strokeRejection}
               onSendStrokeBatch={handleSendStrokeBatch}
+              onLocalStrokeStart={addLocalStroke}
+              onLocalPoints={appendLocalPoints}
             />
           </div>
 

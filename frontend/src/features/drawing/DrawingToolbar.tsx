@@ -1,7 +1,7 @@
 import { Eraser, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import type { StrokeTool } from '../types'
+import type { StrokeTool } from './types'
 import { BRUSH_SIZES, DRAW_COLORS } from './coords'
 
 export interface DrawingToolbarProps {

@@ -1,4 +1,4 @@
-import type { Stroke } from '../types'
+import type { Stroke } from './types'
 import { CANVAS_BG_COLOR, getStrokePixelWidth, virtualToPixelCoord } from './coords'
 
 /**

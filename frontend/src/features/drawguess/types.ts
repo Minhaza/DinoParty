@@ -1,15 +1,8 @@
 import type { GameSnapshotHeader, PhaseStartedPayload } from '@/api/types'
 
-export type StrokeTool = 'PENCIL' | 'ERASER'
+import type { CanvasBudget, Stroke, StrokeTool } from '@/features/drawing/types'
 
-export interface Stroke {
-  strokeId: string
-  tool: StrokeTool
-  color: string
-  size: number
-  points: [number, number][]
-  closed?: boolean
-}
+export type { CanvasBudget, DrawStrokePayload, Stroke, StrokeTool } from '@/features/drawing/types'
 
 export type ChatScope = 'PUBLIC' | 'GUESSERS'
 
@@ -25,13 +18,6 @@ export type RoundEndReason = 'TIME' | 'ALL_GUESSED' | 'DRAWER_LEFT'
 export interface RoundEndInfo {
   reason: RoundEndReason
   scoreDeltas: Record<string, number>
-}
-
-export interface CanvasBudget {
-  points: number
-  maxPoints: number
-  strokes: number
-  maxStrokes: number
 }
 
 export interface DrawGuessSnapshot extends GameSnapshotHeader {
@@ -130,16 +116,6 @@ export interface DrawGuessPhaseStartedPayload extends PhaseStartedPayload {
 
 export interface ChooseWordPayload {
   wordIndex: number
-}
-
-export interface DrawStrokePayload {
-  strokeId: string
-  batchNo: number
-  tool: StrokeTool
-  color: string
-  size: number
-  points: [number, number][]
-  final: boolean
 }
 
 export type DrawUndoPayload = Record<string, never>

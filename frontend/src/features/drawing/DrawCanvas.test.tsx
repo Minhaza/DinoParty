@@ -1,9 +1,33 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useDrawGuessStore } from '../drawGuessStore'
-import type { DrawStrokePayload } from '../types'
-import { DrawCanvas } from './DrawCanvas'
+import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
+import { DrawCanvas, type DrawCanvasProps } from './DrawCanvas'
+import type { DrawStrokePayload } from './types'
+
+type HarnessProps = Omit<
+  DrawCanvasProps,
+  'strokes' | 'canvasFull' | 'strokeRejection' | 'onLocalStrokeStart' | 'onLocalPoints'
+>
+
+/** The canvas wired to the Draw & Guess store exactly as `DrawGuessStage` wires it (regression). */
+function DrawGuessBoundCanvas(props: HarnessProps) {
+  const strokes = useDrawGuessStore((s) => s.strokes)
+  const canvasFull = useDrawGuessStore((s) => s.canvasFull)
+  const strokeRejection = useDrawGuessStore((s) => s.strokeRejection)
+  const addLocalStroke = useDrawGuessStore((s) => s.addLocalStroke)
+  const appendLocalPoints = useDrawGuessStore((s) => s.appendLocalPoints)
+  return (
+    <DrawCanvas
+      {...props}
+      strokes={strokes}
+      canvasFull={canvasFull}
+      strokeRejection={strokeRejection}
+      onLocalStrokeStart={addLocalStroke}
+      onLocalPoints={appendLocalPoints}
+    />
+  )
+}
 
 describe('DrawCanvas', () => {
   beforeEach(() => {
@@ -55,7 +79,7 @@ describe('DrawCanvas', () => {
 
   it('renders interactive canvas for authorized drawer during drawing phase', () => {
     render(
-      <DrawCanvas
+      <DrawGuessBoundCanvas
         isDrawer={true}
         isDrawingPhase={true}
         tool="PENCIL"
@@ -72,7 +96,7 @@ describe('DrawCanvas', () => {
 
   it('renders read-only canvas for non-drawers or outside drawing phase', () => {
     const { rerender } = render(
-      <DrawCanvas
+      <DrawGuessBoundCanvas
         isDrawer={false}
         isDrawingPhase={true}
         tool="PENCIL"
@@ -87,7 +111,7 @@ describe('DrawCanvas', () => {
     expect(canvas).toHaveClass('cursor-default')
 
     rerender(
-      <DrawCanvas
+      <DrawGuessBoundCanvas
         isDrawer={true}
         isDrawingPhase={false}
         tool="PENCIL"
@@ -104,7 +128,7 @@ describe('DrawCanvas', () => {
   it('does not send strokes when non-drawer touches canvas', () => {
     const onSend = vi.fn()
     render(
-      <DrawCanvas
+      <DrawGuessBoundCanvas
         isDrawer={false}
         isDrawingPhase={true}
         tool="PENCIL"
@@ -125,7 +149,7 @@ describe('DrawCanvas', () => {
   it('captures gestures and sends stroke batches when drawer draws', () => {
     const onSend = vi.fn()
     render(
-      <DrawCanvas
+      <DrawGuessBoundCanvas
         isDrawer={true}
         isDrawingPhase={true}
         tool="PENCIL"
@@ -174,7 +198,7 @@ describe('DrawCanvas', () => {
   it('handles pointer cancel gracefully', () => {
     const onSend = vi.fn()
     render(
-      <DrawCanvas
+      <DrawGuessBoundCanvas
         isDrawer={true}
         isDrawingPhase={true}
         tool="PENCIL"
@@ -198,7 +222,7 @@ describe('DrawCanvas', () => {
   describe('stroke delivery (P5-04)', () => {
     const renderDrawer = (onSend: (b: DrawStrokePayload) => boolean | void, drawing = true) =>
       render(
-        <DrawCanvas
+        <DrawGuessBoundCanvas
           isDrawer={true}
           isDrawingPhase={drawing}
           tool="PENCIL"
@@ -319,7 +343,7 @@ describe('DrawCanvas', () => {
       expect(onSend).toHaveBeenCalledTimes(1)
 
       rerender(
-        <DrawCanvas
+        <DrawGuessBoundCanvas
           isDrawer={true}
           isDrawingPhase={false}
           tool="PENCIL"

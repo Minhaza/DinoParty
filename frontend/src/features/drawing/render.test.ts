@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { CANVAS_BG_COLOR } from './coords'
 import { drawStrokeToContext, renderAllStrokes } from './render'
-import type { Stroke } from '../types'
+import type { Stroke } from './types'
 
 describe('canvas render utilities', () => {
   let mockContext: CanvasRenderingContext2D

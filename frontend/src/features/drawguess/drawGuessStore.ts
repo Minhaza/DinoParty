@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import type { GameErrorPayload } from '@/api/types'
+import type { StrokeRejection } from '@/features/drawing/types'
 
 import type {
   DrawGuessChatMessage,
@@ -27,15 +28,7 @@ const MAX_CHAT_LINES = 50
 /** Bound for the in-flight command table (the server remembers 256 actionIds per guest). */
 const MAX_TRACKED_COMMANDS = 256
 
-/**
- * How the drawer's canvas must react to a rejected `DRAW_STROKE` batch (api-contracts §3.9):
- * `RESTART` continues with a new `strokeId`, `FULL` stops drawing until undo/clear frees budget.
- */
-export interface StrokeRejection {
-  strokeId: string
-  kind: 'RESTART' | 'FULL'
-  nonce: number
-}
+export type { StrokeRejection }
 
 /** What the caller must do after a command error: nothing more, show it, or resync the canvas. */
 export type CommandErrorOutcome = 'unhandled' | 'handled' | 'resync'
