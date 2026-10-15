@@ -19,11 +19,20 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
 import { describeError } from '@/api/errors'
 import { getRoom, isRoomDto, joinRoom, kickPlayer, leaveRoom, roomQueryKey } from '@/api/rooms'
-import type { GuestDto, PlayerDto, RoomDto, RoomPreviewDto } from '@/api/types'
+import type {
+  DifficultySetting,
+  GuestDto,
+  PlayerDto,
+  RoomDto,
+  RoomPreviewDto,
+  WordSourceSetting,
+} from '@/api/types'
+import { listWordPacks, wordPackQueryKeys } from '@/api/wordPacks'
 import { DinoAvatar } from '@/components/DinoAvatar'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { WordSettingsSummary } from '@/features/drawguess/words/WordSettingsSummary'
 import { RequireGuest } from '@/features/guest/RequireGuest'
 import { useRealtimeRoom } from '@/features/realtime/useRealtimeRoom'
 import { GAME_CONFIGS } from '@/features/rooms/gameConfig'
@@ -184,6 +193,16 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
   const [copied, setCopied] = React.useState(false)
   const [kickTarget, setKickTarget] = React.useState<string | null>(null)
   const game = GAME_CONFIGS[currentRoom.gameKey]
+  const isDrawGuess = currentRoom.gameKey === 'draw-guess'
+  const wordSource = (currentRoom.settings['wordSource'] as WordSourceSetting) ?? 'built-in'
+  const needsPacks =
+    isDrawGuess && !isHost && (wordSource === 'custom' || wordSource === 'combined')
+
+  const { data: packs = [] } = useQuery({
+    queryKey: wordPackQueryKeys.all(currentRoom.code),
+    queryFn: ({ signal }) => listWordPacks(currentRoom.code, signal),
+    enabled: Boolean(needsPacks),
+  })
 
   // Track host changes to announce them to assistive technology
   const hostId = currentRoom.hostGuestId
@@ -478,18 +497,39 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
               {isHost ? (
                 <RoomSettingsForm room={currentRoom} />
               ) : (
-                <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
-                  <dt className="font-semibold text-muted-foreground">Max players</dt>
-                  <dd className="font-bold">{currentRoom.maxPlayers}</dd>
-                  {game.fields.map((field) => (
-                    <React.Fragment key={field.key}>
-                      <dt className="font-semibold text-muted-foreground">{field.label}</dt>
-                      <dd className="font-bold">
-                        {String(currentRoom.settings[field.key] ?? '–')}
-                      </dd>
-                    </React.Fragment>
-                  ))}
-                </dl>
+                <div className="flex flex-col gap-4">
+                  <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
+                    <dt className="font-semibold text-muted-foreground">Max players</dt>
+                    <dd className="font-bold">{currentRoom.maxPlayers}</dd>
+                    {game.fields.map((field) => (
+                      <React.Fragment key={field.key}>
+                        <dt className="font-semibold text-muted-foreground">{field.label}</dt>
+                        <dd className="font-bold">
+                          {String(currentRoom.settings[field.key] ?? '–')}
+                        </dd>
+                      </React.Fragment>
+                    ))}
+                  </dl>
+                  {isDrawGuess && (
+                    <WordSettingsSummary
+                      wordSource={wordSource}
+                      wordCategories={
+                        Array.isArray(currentRoom.settings['wordCategories'])
+                          ? (currentRoom.settings['wordCategories'] as string[])
+                          : ['random-mix']
+                      }
+                      difficulty={
+                        (currentRoom.settings['difficulty'] as DifficultySetting) ?? 'mixed'
+                      }
+                      wordPacks={packs}
+                      selectedPackIds={
+                        Array.isArray(currentRoom.settings['wordPackIds'])
+                          ? (currentRoom.settings['wordPackIds'] as string[])
+                          : []
+                      }
+                    />
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>

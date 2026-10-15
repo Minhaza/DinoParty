@@ -24,7 +24,9 @@ export interface GuestProfileInput {
 
 export type RoomStatus = 'WAITING' | 'STARTING' | 'PLAYING' | 'RESULTS' | 'CLOSED'
 
-export type SettingsMap = Record<string, number | boolean | string>
+export type SettingsValue = number | boolean | string | string[]
+
+export type SettingsMap = Record<string, SettingsValue>
 
 export interface PlayerDto {
   guestId: string
@@ -264,4 +266,143 @@ export interface GameErrorPayload {
 
 export interface PongPayload {
   serverNow: string
+}
+
+export type WordDifficulty = 'EASY' | 'MEDIUM' | 'HARD'
+export type DifficultySetting = 'easy' | 'medium' | 'hard' | 'mixed'
+export type WordSourceSetting = 'built-in' | 'custom' | 'combined'
+
+export interface WordCatalogOption {
+  key: string
+  label: string
+}
+
+export interface WordCatalogPreset {
+  key: string
+  label: string
+  includes: string[]
+}
+
+export interface WordCategoriesDto {
+  locale: string
+  categories: WordCatalogOption[]
+  presets: WordCatalogPreset[]
+}
+
+export interface WordDifficultiesDto {
+  levels: WordCatalogOption[]
+  presets: WordCatalogPreset[]
+}
+
+export interface CategoryCountDto {
+  key: string
+  total: number
+  byDifficulty: Record<WordDifficulty, number>
+}
+
+export interface WordCountsDto {
+  locale: string
+  category: string
+  difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'MIXED'
+  total: number
+  byDifficulty: Record<WordDifficulty, number>
+  byCategory: CategoryCountDto[]
+}
+
+export interface WordPackDto {
+  id: string
+  roomId: string
+  name: string
+  description: string
+  wordCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WordPackWordDto {
+  id: string
+  text: string
+  category: string
+  difficulty: WordDifficulty
+}
+
+export interface WordPackWordsDto {
+  words: WordPackWordDto[]
+  offset: number
+  limit: number
+  total: number
+}
+
+export interface WordEntryInput {
+  text: string
+  category?: string
+  difficulty?: string
+}
+
+export interface AddWordsResultDto {
+  added: number
+  skipped: number
+  pack: WordPackDto
+}
+
+export type ImportFormat = 'TXT' | 'CSV'
+
+export type RowProblem =
+  | 'BLANK_WORD'
+  | 'TOO_LONG'
+  | 'INVALID_CHARACTER'
+  | 'INVALID_DIFFICULTY'
+  | 'INVALID_CATEGORY'
+  | 'MALFORMED_ROW'
+
+export interface RowError {
+  line: number
+  code: RowProblem
+  message: string
+}
+
+export interface DuplicateRow {
+  line: number
+  of: 'FILE' | 'PACK'
+}
+
+export interface PreviewRow {
+  line: number
+  text: string
+  category: string
+  difficulty: WordDifficulty
+}
+
+export interface ImportPreviewDto {
+  format: ImportFormat
+  sha256: string
+  packVersion: number
+  totalRows: number
+  validCount: number
+  duplicateCount: number
+  invalidCount: number
+  remainingCapacity: number
+  exceedsPackLimit: boolean
+  preview: PreviewRow[]
+  duplicates: DuplicateRow[]
+  errors: RowError[]
+  truncated: boolean
+}
+
+export interface ImportResultDto {
+  imported: number
+  skipped: number
+  duplicates: number
+  invalid: number
+  pack: WordPackDto
+}
+
+export interface CreateWordPackInput {
+  name: string
+  description?: string
+}
+
+export interface UpdateWordPackInput {
+  name?: string
+  description?: string
 }

@@ -4,10 +4,13 @@ import com.dinoparty.common.DomainException;
 import com.dinoparty.common.DomainException.FieldViolation;
 import com.dinoparty.common.ErrorCode;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * Per-game settings bounds from docs/game-rules.md. Defaults live in {@code
@@ -47,6 +50,57 @@ final class SettingsSchema {
     }
   }
 
+  /**
+   * Distinct category keys ({@code [a-z][a-z0-9-]{0,39}}), at most {@code max}; {@code random-mix}
+   * only on its own. Whether a key is an active category is checked at game start, because the
+   * catalog can change after the settings were saved.
+   */
+  private record CategoryListRule(int max) implements Rule {
+    private static final Pattern KEY = Pattern.compile("[a-z][a-z0-9-]{0,39}");
+
+    @Override
+    public String check(Object value) {
+      String problem =
+          "must be a list of at most " + max + " distinct category keys, or [\"random-mix\"]";
+      if (!(value instanceof List<?> list) || list.size() > max) {
+        return problem;
+      }
+      Set<Object> seen = new HashSet<>();
+      for (Object o : list) {
+        if (!(o instanceof String key) || !KEY.matcher(key).matches() || !seen.add(key)) {
+          return problem;
+        }
+      }
+      return list.size() > 1 && list.contains("random-mix") ? problem : null;
+    }
+  }
+
+  /** Distinct canonical UUID strings, at most {@code max}; existence is checked at game start. */
+  private record UuidListRule(int max) implements Rule {
+    @Override
+    public String check(Object value) {
+      String problem = "must be a list of at most " + max + " distinct word pack ids";
+      if (!(value instanceof List<?> list) || list.size() > max) {
+        return problem;
+      }
+      Set<UUID> seen = new HashSet<>();
+      for (Object o : list) {
+        if (!(o instanceof String text)) {
+          return problem;
+        }
+        try {
+          UUID id = UUID.fromString(text);
+          if (!id.toString().equals(text) || !seen.add(id)) {
+            return problem;
+          }
+        } catch (IllegalArgumentException e) {
+          return problem;
+        }
+      }
+      return null;
+    }
+  }
+
   private static final Map<String, Map<String, Rule>> SCHEMAS =
       Map.of(
           "draw-guess",
@@ -55,7 +109,10 @@ final class SettingsSchema {
               "drawSeconds", new IntRule(30, 180),
               "wordChoiceSeconds", new IntRule(5, 30),
               "hintReveal", new BoolRule(),
-              "difficulty", new EnumRule(Set.of("easy", "mixed", "hard"))),
+              "difficulty", new EnumRule(Set.of("easy", "medium", "hard", "mixed")),
+              "wordSource", new EnumRule(Set.of("built-in", "custom", "combined")),
+              "wordCategories", new CategoryListRule(20),
+              "wordPackIds", new UuidListRule(10)),
           "telephone",
           Map.of(
               "promptSeconds", new IntRule(20, 120),

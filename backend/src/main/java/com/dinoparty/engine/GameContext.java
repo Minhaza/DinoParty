@@ -13,6 +13,7 @@ import java.util.UUID;
  * @param nextPhaseId the id the engine gives the new phase if the transition returned by this call
  *     starts one; lets a module put the {@code phaseId} into the private events of that phase (e.g.
  *     {@code WORD_CHOICES}). Unused when the call does not change the phase.
+ * @param setup what {@link GameModule#prepare} returned for this session (never null)
  */
 public record GameContext(
     UUID sessionId,
@@ -21,4 +22,5 @@ public record GameContext(
     List<PlayerInfo> roster,
     List<UUID> order,
     Map<String, Object> settings,
+    GameSetup setup,
     UUID nextPhaseId) {}

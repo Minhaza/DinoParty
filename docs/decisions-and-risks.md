@@ -119,6 +119,24 @@ Design: `docs/draw-guess-design.md`. Contract: `api-contracts.md` §3.9. Rules: 
 | D30 | Early finish and the engine's completed-round count. | A `DRAWER_LEFT` round is recorded and counts as completed; a round in progress at an early finish is discarded (no drawer points, no record). | Do not record aborted rounds (needs a flag on `RoundRecord`). |
 | D31 | Word pool. | Tiers EASY/HARD, ≥ 150 words each, 3–20 chars, original; `mixed` = union; "used" = chosen words; repeats allowed only on exhaustion. | Per-choice tier mix (one easy, one hard, one any). |
 
+### WP-01 (word catalog) decision needing approval
+
+| ID | Decision | Recommendation | Alternative / consequence |
+|---|---|---|---|
+| D32 | Three stored difficulties (`EASY`/`MEDIUM`/`HARD`) in the new database word catalog vs D31's two game tiers (`EASY`/`HARD`, ≥ 150 each). | **PROPOSED.** D31 is unchanged and still governs gameplay, which keeps reading the two resource lists in WP-01. The catalog maps them explicitly: every legacy EASY word is catalog `EASY`; every legacy HARD word is catalog `MEDIUM` or `HARD`. When the game switches to the catalog, setting `easy` = `EASY`, `hard` = `MEDIUM` ∪ `HARD`, `mixed` = all, so both game tiers keep ≥ 150 words *(the game-setting mapping is replaced by D33 below)*. The catalog guarantees ≥ 150 `EASY` and ≥ 150 `MEDIUM`; `HARD` is a smaller curated tier (D31 is **not** read as requiring 150 `HARD`). A new `medium` game setting, if wanted, is a separate `docs(contract)` change. | Require ≥ 150 `HARD` as well (needs ~35 more hard-to-draw entries of lower quality); or keep two catalog tiers (loses the finer filter the word-pack UI needs). |
+
+### WP-02 (word selection) decision needing approval
+
+| ID | Decision | Recommendation | Alternative / consequence |
+|---|---|---|---|
+| D33 | Word selection settings and how they meet D31/D32. | **PROPOSED; implemented in WP-02.** Games draw from the database catalog (the resource lists become test fixtures). `difficulty` gains `medium` and each value maps 1:1 to a stored difficulty (`easy`=`EASY`, `medium`=`MEDIUM`, `hard`=`HARD`, `mixed`=all), instead of D32's `hard` = `MEDIUM` ∪ `HARD`; `wordSource` `built-in`/`custom`/`combined`, `wordCategories` (several, Random Mix = all), `wordPackIds`. Category/difficulty filters apply to built-in words only; custom pack entries are selected by pack only. D31's "≥ 150 per tier, no exhaustion in a full game" is kept for the defaults (`mixed` Random Mix: 653 words) and every single difficulty over Random Mix (`EASY` 254, `MEDIUM` 283, `HARD` 116 ≥ 50 rounds); narrower selections are allowed down to one draw (3 words), with D31's repeat-on-exhaustion. Pool and settings are frozen at host start; a rematch re-resolves them with an empty used set. Word choices use the server's `SecureRandom`, not the session-seeded RNG, because the seed is stored with the session (D16) and offered-but-unchosen words must not be reconstructible ([DG-2]). | Keep D32's `hard` = `MEDIUM` ∪ `HARD` and add no `medium` (no strict "Hard" for the word-pack UI); or require a minimum of `players × cycles + 2` words at start (no repeats ever, but small custom packs could never be played). |
+
+### WP-03 (custom word packs) decision needing approval
+
+| ID | Decision | Recommendation | Alternative / consequence |
+|---|---|---|---|
+| D34 | Custom word packs: ownership, import confirmation, limits. | **PROPOSED; implemented in WP-03.** Packs are room-scoped (no accounts): host-only writes, member-visible metadata, words host-only. Import is two-step with **re-upload + SHA-256 digest + pack content version** instead of a server-side preview token: the server keeps no preview state, never trusts client rows and rejects stale confirms with `IMPORT_STALE`. Limits as in api-contracts §2.5 (1 MiB, 1 000 words, 80 code points, 20 packs, plus 10 000 rows per file as a parser bound). Duplicates are case-insensitive with accents preserved; the stricter `[DG-4]` equivalence still applies when the pool is built. | Short-lived preview token (needs expiry and memory bookkeeping, valid on one instance only); or user-owned permanent packs (needs accounts, out of scope). |
+
 Phase 5 risks:
 
 | # | Risk | Mitigation |

@@ -3,6 +3,7 @@ package com.dinoparty.session;
 import com.dinoparty.common.RandomSource;
 import com.dinoparty.engine.DeadlineBook;
 import com.dinoparty.engine.GameModule;
+import com.dinoparty.engine.GameSetup;
 import com.dinoparty.engine.GameState;
 import com.dinoparty.engine.PlayerInfo;
 import com.dinoparty.engine.ScoreLedger;
@@ -29,7 +30,11 @@ final class ActiveSession {
 
   SessionStatus status = SessionStatus.STARTING;
   UUID sessionId;
+
+  /** Settings and module setup are frozen when the host starts (before the countdown). */
   Map<String, Object> settings = Map.of();
+
+  GameSetup setup = GameSetup.NONE;
   RandomSource random;
   Instant startedAt;
   final Map<UUID, RosterSlot> roster = new LinkedHashMap<>();

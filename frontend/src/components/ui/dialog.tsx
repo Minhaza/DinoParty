@@ -111,6 +111,12 @@ export function DialogContent({
 }: DialogContentProps) {
   const { open, setOpen, titleId, descriptionId } = useDialogContext()
   const contentRef = React.useRef<HTMLDivElement>(null)
+  // Callers pass fresh callbacks every render; keep the effect keyed on `open` only so
+  // initial focus and scroll lock are not re-applied on each parent re-render.
+  const setOpenRef = React.useRef(setOpen)
+  React.useEffect(() => {
+    setOpenRef.current = setOpen
+  })
 
   // Handle ESC key and scroll lock
   React.useEffect(() => {
@@ -119,7 +125,7 @@ export function DialogContent({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        setOpen(false)
+        setOpenRef.current(false)
       }
     }
 
@@ -133,7 +139,9 @@ export function DialogContent({
         const focusable = contentRef.current.querySelector<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
         )
-        focusable?.focus()
+        // Parents re-render with new callbacks while the dialog is open; never pull focus
+        // away from a field the user is already typing in.
+        if (!contentRef.current.contains(document.activeElement)) focusable?.focus()
       }
     }, 50)
 
@@ -142,7 +150,7 @@ export function DialogContent({
       window.removeEventListener('keydown', handleKeyDown)
       clearTimeout(focusTimer)
     }
-  }, [open, setOpen])
+  }, [open])
 
   if (!open) return null
 

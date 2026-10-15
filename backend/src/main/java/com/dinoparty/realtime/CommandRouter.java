@@ -191,8 +191,7 @@ class CommandRouter {
             if (e.code() == ErrorCode.SERVER_ERROR) {
               errorsQueue(guestId, room.code(), command.actionId(), e.code(), e.getMessage(), true);
             } else {
-              privateError(
-                  guestId, room, command.actionId(), e.code(), e.getMessage(), isRetryable(e));
+              privateError(guestId, room, command.actionId(), e);
             }
             count(metricType, "rejected");
           } catch (InvalidCommand e) {
@@ -332,8 +331,7 @@ class CommandRouter {
             if (e.code() == ErrorCode.SERVER_ERROR) {
               errorsQueue(guestId, code, command.actionId(), e.code(), e.getMessage(), true);
             } else {
-              privateError(
-                  guestId, room, command.actionId(), e.code(), e.getMessage(), isRetryable(e));
+              privateError(guestId, room, command.actionId(), e);
             }
             count(type, "rejected");
           }
@@ -412,6 +410,15 @@ class CommandRouter {
 
   private static boolean isRetryable(DomainException e) {
     return e.code() == ErrorCode.RATE_LIMITED;
+  }
+
+  /** A rejected member command; carries the exception's {@code details} when it has any. */
+  private void privateError(UUID guestId, RoomRef room, String actionId, DomainException e) {
+    Map<String, Object> payload = errorPayload(actionId, e.code(), e.getMessage(), isRetryable(e));
+    if (!e.details().isEmpty()) {
+      payload.put("details", e.details());
+    }
+    publisher.publishPrivate(room.code(), room.id(), guestId, "GAME_ERROR", actionId, payload);
   }
 
   /** Errors for a guest we have confirmed is a member: the private room stream. */

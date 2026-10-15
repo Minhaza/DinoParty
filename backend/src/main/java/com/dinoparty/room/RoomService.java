@@ -342,6 +342,35 @@ public class RoomService {
         .map(r -> new RoomRef(r.getId(), r.getCode()));
   }
 
+  /**
+   * The caller's rights in the room with this code, from fresh state.
+   *
+   * @throws DomainException {@code ROOM_NOT_FOUND} for an unknown or malformed code
+   */
+  public RoomAccess accessOf(UUID guestId, String rawCode) {
+    String code = requireCode(rawCode);
+    return readOnlyTx.execute(
+        status -> access(rooms.findByCode(code).orElseThrow(RoomService::notFound), guestId));
+  }
+
+  /** The caller's rights in the room they are currently an active member of, if any. */
+  public Optional<RoomAccess> activeAccess(UUID guestId) {
+    return participants
+        .findByGuestIdAndLeftAtIsNull(guestId)
+        .flatMap(p -> rooms.findById(p.getRoomId()))
+        .map(room -> access(room, guestId));
+  }
+
+  private RoomAccess access(RoomEntity room, UUID guestId) {
+    boolean member = isActiveMember(room, guestId);
+    return new RoomAccess(
+        room.getId(),
+        room.getCode(),
+        room.getStatus(),
+        member,
+        member && room.getHostGuestId().equals(guestId));
+  }
+
   /** Looks a room up by code regardless of membership; used to address realtime events. */
   public Optional<RoomRef> find(String rawCode) {
     return RoomCodes.normalize(rawCode)

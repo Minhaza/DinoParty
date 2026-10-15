@@ -84,6 +84,72 @@ class ArchitectureTest {
           .resideInAPackage("com.dinoparty.room.persistence..");
 
   @ArchTest
+  static final ArchRule wordsPersistenceIsPrivateToWords =
+      noClasses()
+          .that()
+          .resideOutsideOfPackage("com.dinoparty.words..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.words.persistence..");
+
+  /** The word catalog is reference data: it knows nothing of rooms, sessions or games. */
+  @ArchTest
+  static final ArchRule wordsDependOnlyOnCommon =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.words..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.guest..",
+              "com.dinoparty.room..",
+              "com.dinoparty.engine..",
+              "com.dinoparty.session..",
+              "com.dinoparty.games..",
+              "com.dinoparty.drawing..",
+              "com.dinoparty.history..",
+              "com.dinoparty.realtime..",
+              "com.dinoparty.web..",
+              "com.dinoparty.health..");
+
+  @ArchTest
+  static final ArchRule wordPacksPersistenceIsPrivateToWordPacks =
+      noClasses()
+          .that()
+          .resideOutsideOfPackage("com.dinoparty.wordpacks..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.wordpacks.persistence..");
+
+  /** Word packs sit on rooms (authorization) and the word pool SPI, never on transport or games. */
+  @ArchTest
+  static final ArchRule wordPacksDoNotDependOnTransportSessionsOrGames =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.wordpacks..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.web..",
+              "com.dinoparty.realtime..",
+              "com.dinoparty.session..",
+              "com.dinoparty.engine..",
+              "com.dinoparty.games..",
+              "com.dinoparty.history..",
+              "com.dinoparty.health..",
+              "com.dinoparty.room.persistence..",
+              "com.dinoparty.guest.persistence..");
+
+  @ArchTest
+  static final ArchRule wordCatalogKnowsNothingOfWordPacks =
+      noClasses()
+          .that()
+          .resideInAPackage("com.dinoparty.words..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.wordpacks..");
+
+  @ArchTest
   static final ArchRule realtimeDoesNotTouchPersistence =
       noClasses()
           .that()
@@ -176,7 +242,10 @@ class ArchitectureTest {
               "..persistence..",
               "jakarta.persistence..");
 
-  /** Draw & Guess uses the engine SPI, the drawing library and common only (design §10). */
+  /**
+   * Draw & Guess uses the engine SPI, the drawing library, the word pool and common only (design
+   * §10; the word catalog's persistence stays private to {@code words}).
+   */
   @ArchTest
   static final ArchRule drawGuessUsesEngineDrawingAndCommonOnly =
       classes()
@@ -188,6 +257,7 @@ class ArchitectureTest {
               "com.dinoparty.games.drawguess..",
               "com.dinoparty.engine..",
               "com.dinoparty.drawing..",
+              "com.dinoparty.words",
               "com.dinoparty.common..",
               "org.springframework.stereotype..",
               "java..");

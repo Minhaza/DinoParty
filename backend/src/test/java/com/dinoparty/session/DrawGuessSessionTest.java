@@ -9,7 +9,7 @@ import com.dinoparty.common.SeededRandomSource;
 import com.dinoparty.common.Timestamps;
 import com.dinoparty.engine.GameDefinition;
 import com.dinoparty.engine.RoundRecord;
-import com.dinoparty.games.drawguess.DrawGuessModule;
+import com.dinoparty.games.drawguess.DrawGuessTestModules;
 import com.dinoparty.room.RoomStatus;
 import com.dinoparty.session.SessionFixture.Published;
 import java.nio.charset.StandardCharsets;
@@ -38,7 +38,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 class DrawGuessSessionTest {
 
-  private final SessionFixture f = new SessionFixture(new DrawGuessModule());
+  private final SessionFixture f = new SessionFixture(DrawGuessTestModules.module());
 
   // ------------------------------------------------------------------ helpers
 
@@ -159,7 +159,7 @@ class DrawGuessSessionTest {
 
   @Test
   void theModuleDeclaresTheContractDefinition() {
-    GameDefinition d = new DrawGuessModule().definition();
+    GameDefinition d = DrawGuessTestModules.module().definition();
 
     assertThat(d.key()).isEqualTo("draw-guess");
     assertThat(d.minPlayers()).isEqualTo(2);
@@ -214,13 +214,13 @@ class DrawGuessSessionTest {
     assertThat(rejected(() -> f.sessions.start(CODE, f.host())))
         .isEqualTo(ErrorCode.NOT_ENOUGH_PLAYERS);
 
-    SessionFixture crowded = new SessionFixture(new DrawGuessModule());
+    SessionFixture crowded = new SessionFixture(DrawGuessTestModules.module());
     crowded.players(11);
     assertThat(rejected(() -> crowded.sessions.start(CODE, crowded.host())))
         .isEqualTo(ErrorCode.NOT_ENOUGH_PLAYERS); // more members than maxPlayers 10
     assertThat(crowded.room.status).isEqualTo(RoomStatus.WAITING);
 
-    SessionFixture ten = new SessionFixture(new DrawGuessModule());
+    SessionFixture ten = new SessionFixture(DrawGuessTestModules.module());
     ten.players(10);
     ten.startAndPlay();
     assertThat(ten.room.status).isEqualTo(RoomStatus.PLAYING);
@@ -928,7 +928,7 @@ class DrawGuessSessionTest {
   @Test
   void invariantsHoldUnderRandomInterleavings() {
     for (long seed = 1; seed <= 8; seed++) {
-      SessionFixture g = new SessionFixture(new DrawGuessModule());
+      SessionFixture g = new SessionFixture(DrawGuessTestModules.module());
       List<UUID> players = g.players(4);
       g.room.settings = Map.of("cycles", 1, "drawSeconds", 30, "wordChoiceSeconds", 5);
       g.startAndPlay();

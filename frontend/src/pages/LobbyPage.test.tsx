@@ -69,6 +69,50 @@ describe('LobbyPage', () => {
 
     expect(await screen.findByText('Only the host can change these.')).toBeInTheDocument()
     expect(screen.queryByRole('form', { name: 'Room settings' })).not.toBeInTheDocument()
+    expect(screen.getByText('Word Pool Settings')).toBeInTheDocument()
+  })
+
+  it('displays custom word pack summary for non-hosts in Draw & Guess', async () => {
+    const room = roomFixture({
+      hostGuestId: OTHER.guestId,
+      settings: {
+        cycles: 2,
+        drawSeconds: 80,
+        wordSource: 'custom',
+        wordCategories: [],
+        difficulty: 'hard',
+        wordPackIds: ['p1'],
+      },
+    })
+    room.players = [
+      { ...OTHER, isHost: true },
+      { ...room.players[0], isHost: false },
+    ]
+    mockApi({
+      ...guestMe,
+      'GET /rooms/AB3D7K': { status: 200, body: room },
+      'GET /rooms/AB3D7K/word-packs': {
+        status: 200,
+        body: {
+          packs: [
+            {
+              id: 'p1',
+              roomId: 'AB3D7K',
+              name: 'Space Pack',
+              description: 'Galactic words',
+              wordCount: 25,
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+            },
+          ],
+        },
+      },
+    })
+    renderLobby()
+
+    expect(await screen.findByText('Word Pool Settings')).toBeInTheDocument()
+    expect(await screen.findByText('Space Pack')).toBeInTheDocument()
+    expect(screen.getByText('Hard')).toBeInTheDocument()
   })
 
   it('lets a non-member join from the preview', async () => {

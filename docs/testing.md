@@ -371,3 +371,54 @@ Two players against the dev backend (`spring-boot:run`, compose PostgreSQL) and 
 - E2E relies on a manually started backend and database; a CI job (Phase 8.3) is still needed before it can gate merges.
 - The E2E pixel checks assume the canvas background `#FFFDF8` and the palette in `coords.ts`; a design change there must update `e2e/support.ts`.
 - The known P5-04 limitations still apply: the brief local double-draw after a reconnect mid-stroke, the canvas budget enforced only by the server, per-point preview data in Zustand, and no `role="dialog"` on the word-choice overlay.
+
+## WP-01 verification record (word catalog and database, backend)
+
+Command: `./mvnw -f backend verify` (Windows 11, Java 21, Docker 29.8, Testcontainers `postgres:16-alpine`) — **BUILD SUCCESS**: surefire 223 tests, failsafe 171 ITs, 0 failures, 0 errors, 0 skipped; Spotless check passed.
+
+New tests:
+
+| Test | Covers |
+|---|---|
+| `CatalogSelectionTest` (unit) | Locale normalization (`EN`, `en_US`, `PT-br`, 3-letter languages), malformed tags rejected with `fieldErrors[locale]`, fallback chain tag → language → `en`; `MIXED` is a filter over all stored difficulties and never a stored value; case-insensitive difficulty parsing; unknown difficulties rejected |
+| `WordCatalogSeedIT` | Flyway `V5`/`V6` applied; nine categories in order with English labels, no Random Mix row; ≥ 150 `EASY`, ≥ 150 `MEDIUM`, ≥ 100 `HARD`, every category × difficulty cell populated; [DG-15] format, blocklist, no duplicates or simple plurals; stable md5-derived ids; every legacy word present with a consistent tier (D32); DB rejects duplicates ignoring spaces/hyphens (`ice-cream`, `hotdog`), `MIXED`, unknown categories, bad shapes/case, non-ASCII English and malformed locales; same text allowed in another locale; accented text allowed outside `en` |
+| `WordCatalogApiIT` | 401 on all three endpoints without a token; categories/difficulties/counts response contracts (§2.3); default counts equal the database; filtering by category × difficulty (incl. `random-mix`, case-insensitive); service `words(...)` honours the same filters; no response contains a word; 400 `VALIDATION_FAILED` per bad parameter; `en-US`/`de`/`pt-BR` fall back to `en`; an added `fr` catalog is served for `fr-CA`/`FR` with per-category label fallback; inactive words and categories excluded |
+| `ArchitectureTest` | `words` depends on `common` only; `words.persistence` private |
+
+Not verified: no frontend or browser check (no UI in scope); gameplay still reads the resource lists, so no game test exercises the catalog yet; word drawability/appropriateness was reviewed by hand, not by players.
+
+## WP-02 verification record (word filtering and game integration, backend)
+
+Command: `./mvnw -f backend verify` (Windows 11, Java 21, Docker 29.8, Testcontainers `postgres:16-alpine`) — **BUILD SUCCESS**: surefire 265 tests, failsafe 179 ITs, 0 failures, 0 errors, 0 skipped; Spotless check passed.
+
+New or changed tests:
+
+| Test | Covers |
+|---|---|
+| `WordPoolServiceTest` (unit, in-memory providers) | One category; several categories × difficulty; each of `EASY`/`MEDIUM`/`HARD`; `MIXED`; empty filters and Random Mix = every active category; unknown/deactivated category → `VALIDATION_FAILED settings.wordCategories`; custom words never filtered by category/difficulty or missing metadata; combined pool order and `[DG-4]` de-duplication (`Ice-Cream`/`icecream`/`CAT`/`café`/`cafe`); missing, unknown and other-owner packs → `settings.wordPackIds`; unusable entries not counted; `WORD_POOL_TOO_SMALL` with `details {required, available}` (duplicates and empty filters); exactly one draw suffices; frozen against catalog and pack edits; no word in `toString`; draw without repeats, exhaustion fallback, per-seed determinism |
+| `DrawGuessWordSelectionTest` (module in the real engine, manual clock) | Too-small pool and invalid settings reject the start with nothing initialized (no status change, event, session, timer, history row) and no word in the error; offered words obey category + difficulty filters over a whole game; combined games; settings and pack edits during countdown/game ignored, `GAME_STARTED.settings` frozen; rematch uses a fresh used set and the current settings; exhaustion repeats instead of stopping; pool words reach only the drawer before `ROUND_ENDED` |
+| `SessionServiceTest` (+3) | Engine `prepare` hook: rejection initializes nothing, a crash is `SERVER_ERROR`, settings and setup frozen at host start |
+| `DrawGuessRulesTest` | Pool duplicate key = `[DG-4]` correct-guess equivalence (`WordKey`); legacy lists (now test fixtures) well formed; settings parsing for the new keys and every difficulty, lenient fallback |
+| `DrawGuessSettingsSchemaTest` (+2) | Room schema accepts every value the module reads (sources, `[]`, Random Mix, nine categories, 10 packs) and rejects malformed ones (case, duplicates, Random Mix combined, non-lists, bad/uppercase UUIDs, too many) |
+| `DrawGuessWordSelectionIT` (STOMP + REST, test `CustomWordProvider` bean) | Settings validated on `PATCH` and defaults filled; REST start `409 WORD_POOL_TOO_SMALL` with `details`, room stays `WAITING`; STOMP `START_GAME` → private `GAME_ERROR` with `details`, no words, only to the host; built-in game choices are catalog words of the selected categories/difficulty (checked against PostgreSQL); custom game frozen at start; only the drawer's socket receives `WORD_CHOICES` |
+| `WordPoolIT` (PostgreSQL) | Pool size equals `counts` for every category × difficulty and Random Mix (653); inactive words/categories excluded; unknown pack ids are rejected with `settings.wordPackIds` (stored packs: `WordPackPoolIT`) |
+| `DrawGuessIT` | `theModuleDefaultsEqualTheCatalogRow` now checks the `V7` defaults; fixed a pre-existing order-dependent flake (when the host was the guesser who reconnected, its new socket never saw round 1's `WORD_CHOICE`, so waiting for the second one timed out) |
+
+Not verified: no frontend or browser check (no UI change in scope; the frontend's `SettingsMap` type does not list string arrays yet, see design §19); custom packs only through test providers here (stored packs: WP-03 below); no load measurement of the start-time pool query (≈ 650 rows, inside the room mailbox).
+
+## WP-03 custom word packs and import (backend)
+
+Contract: api-contracts §2.5, decision D34. Migration `V8__word_packs.sql`. New dependency: Apache Commons CSV 1.14.1 (RFC 4180 parser).
+
+| Test | Covers |
+|---|---|
+| `WordRulesTest` (unit) | Trim, NFC, whitespace collapse; defaults `Custom`/`MEDIUM`; difficulty case-insensitive, `MIXED` rejected; accents preserved, duplicate key ignores case (`ß`=`SS`, NFKC) but keeps accents; 80 code points (emoji), huge input; control, bidi, zero-width, BOM, private-use, lone surrogate, `<` `>` rejected; ZWJ allowed |
+| `ImportAnalyzerTest` (unit) | TXT: blank lines, CRLF/CR, BOM, physical line numbers, accents/scripts, case-insensitive dedupe in file and against the pack, invalid rows without content echo, empty/blank-only, invalid UTF-8, bounded error lists with exact counts, row and byte limits, digest. CSV: BOM, any column order, quotes/commas/escaped quotes, missing optional columns, blank rows, invalid difficulty, blank word, extra cells, bad headers (unknown, duplicate, no `word`, empty cell, none), unterminated quote, header only, multi-line record line number, extension routing |
+| `WordPackApiIT` | 401 on every endpoint; CRUD; validation field errors; 20-pack limit; member sees names/counts only and gets `NOT_HOST` for words and every write; non-member `NOT_IN_ROOM`; host transfer moves rights; cross-room isolation (other room's pack → `WORD_PACK_NOT_FOUND`, other room's code → `NOT_IN_ROOM`); no pack word in room or snapshot payloads; add/remove/page words, defaults and duplicates, indexed field errors, 100-per-request and 1 000-per-pack limits (`details`); cascade on room delete |
+| `WordPackImportIT` | Preview counts, bounded lists, nothing persisted; confirm stores in file order and reports counts; CSV with BOM/Unicode/quotes round trip; stale confirm after a pack change, different file, forged or empty digest, double confirm, preview of another pack; over-capacity import rejected whole; bad files (extension, empty, headers, quotes, latin-1, no part) → structured errors; 1 MiB accepted, 1 MiB + 1 and > 10 000 rows → 413; imported content never in the logs |
+| `WordPackConcurrencyIT` | 6 simultaneous confirms of one preview import once (5 × `IMPORT_STALE`); overlapping imports and adds never duplicate and keep `word_count` equal to the rows; 10 concurrent adds of one word store it once; 30 concurrent creates stop at 20; concurrent adds stop at 1 000 |
+| `WordPackRollbackIT` | A unique-key failure on the last insert of an import leaves no entry, count or version change; the same preview then confirms |
+| `WordPackPoolIT` | Host's pack feeds the pool (only `[DG-15]`-usable words, `[DG-4]` duplicates removed); another room's pack, a non-host member, a deleted or unknown pack are `settings.wordPackIds`; empty pack → `WORD_POOL_TOO_SMALL`; `combined` merges built-in and pack words |
+| `ArchitectureTest` (+3) | `wordpacks.persistence` private; `wordpacks` knows nothing of web/realtime/session/games; `words` never depends on `wordpacks` |
+
+Not verified: no frontend or browser check (no UI in scope); no malware scanning, no antivirus or content moderation of imported words; multipart behaviour is exercised through MockMvc (the container-level limits `spring.servlet.multipart.*` are configured but not hit by a real HTTP client here). Words longer than 20 characters or containing digits are stored but never drawn (`[DG-15]` shape), and no response flags them yet.

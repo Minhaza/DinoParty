@@ -289,7 +289,9 @@ class DrawGuessIT extends GameEngineSupport {
     }
 
     // Round 2: its drawer leaves for good; the round ends DRAWER_LEFT and the game goes on.
-    JsonNode round2 = phase(host, "WORD_CHOICE", 2);
+    // Counted on the round-1 drawer's socket, which never reconnected: if the host was the guesser
+    // who refreshed above, its new socket never saw round 1's WORD_CHOICE.
+    JsonNode round2 = phase(r.socketOf(order.get(0)), "WORD_CHOICE", 2);
     assertThat(round2.get("drawerGuestId").asString()).isEqualTo(order.get(1));
     roomService.leave(UUID.fromString(order.get(1)), r.code);
     StompTestClient observer = r.socketOf(order.get(0));

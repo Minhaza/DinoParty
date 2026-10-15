@@ -99,6 +99,55 @@ class SessionServiceTest {
   }
 
   @Test
+  void aStartRejectedByTheModuleInitializesNothing() {
+    f.players(2);
+    f.room.settings = Map.of("rejectStart", true);
+
+    DomainException e = rejected(() -> f.sessions.start(CODE, f.host()));
+
+    assertThat(e.code()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+    assertThat(e.fieldErrors()).extracting("field").containsExactly("settings.rejectStart");
+    assertThat(f.room.status).isEqualTo(RoomStatus.WAITING);
+    assertThat(f.room.changes).isEmpty();
+    assertThat(f.sink.events).isEmpty();
+    assertThat(f.sessions.activeCount()).isZero();
+    assertThat(f.scheduler.liveHandles()).isZero();
+
+    // Fixing the settings makes the next start work normally.
+    f.room.settings = Map.of();
+    f.startAndPlay();
+    assertThat(f.room.status).isEqualTo(RoomStatus.PLAYING);
+  }
+
+  @Test
+  void aModuleFailureWhilePreparingIsAServerErrorAndInitializesNothing() {
+    f.players(2);
+    f.room.settings = Map.of("crashStart", true);
+
+    assertThat(rejected(() -> f.sessions.start(CODE, f.host())).code())
+        .isEqualTo(ErrorCode.SERVER_ERROR);
+    assertThat(f.room.changes).isEmpty();
+    assertThat(f.sessions.activeCount()).isZero();
+  }
+
+  @Test
+  void settingsAndSetupAreFrozenWhenTheHostStarts() {
+    f.players(2);
+    f.room.settings = Map.of("secretPrefix", "alpha");
+    f.sessions.start(CODE, f.host());
+
+    f.room.settings = Map.of("secretPrefix", "beta"); // a change during the countdown
+    f.clock.advance(Duration.ofSeconds(3));
+    f.scheduler.fireDue(f.clock, false);
+
+    assertThat(f.sink.ofType("GAME_STARTED").getFirst().payload().get("settings"))
+        .isEqualTo(Map.of("secretPrefix", "alpha"));
+    assertThat((String) f.sink.ofType("TEST_SECRET").getFirst().payload().get("secret"))
+        .startsWith("alpha-");
+    assertThat(f.recorder.starts.getFirst().settings()).containsEntry("secretPrefix", "alpha");
+  }
+
+  @Test
   void countdownEndStartsTheGameInTheDocumentedEventOrder() {
     List<UUID> p = f.players(3);
 

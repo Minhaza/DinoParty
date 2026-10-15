@@ -15,6 +15,7 @@ public enum ErrorCode {
   ALREADY_IN_ROOM(HttpStatus.CONFLICT, "Already in a room"),
   NOT_IN_ROOM(HttpStatus.FORBIDDEN, "Not a member of this room"),
   NOT_ENOUGH_PLAYERS(HttpStatus.CONFLICT, "Not enough players"),
+  WORD_POOL_TOO_SMALL(HttpStatus.CONFLICT, "Not enough words"),
   GAME_NOT_FOUND(HttpStatus.NOT_FOUND, "Game not found"),
   SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Session not found"),
   RESULTS_NOT_READY(HttpStatus.CONFLICT, "Results are not ready"),
@@ -24,6 +25,10 @@ public enum ErrorCode {
   DUPLICATE_ACTION(HttpStatus.CONFLICT, "Duplicate action"),
   NOT_DRAWER(HttpStatus.FORBIDDEN, "Only the drawer can do this"),
   IS_DRAWER(HttpStatus.FORBIDDEN, "The drawer cannot do this"),
+  WORD_PACK_NOT_FOUND(HttpStatus.NOT_FOUND, "Word pack not found"),
+  WORD_PACK_LIMIT_REACHED(HttpStatus.CONFLICT, "Word pack limit reached"),
+  IMPORT_STALE(HttpStatus.CONFLICT, "Import preview is out of date"),
+  UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported file type"),
   PAYLOAD_TOO_LARGE(HttpStatus.valueOf(413), "Payload too large"),
   SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error"),
   RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests");

@@ -19,6 +19,9 @@ final class ProblemFactory {
     if (!e.fieldErrors().isEmpty()) {
       problem.setProperty("fieldErrors", e.fieldErrors());
     }
+    if (!e.details().isEmpty()) {
+      problem.setProperty("details", e.details());
+    }
     return problem;
   }
 
