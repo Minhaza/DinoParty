@@ -5,7 +5,7 @@ All values marked *(default)* are configurable within the stated bounds. The ser
 ## Common rules
 
 - Players are authenticated guests in a room. Games start only from `WAITING` by the host when `minPlayers ≤ connectedPlayers ≤ maxPlayers` (members whose connection is in its grace period do not count as connected; the `ready` flag is advisory and never blocks a start `[C-4]`).
-- Every phase has a server `deadlineAt`. Client clocks are display-only.
+- Every phase has a server `deadlineAt`, except Telephone's `REVEAL` (`deadlineAt: null`; it is driven by the host with a server auto-advance, `[TP-6]`). Client clocks are display-only.
 - Actions carry `actionId` and `phaseId`; duplicates are ignored (idempotent ack), stale ones rejected.
 - A disconnected player has a reconnection grace period (30 s lobby / 60 s in-game, default). After it, the player is `LEFT` for the current session (they may rejoin only after the game ends, in the lobby). The in-game value needs its own setting (`app.realtime.in-game-disconnect-grace`, default 60 s); Phase 3 has only the lobby value.
 - If the number of players not `LEFT` falls below the game's `minActivePlayers` during play (draw-guess 2, telephone 3), the game ends early `[C-1]`: with results computed from the completed rounds if there is at least one, otherwise it is aborted with no results and the room returns to `WAITING`. A player who is merely `DISCONNECTED` (inside the grace period) still counts as active, so a network blip never ends a game.
@@ -127,36 +127,31 @@ A reconnecting viewer receives a snapshot containing the current phase, `phaseId
 
 ---
 
-## Game 2 — Telephone Drawing (`telephone`)
+## Game 2 — Dino Telephone (`telephone`)
 
-Players: **4–8** (default). Rationale: ≥ 4 gives non-trivial chains; ≤ 8 keeps the total play time reasonable. Even and odd counts are both supported (see parity note).
+Players: **4–8**; `minActivePlayers` 3 (`[C-1]`); unscored (`scored = false`, no standings). Even and odd counts are supported. Design, state machine, limits and the list of open decisions: `docs/telephone-design.md`; contract: `api-contracts.md` §3.10. Rules that came from decisions D35–D48 (`decisions-and-risks.md` §7, **proposed**) are tagged with the decision id; where this section replaces earlier text, the replaced wording is named in `telephone-design.md` §1.
 
-### Settings
+### Settings (host, in WAITING only)
 
 | Setting | Default | Bounds |
 |---|---|---|
 | `promptSeconds` | 60 | 20–120 |
 | `drawSeconds` | 90 | 30–180 |
 | `describeSeconds` | 45 | 20–90 |
-| `entriesPerChain` | `n` if n even, else `n − 1` | even or `n`; 4 ≤ value ≤ n |
-| `allowSkipTimeout` | on | On timeout, an empty/placeholder entry is recorded |
+| `entriesPerChain` | 0 (auto) | 0 or 4–8 *(proposed, D38)*; auto = `n` if `n` is even, else `n − 1`; an explicit value is clamped to `n` when the roster freezes |
+| `allowSkipTimeout` | true | only `true` is accepted; timeouts always produce an entry `[TP-5]` *(proposed, D39)* |
 
-### Chain allocation (rotation) `[TP-1]`
+Constants (not settings): text 1–140 characters, reveal idle auto-advance 60 s (15 s while the host is disconnected), drawing limits of `[DG-14]`.
 
-Let `n` players be ordered `p0 … p(n−1)` (shuffled once at game start). There are `n` chains `c0 … c(n−1)`; chain `c_i` is *owned* by `p_i`.
+### Roster, chains and entries
 
-- Entry index `k` ∈ `0 … E−1` where `E = entriesPerChain ≤ n`.
-- **Holder of chain `c_i` at step `k` is `p_((i + k) mod n)`.**
-- `k = 0`: the owner writes the initial prompt (everyone submits a prompt simultaneously).
-- `k` odd → DRAW the previous entry; `k` even (> 0) → DESCRIBE the previous drawing.
-
-**Properties (tested as invariants):**
-1. At every step, each player holds exactly one chain, and each chain has exactly one holder (the map `i → (i+k) mod n` is a permutation).
-2. A player holds a given chain at most once while `E ≤ n` (the holders for `k = 0…n−1` are all distinct).
-3. Each player sees only the immediately preceding entry of the chain they hold.
-4. Every chain ends with exactly `E` entries.
-
-**Parity note.** Entry 0 is text, so with `E` entries the final entry is a drawing when `E` is even and a text when `E` is odd. If the host leaves `entriesPerChain = n` and `n` is odd, the lobby shows: "Albums will end with a description." Choosing even `E` is recommended; the UI defaults to `n` for even `n` and `n − 1` for odd `n` `[TP-2]` (so albums end on a drawing; decision D6 in `decisions-and-risks.md`).
+1. **`[TP-1]` Chain allocation (rotation).** Let `n` players be ordered `p0 … p(n−1)` (the engine's shuffle, made once at start, `[C-4]`; `n` is the frozen roster, including members in their grace period). There are `n` chains `c0 … c(n−1)`; chain `c_i` is *owned* by `p_i`. Entry index `k ∈ 0 … E−1`, `E` as in `[TP-2]`. **The holder of chain `c_i` at step `k` is `p_((i + k) mod n)`**, i.e. player `p_j` holds chain `c_((j − k) mod n)`. Entry `0` is a text prompt written by the owner, odd `k` is a DRAW of the previous entry (a text), even `k > 0` is a DESCRIBE of the previous entry (a drawing). The allocation is fixed at start and never recomputed; a player who leaves keeps their index.
+   Properties (tested as invariants for `n ∈ 3…12` and every `E ≤ n`):
+   1. At every step each player holds exactly one chain and each chain has exactly one holder (the map `i → (i + k) mod n` is a permutation).
+   2. A player holds a given chain at most once while `E ≤ n`; the chain they own only at step 0. **Nobody receives a chain they already contributed to, and nobody receives their own previous contribution**: the previous entry of a chain is always written by another player.
+   3. A holder is shown only the immediately preceding entry of the chain they hold, and never its author (`[TP-8]`).
+   4. Every chain ends with exactly `E` entries.
+2. **`[TP-2]` Entries per chain.** `E` is computed once at session start from the frozen `n` and `entriesPerChain` (settings table) and is public (`totalSteps`). Entry 0 is text, so albums end with a drawing when `E` is even and with a description when `E` is odd; the lobby shows "Albums will end with a description." when an explicit odd value (or an odd auto-cap) applies. Auto gives `n = 4, 5, 6, 7, 8 → E = 4, 4, 6, 6, 8` *(proposed, D38)*. The game has `E` step phases followed by the reveal.
 
 Example, `n = 4`, `E = 4`:
 
@@ -169,28 +164,54 @@ Example, `n = 4`, `E = 4`:
 
 ### Phase flow
 
-1. **PROMPT phase.** All players submit a text prompt (≤ 140 chars). Timer `promptSeconds`. On timeout the server inserts a random prompt from the prompt pool `[TP-3]`.
-2. **Step phases (k = 1 … E−1).** Each player receives (privately) only the preceding entry of their held chain and submits the next entry (DRAW or DESCRIBE). Phase ends when all active players submit **or** the deadline passes (early advance). Players who finish early see a **waiting screen** with progress count (names only, no content) `[TP-4]`.
-3. **Timeout** `[TP-5]`: a missing text becomes the placeholder `(no description)`; a missing drawing is an empty canvas flagged `timedOut`. Placeholders are shown to the next holder (so they still have something to continue) but marked in the album.
-4. **REVEAL phase.** The host (or a 15 s auto-advance if host absent) steps through albums; each album shows entries in sequence with author names. Everyone sees the same state; navigation is by `REVEAL_NEXT`/`REVEAL_PREV` from the host only `[TP-6]`. Players can freely browse already-revealed items locally.
-5. **RESULTS.** Telephone has no competitive score; the results page lists albums and optional emoji "reactions" tally *(post-MVP)*. Rematch voting follows common rules.
+Phases (names are the engine's `phase` values), in order: `PROMPT` → `DRAW` / `DESCRIBE` alternating → … → `REVEAL`. Every step phase has a fresh `phaseId`; `REVEAL` is a single phase.
+
+3. **`[TP-3]` Prompt phase** (`PROMPT`, `promptSeconds`, step 0). Every player submits a text prompt (1–140 characters). A player without a submission at the deadline gets: their draft text if non-empty, else a prompt from the **prompt pool** — built-in catalog words of difficulty `EASY` ∪ `MEDIUM`, frozen at host start, drawn without replacement *(proposed, D46)*; such an entry is marked `fill: AUTO_PROMPT`. There is no word choice and no hint.
+4. **`[TP-4]` Step phases** (`DRAW` for odd `k`, `DESCRIBE` for even `k > 0`; steps `1 … E−1`). All players advance **together** (lockstep) *(proposed, D35)*: step `k + 1` starts only when step `k` has ended. At the start each non-`LEFT` holder receives privately only the preceding entry of the chain they hold (`[TP-8]`) and submits the next one. A step ends when every *eligible holder* has submitted (`reason: ALL_SUBMITTED`, in the command that completes it, no grace) or its deadline passes (`reason: TIME`, `[C-6]`). Eligible holders are the roster members not `LEFT`; a `DISCONNECTED` holder stays eligible, and so blocks the early end, only during the in-game reconnection grace (60 s); when it expires the engine marks them `LEFT`, their cell is filled and the step is re-evaluated at once *(proposed, D48)*. The next step starts in the same mailbox command with a new deadline measured from that instant. Holders who submitted see a **waiting screen** with the names of those who have (`TELEPHONE_PROGRESS`; names only, no content).
+5. **`[TP-5]` Timeouts and auto-fill.** Every cell (chain, step) ends with exactly one entry. At the deadline a holder without a submission is filled from their **server-held draft** if it is non-empty (a partial drawing or half-typed text is kept, `fill: TIMEOUT`, `timedOut: true`) *(proposed, D37)*; with an empty draft: DESCRIBE → the text `(no description)`, DRAW → an empty canvas, both `placeholder: true`, `fill: TIMEOUT`. A holder who is already `LEFT` when a step starts is filled immediately at step start (`fill: LEFT_PLAYER`; in `PROMPT`, `AUTO_PROMPT`); a holder who becomes `LEFT` during a step is filled at once from their draft or a placeholder, and the step is re-evaluated. A placeholder is passed on as the next holder's source, flagged `placeholder: true`, and shown in the album with a badge *(proposed, D40)*. `allowSkipTimeout` has no other effect `[TP-9]`.
+6. **`[TP-6]` Reveal** (`REVEAL`, no phase deadline). After the last step the server reveals the albums in chain order `c0 … c(n−1)`; each album shows its entries in order `0 … E−1` with the author's name and the badges of `[TP-5]`. The phase starts with entry `(0,0)` revealed. The **host** (the current host at command time; `NOT_HOST` for anyone else) steps with `REVEAL_NEXT` / `REVEAL_PREV`; both carry the cursor the host saw and a mismatch is `STALE_ACTION`, so double clicks and races with the auto-advance never skip an entry. `REVEAL_PREV` moves the shared cursor back through already revealed entries (a no-op at the first); `REVEAL_NEXT` past the furthest revealed entry reveals the next (the first of the next album after an album's last). If the host does not act, an auto-advance performs `NEXT` after 60 s, or 15 s while the host is `DISCONNECTED` *(proposed, D42)*. `REVEAL_NEXT` on the last entry of the last album finishes the game (`[C-10]`). Everyone sees the same cursor; players can browse already received entries locally without moving it. Drawing playback is a client-side animation of the stroke order, skippable and replaced by the final image under reduced motion. After the game the albums are browsable freely from the results screen (`[TP-11]`).
+7. **`[TP-7]` Submissions are final.** The first valid `TELEPHONE_SUBMIT_TEXT`/`TELEPHONE_SUBMIT_DRAWING` of a holder in a step is final; any further input of theirs in that step (second submit, draft or drawing commands) is rejected `ALREADY_SUBMITTED` *(replaces `DUPLICATE_ACTION`, which means the same `actionId`, D36)*. Re-opening a submission is post-MVP.
+8. **`[TP-8]` Private assignments and secrecy.** The source entry reaches only its next holder: in the private `TELEPHONE_TASK` event and in that holder's own snapshot; it is never in a public event, another player's snapshot, an error or a log. The source's author is not sent. Earlier entries of the chain, other players' tasks, drafts and submissions are never sent. All entries become visible only through `ALBUM_REVEALED` in `REVEAL`, and through the album endpoints after the game is `FINISHED`. Drafts and drawing batches are not echoed to anyone.
+9. **`[TP-9]` Drafts and drawing.** A holder's work in progress lives on the server: drawing through the Draw & Guess stroke protocol (`TELEPHONE_DRAW_STROKE`/`UNDO`/`CLEAR`, the limits and rejection rules of `[DG-14]`: ≤ 200 points/batch, 8 KiB, 2000 points/stroke, 300 strokes, **12 000 live points**, whole-batch `PAYLOAD_TOO_LARGE`), text through `TELEPHONE_TEXT_DRAFT` (last write wins, ≤ 140 characters); `TELEPHONE_SUBMIT_DRAWING{}` commits the draft. A refresh or reconnect restores the draft from the snapshot. The earlier one-shot `strokes` payload and the 600 strokes / 20 000 points / 256 KB limit are dropped *(proposed, D36)*; strokes are integers 0–10000 (D28). An explicit empty drawing is a valid submission.
+10. **`[TP-10]` Disconnection and leaving.** `DISCONNECTED` within the grace changes nothing for the game (task and draft stay on the server). A player who becomes `LEFT` (grace expired, left, kicked) is filled per `[TP-5]` for the current and every later step; their entries stay in the albums with `fill: LEFT_PLAYER`; their earlier submissions stand. Host leaving transfers hosting (`[C-2]`); the new host drives the reveal.
+11. **`[TP-11]` Early end and results.** If non-`LEFT` players fall below 3 the engine ends the game `[C-1]`: with results if at least one step completed (a step in progress is discarded as a round, its already accepted submissions are kept), otherwise aborted. **No reveal follows an early end** — the albums that exist are available from `RESULTS` on and are flagged incomplete *(proposed, D41; replaces "reveals what exists")*; during a running `REVEAL` the same rule ends the reveal. Standings are empty; each completed step is one recorded round (`roundNo = step + 1`).
+12. **`[TP-12]` Timers.** `[C-6]` applies: a due deadline is applied before any command; a command processed at/after its phase's deadline is `STALE_ACTION`. No latency grace — the server-held draft makes one unnecessary.
+
+| Phase | Duration | Advertised `deadlineAt` | Ends early when |
+|---|---|---|---|
+| `PROMPT` | `promptSeconds` | start + duration | all eligible holders submitted |
+| `DRAW` | `drawSeconds` | start + duration | same |
+| `DESCRIBE` | `describeSeconds` | start + duration | same |
+| `REVEAL` | — | `null` | last entry of the last album passed (auto-advance 60 s / 15 s) |
+
+13. **`[TP-13]` Rematch and persistence.** Rematch is the engine's (`[C-3]`, `[C-11]`): same members, host, game and settings, new session with a **new shuffle** (so new chains and neighbours), `E` re-resolved against the new roster, nothing carried over. Each accepted submission is stored once (`game_submission`, never dropped) with its text or compact stroke JSON; albums are rebuilt from `(session_id, chain_index, step_no)` for as long as the session's room exists, for any current member of that room (as for results), and stay readable after the rematch reset *(proposed, D44, D45)*. `ABORTED`/`INTERRUPTED` sessions expose no albums.
+14. **`[TP-14]` Limits.** Text: control and invisible format characters (`Cc`/`Cf`) stripped, trimmed, 1–140 Unicode code points; rendered as text, never HTML. Drawings: `[TP-9]`. Rates: strokes 30/s (burst 40), text/draft 2/s, reveal 5/s.
 
 ### Telephone edge cases
 
 | Case | Behavior |
 |---|---|
-| Player disconnects and does not return | Their future holdings are auto-filled with placeholders (`LEFT_PLAYER`); chains continue; the album shows the gap. If active players < 3, game ends early and reveals what exists. |
-| Player reconnects mid-step | Receives private snapshot: held entry, own draft state (if any), deadline. |
-| Resubmission | The first valid submission is final in MVP `[TP-7]`; later ones are rejected as `DUPLICATE_ACTION`. |
-| Oversize drawing | Rejected with `PAYLOAD_TOO_LARGE`; limits: ≤ 600 strokes, ≤ 20 000 points, ≤ 256 KB serialized. |
-| Reveal with timed-out entries | Displayed with a "timed out" badge. |
+| Player disconnects and does not return | After the 60 s grace they are `LEFT`: `[TP-10]`; chains continue with `LEFT_PLAYER` entries shown in the album. Fewer than 3 active: `[TP-11]`. |
+| Player reconnects mid-step | Snapshot: held task, own draft, `submitted`, deadline (`[TP-9]`). |
+| Everybody submitted except a `DISCONNECTED` player | The step waits for their return, their `LEFT` or the deadline (`[TP-4]`). |
+| Submit arrives at/after the deadline | Deadline first: the next phase exists and the command is `STALE_ACTION`; the draft already became the entry (`[TP-5]`). |
+| Second submit / draw after submitting | `ALREADY_SUBMITTED` (`[TP-7]`). |
+| Wrong kind for the phase (text during DRAW, strokes during DESCRIBE) | `INVALID_PHASE` (current `phaseId`), stale ones `STALE_ACTION`. |
+| Oversize drawing | A batch exceeding a budget is rejected whole, `PAYLOAD_TOO_LARGE` (`[TP-9]`); the draft is unchanged. |
+| Text empty after trimming / over 140 | `VALIDATION_FAILED`. |
+| `REVEAL_*` from a non-host | `NOT_HOST`. |
+| Double `REVEAL_NEXT` | The second carries the old cursor: `STALE_ACTION`. |
+| `REVEAL_PREV` at the first entry | Acknowledged no-op. |
+| Reveal with placeholders / timed-out entries | Badges `placeholder` / `timedOut` / `LEFT_PLAYER` / `AUTO_PROMPT`. |
+| Host leaves in `REVEAL` | New host (`[C-2]`) drives it. |
+| Rematch | `[TP-13]`. |
 
 ### Persistence
 
-Each submission is stored once (`game_submission`) when accepted: text, or compact stroke JSON. Albums are reconstructed from `game_submission` by `(session_id, chain_index, step_no)` for results viewing after the session ends.
+Albums are reconstructed from `game_submission` by `(session_id, chain_index, step_no)`: one row per accepted or auto-filled cell, written at accept time through the never-drop recorder path (`telephone-design.md` §12). Chat does not exist in Telephone.
 
 ---
 
 ## Rule IDs and tests
 
-Every `[XX-n]` rule has at least one unit test whose name includes the ID (e.g. `DG12_guesserPoints_decayWithTime`). Property tests cover `[TP-1]` for n ∈ 3…12 and all E.
+Every `[XX-n]` rule has at least one unit test whose name includes the ID (e.g. `DG12_guesserPoints_decayWithTime`). Property tests cover `[TP-1]` for n ∈ 3…12 and every E ≤ n; Telephone rules are `[TP-1]…[TP-14]`.
