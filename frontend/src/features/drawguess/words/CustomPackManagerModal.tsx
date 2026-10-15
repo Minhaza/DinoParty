@@ -451,7 +451,7 @@ export function CustomPackManagerModal({
                   onChange={(e) => setNewWordText(e.target.value)}
                   placeholder="Enter word (e.g. dinosaur)"
                   className="flex-1 h-9 rounded-xl"
-                  maxLength={50}
+                  maxLength={80}
                   required
                 />
                 <select
@@ -510,6 +510,32 @@ export function CustomPackManagerModal({
                       </Button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {wordsData && wordsData.total > 50 && (
+                <div className="flex items-center justify-between text-xs font-bold text-muted-foreground">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setWordsPage((p) => Math.max(0, p - 1))}
+                    disabled={wordsPage === 0}
+                  >
+                    Previous
+                  </Button>
+                  <span aria-live="polite">
+                    Page {wordsPage + 1} of {Math.ceil(wordsData.total / 50)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setWordsPage((p) => p + 1)}
+                    disabled={(wordsPage + 1) * 50 >= wordsData.total}
+                  >
+                    Next
+                  </Button>
                 </div>
               )}
             </div>
