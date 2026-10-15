@@ -23,7 +23,7 @@ Health:    curl -fsS http://localhost:8080/api/v1/health
 P1 ──► P2 ──► P3 ──► P4 ──► P5 ──► P7 ──► P8
                        └────► P6 ──┘
 ```
-P5 and P6 may run in parallel after P4 (both depend on the engine and the shared drawing module). P7 starts incrementally from P2 on the frontend side but its exit gate is after P5+P6.
+P5 and P6 may run in parallel after P4 (both depend on the engine and the shared drawing module); the Phase 6 design (P6-01) is merged, implementation starts at P6-02. P7 starts incrementally from P2 on the frontend side but its exit gate is after P5+P6.
 
 ---
 
@@ -139,14 +139,20 @@ Exit: three browsers play a complete game (word choice, drawing, guessing, scori
 | WP-02 | Word filtering and game integration: `wordSource`/`wordCategories`/`difficulty` (adds `medium`)/`wordPackIds` settings (api-contracts §2.4, D33), `WordPoolService` + frozen `WordPool`, `CustomWordProvider` boundary for WP-03, start check `WORD_POOL_TOO_SMALL`, engine `GameModule.prepare`/`GameSetup`; no frontend change | CC | WP-01 | Categories (single, several, Random Mix, empty), each difficulty and mixed, combined de-duplication, insufficient pool (no partial start), no-repeat, exhaustion, secrecy, freeze at start, rematch reset tested; `backend verify` green. **Done** (design §19) |
 | WP-03 | Custom word packs and import: room-scoped packs (host-only writes, member-visible metadata), TXT/CSV import with preview/confirm (api-contracts §2.5, D34), `PackWordProvider` for the word pool; `V8` | CC | WP-01, WP-02 | CRUD + authorization + cross-room isolation, parsers, limits, concurrency and rollback tests green; `./mvnw verify` |
 
-## Phase 6 — Telephone Drawing  (parallel with Phase 5)
+## Phase 6 — Dino Telephone  (parallel with Phase 5)
+
+Design: `docs/telephone-design.md`; contract: `api-contracts.md` §3.10; rules `game-rules.md` `[TP-1]…[TP-14]`; decisions D35–D48 (`decisions-and-risks.md` §7) must be approved or amended **before P6-02 starts** (D41–D45 before P6-03). **P6-01 (this design, documents only) is done; nothing of Telephone is implemented.** The earlier tasks 6.1–6.4 are replaced by P6-02…P6-06 (6.1 → P6-02, 6.2/6.3 → P6-02/P6-03, 6.4 → P6-05). No new engine or messaging infrastructure: one SPI addition (`Transition.submissions`, R21) in P6-03.
 
 | ID | Task | Owner | Depends | Acceptance |
 |---|---|---|---|---|
-| 6.1 | Chain allocator + invariants | CC | 4.1 | Property tests n=3…12, all E: `[TP-1]` invariants |
-| 6.2 | Telephone module: phases, private tasks, submissions persistence, timeout placeholders, disconnect handling | CC | 6.1, 4.7 | Unit + WS IT: 4-player full game; each player sees only previous entry |
-| 6.3 | Album API + reveal flow (host-driven) | CC | 6.2 | IT: albums contain exactly E entries each |
-| 6.4 | Telephone UI: text/draw submission, waiting screen, album viewer, reveal controls | AG | 6.2, 5.4 | Playwright: complete a telephone album with 4 contexts |
+| P6-01 | Rules, contract, design and plan for Telephone; decisions D35–D48 proposed with a recommendation each | CC | P5 | The documents merged; every `[TP-n]` testable; contradictions listed in `telephone-design.md` §1 |
+| P6-02 | **Backend core.** `ChainAllocator` (+ property tests `n = 3…12`, every `E ≤ n`), `TelephoneSettings` (auto/clamp), `SettingsSchema` + `V9` default changes (`entriesPerChain`, `allowSkipTimeout`), `PromptPool` via `prepare`, `TelephoneModule` for `PROMPT`/`DRAW`/`DESCRIBE` (private tasks, server-held drafts on `drawing.CanvasBuffer`, submit, early advance, timeout/leave fills, snapshot `view`, `CommandSpec`s, declared public/private events, one `RoundRecord` per step), ArchUnit rules | CC | P6-01, D35–D40, D46–D48 | Unit + session tests (manual clock) for every transition and rejection cell; `TP1_…` property test; secrecy harness; snapshot < 256 KiB; `CommandRouter` reserved list updated; no engine change; `./mvnw -f backend verify` |
+| P6-03 | **Backend reveal, persistence, REST.** `REVEAL` phase (cursor, `highWater`, guard, idle auto-advance, finish), SPI change `Transition.submissions` + never-drop recorder path + `V9 game_submission`, `GET /sessions/{id}/albums[/{chainIndex}]`, early-end paths, results `rounds` meta, maximal reveal-snapshot test, WS ITs (4-, 5-, 8-player games, leave in each phase, reconnect, host leaves in reveal, rematch, secrecy, parallel rooms) | CC | P6-02, D41–D45 | ITs green; albums contain exactly `E` entries each for a complete game; `game-engine.md` + test game updated with the SPI change; backend `verify` |
+| P6-04 | **Contract fixtures and frontend foundation.** JSON fixtures of every §3.10 payload consumed by backend and frontend tests; TS types; event reducers and wholesale snapshot replacement in the game store; canvas command-type adapter (`DRAW_*` ↔ `TELEPHONE_DRAW_*`); lobby controls for `entriesPerChain` with the parity hint | CC (fixtures) + AG | P6-01 | Vitest for every event/snapshot shape; no secret typed as public; same fixtures validated in both suites in CI; `format`, `format:check`, lint, typecheck, test, build |
+| P6-05 | **Telephone UI.** `telephone` game plugin: prompt/describe/draw screens with draft sync, waiting screen (names + progress), reveal viewer (host controls, local browsing, stroke replay, reduced motion), results/album browser, early-end and interrupted banners | AG | P6-04; backend slice of P6-02 (P6-03 for reveal) | Component tests; keyboard-operable; `aria-live`; real-browser check |
+| P6-06 | **Integration, hardening, verification.** Playwright: complete a Telephone album with 4 contexts (prompt → draw → describe → draw → reveal → results → rematch), refresh mid-step, disconnected holder, unauthorized reveal; axe smoke; limits/abuse and security checklist (`AGENTS.md` §9); fan-out/mailbox hold-time check with 8 players; `testing.md` Phase 6 record | CC + AG | P6-03, P6-05 | E2E green on the committed backend; every `[TP-n]` has a test; honest limitations list |
+
+Exit: four browsers play a complete game (prompts, alternating draw/describe, waiting screens, reveal, results, rematch); each player only ever sees the previous entry; every `[TP-n]` has a test; secrecy, authorization and limit tests pass; reconnect restores task and draft; `backend verify`, frontend checks and E2E green. P6-02 and P6-04 may run in parallel.
 
 ## Phase 7 — UI polish, accessibility, mobile
 

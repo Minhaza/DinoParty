@@ -1,6 +1,6 @@
 # DinoParty — API Contracts (REST + STOMP)
 
-This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: REST (Phase 2) and the lobby STOMP layer (Phase 3) are implemented as written; rows marked *Phase 4+* are still design. Fields may be refined, but only via edits to this file. The Phase 4 additions (game lifecycle, generic game events, snapshot `game`, rematch) are **design pending approval** (`docs/decisions-and-risks.md` D13–D23); the engine behind them is specified in `docs/game-engine.md`. Phase 4 changes to existing Phase 2/3 contract text are listed in §4.
+This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: REST (Phase 2) and the lobby STOMP layer (Phase 3) are implemented as written; rows marked *Phase 4+* are still design. Fields may be refined, but only via edits to this file. **Phase 6 (Dino Telephone) is design only (P6-01, decisions D35–D48 proposed, `docs/telephone-design.md`): §2 album rows, `AlbumDto`/`AlbumSummaryDto`, `TelephoneSnapshot`, the Telephone commands/events of §3.3/§3.4 and §3.10 describe it; none of it is implemented.** The Phase 4 additions (game lifecycle, generic game events, snapshot `game`, rematch) are **design pending approval** (`docs/decisions-and-risks.md` D13–D23); the engine behind them is specified in `docs/game-engine.md`. Phase 4 changes to existing Phase 2/3 contract text are listed in §4.
 
 **Phase 4 implementation status (backend, verified by the integration tests listed in `docs/testing.md`):** implemented as written: `START_GAME` and `REMATCH_VOTE`, game commands with `phaseId`/`STALE_ACTION`, per-type rate and size limits, `ROOM_STATUS_CHANGED`, `GAME_STARTED`, `PHASE_STARTED`, `GAME_FINISHED`, `GAME_ABORTED`, `REMATCH_VOTES_UPDATED`, snapshot `game`, `RoomDto.sessionId` and `PlayerDto.score`, `POST /rooms/{code}/start|kick|close`, `GET /sessions/{id}/results`, restart recovery. **Not implemented yet (still contract only):** `GET /games`, `GET /games/{key}`, `RoomDto.lastSession`, the `PATCH /guests/me` lock (`INVALID_PHASE` while `STARTING`/`PLAYING`), `Retry-After` on `RESULTS_NOT_READY`, `Idempotency-Key` on start. `GAME_FINISHED.resultsReady` is always `false`, and a client reconnecting during `STARTING` receives no `startsAt` in its snapshot. `maxPayloadBytes` of a `CommandSpec` is checked against the serialized payload object, and the rate is a fixed one-second window of `max(burst, ceil(rate))` commands. The frame cap stays 64 KiB (D20 is decided in Phase 6).
 
@@ -18,7 +18,7 @@ This file is the **single source of truth** for client/server contracts. Backend
 ```
 
 - Optional extension `details` (object): machine-readable facts about a failure, only on codes that document it (currently `WORD_POOL_TOO_SMALL`: `{required:int, available:int}`, §2.4; `WORD_PACK_LIMIT_REACHED`: `{limit:int, kind:"PACKS"|"WORDS", remaining?:int}`, §2.5). Never contains secrets such as words.
-- Error codes: `VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_HOST, ROOM_NOT_FOUND, ROOM_FULL, ROOM_IN_PROGRESS, ROOM_CLOSED, NOT_ENOUGH_PLAYERS, WORD_POOL_TOO_SMALL, ALREADY_IN_ROOM, NOT_IN_ROOM, GAME_NOT_FOUND, SESSION_NOT_FOUND, RESULTS_NOT_READY, RATE_LIMITED, PAYLOAD_TOO_LARGE, STALE_ACTION, DUPLICATE_ACTION, INVALID_PHASE, INVALID_ACTION, NOT_DRAWER, IS_DRAWER, WORD_PACK_NOT_FOUND, WORD_PACK_LIMIT_REACHED, IMPORT_STALE, SERVER_ERROR, NOT_FOUND, METHOD_NOT_ALLOWED, UNSUPPORTED_MEDIA_TYPE`. The last three are generic framework-level codes for unmapped paths, wrong HTTP methods and wrong content types.
+- Error codes: `VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_HOST, ROOM_NOT_FOUND, ROOM_FULL, ROOM_IN_PROGRESS, ROOM_CLOSED, NOT_ENOUGH_PLAYERS, WORD_POOL_TOO_SMALL, ALREADY_IN_ROOM, NOT_IN_ROOM, GAME_NOT_FOUND, SESSION_NOT_FOUND, RESULTS_NOT_READY, RATE_LIMITED, PAYLOAD_TOO_LARGE, STALE_ACTION, DUPLICATE_ACTION, INVALID_PHASE, INVALID_ACTION, NOT_DRAWER, IS_DRAWER, ALREADY_SUBMITTED, ALBUM_NOT_FOUND, WORD_PACK_NOT_FOUND, WORD_PACK_LIMIT_REACHED, IMPORT_STALE, SERVER_ERROR, NOT_FOUND, METHOD_NOT_ALLOWED, UNSUPPORTED_MEDIA_TYPE`. The last three are generic framework-level codes for unmapped paths, wrong HTTP methods and wrong content types.
 - Rate-limit responses: `429` + `Retry-After`.
 - Idempotency: mutating room endpoints accept optional `Idempotency-Key` header (join/leave/start).
 
@@ -43,7 +43,8 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `POST /rooms/{roomCode}/close` | host | — | `204`. Emits `ROOM_CLOSED {reason:"HOST_CLOSED"}`; an active session ends `ABORTED` | 403 `NOT_HOST`, 404. Idempotent on an already-closed room |
 | `GET /rooms/{roomCode}/snapshot` | member | — | `200 SnapshotDto` (viewer-specific; `game` is `null` unless a session is `RUNNING`/`FINISHED`) | 403 `NOT_IN_ROOM`, 404 `ROOM_NOT_FOUND` |
 | `GET /sessions/{sessionId}/results` | member of the session's room | — | `200 ResultsDto` (read from the database only) | 404 `SESSION_NOT_FOUND`, 403 `NOT_IN_ROOM`, 409 `RESULTS_NOT_READY` (session `RUNNING`, or `FINISHED` but its result rows are not persisted yet; `Retry-After: 2`). `ABORTED`/`INTERRUPTED` sessions answer `200` with empty `standings` |
-| `GET /sessions/{sessionId}/albums/{chainIndex}` | member | — | `200 AlbumDto` (telephone, after reveal) | 404 |
+| `GET /sessions/{sessionId}/albums` | member of the session's room | — | `200 {sessionId, complete, albums: AlbumSummaryDto[]}` (telephone, §2.1, §3.10). Read from the database only; `albums` is empty for `ABORTED`/`INTERRUPTED` sessions | 404 `SESSION_NOT_FOUND` (also for a session of another game), 403 `NOT_IN_ROOM`, 409 `RESULTS_NOT_READY` (session `RUNNING`, so the reveal cannot be bypassed; or `FINISHED` but submissions not persisted yet; `Retry-After: 2`) |
+| `GET /sessions/{sessionId}/albums/{chainIndex}` | member of the session's room | — | `200 AlbumDto` (all entries, with authors; telephone, only once the session is `FINISHED`) | 404 `SESSION_NOT_FOUND`, 404 `ALBUM_NOT_FOUND` (chain index out of range, or no albums), 403 `NOT_IN_ROOM`, 409 `RESULTS_NOT_READY` (as above) |
 | `GET /word-catalog/categories?locale=` | yes | — | `200 WordCategoriesDto` (§2.3) | 400 `VALIDATION_FAILED` (`locale`), 401 |
 | `GET /word-catalog/difficulties` | yes | — | `200 WordDifficultiesDto` (§2.3) | 401 |
 | `GET /word-catalog/counts?locale=&category=&difficulty=` | yes | — | `200 WordCountsDto` (§2.3) | 400 `VALIDATION_FAILED` (`locale`, `category`, `difficulty`), 401 |
@@ -79,14 +80,22 @@ SnapshotDto     { room:RoomDto, serverNow, seq:{room:int, private:int}, game: Ga
 ResultsDto      { sessionId, gameKey, status:"FINISHED|ABORTED|INTERRUPTED", endReason, startedAt, finishedAt,
                   standings:[{rank, guestId, nickname, score, detail}] /* empty for unscored games (telephone) */,
                   rounds:[{roundNo, startedAt, endedAt, endReason, scoreDeltas:{guestId:int}, meta}] /* meta: game-specific, e.g. drawerGuestId, word */ }
-AlbumDto        { chainIndex, ownerGuestId, entries:[{step, kind:"TEXT|DRAWING", authorGuestId, text?, strokes?, timedOut}] }
+AlbumSummaryDto { chainIndex, ownerGuestId, entryCount, entriesPerChain, complete:boolean /* entryCount = entriesPerChain */,
+                  hasPlaceholders:boolean }
+AlbumDto        { sessionId, chainIndex, ownerGuestId, entriesPerChain, complete:boolean, entries:[AlbumEntryDto] /* step order */ }
+AlbumEntryDto   { step /* 0-based */, kind:"TEXT|DRAWING", authorGuestId, authorNickname /* roster snapshot */,
+                  text? /* kind TEXT */, strokes?:Stroke[] /* kind DRAWING; never null for a DRAWING entry in AlbumDto */,
+                  fill:"NONE|TIMEOUT|LEFT_PLAYER|AUTO_PROMPT", timedOut:boolean /* fill = TIMEOUT */,
+                  placeholder:boolean /* "(no description)" or an empty canvas inserted by the server */ }
+                  /* Telephone (design: telephone-design.md §9, §12): AlbumDto is the REST form, §3.10 `RevealEntryDto` the
+                     STOMP form of the same entry (strokes omitted/null only in a reveal snapshot, see §3.10) */
 ```
 
 ### 2.2 Room rules (Phase 2)
 
 - A guest may be an active member of at most one room (`ALREADY_IN_ROOM` on create/join of another room). Leaving or the room closing frees them.
 - `maxPlayers` defaults to 8 clamped to the game's bounds (`draw-guess` 2–10, `telephone` 4–8) and must stay within them; it cannot be set below the current player count (400).
-- `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|medium|hard|mixed`, `wordSource` `built-in|custom|combined`, `wordCategories` list of ≤ 20 distinct category keys or `["random-mix"]`, `wordPackIds` list of ≤ 10 distinct lowercase UUID strings — word keys in §2.4; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `allowSkipTimeout` bool). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
+- `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|medium|hard|mixed`, `wordSource` `built-in|custom|combined`, `wordCategories` list of ≤ 20 distinct category keys or `["random-mix"]`, `wordPackIds` list of ≤ 10 distinct lowercase UUID strings — word keys in §2.4; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `entriesPerChain` `0` (auto) or integer 4–8 *(Phase 6, proposed D38)*, `allowSkipTimeout` bool — only `true` accepted *(Phase 6, proposed D39)*). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
 - `players[]` lists active members ordered by join time. `score` is the engine's running total while a session is `RUNNING`/`FINISHED` (after `RESULTS`→`WAITING` it is `null` again) and always `null` for unscored games; `sessionId` is the current session (`RUNNING` or awaiting rematch) or `null`. Members who left or timed out during a session are no longer in `players[]`; their final score stays in the results.
 - `ready` (Phase 3) is server-authoritative and persisted per membership: `false` on join/rejoin, changed only by `SET_READY` / `POST …/ready` while the room is `WAITING`.
 - `connection` (Phase 3): `DISCONNECTED` while a member's STOMP connection is gone and the grace period (`app.realtime.disconnect-grace`, default 30 s) has not expired; otherwise `CONNECTED`. A member who has never opened a STOMP connection (REST-only client) is reported `CONNECTED` and is never timed out. `LEFT` is not used in `players[]` (left members are removed).
@@ -118,9 +127,18 @@ DrawGuessSnapshot { /* phase ∈ WORD_CHOICE|DRAWING|ROUND_END, phaseId, deadlin
                     recentChat:[{guestId, text, scope:"PUBLIC|GUESSERS", ts}] /* ≤ 30, viewer-filtered, oldest first */,
                     canvasBudget:{points:int, maxPoints:12000, strokes:int, maxStrokes:300} /* live usage of the drawer canvas */,
                     roundEnd:{reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}}|null /* ROUND_END only */ }
-TelephoneSnapshot { phase:"PROMPT|DRAW|DESCRIBE|WAITING|REVEAL", phaseId, step, totalSteps, deadlineAt,
-                    task:{kind, source:{kind, text|strokes}|null} /*viewer only*/, submitted:boolean,
-                    waitingOn:int, reveal:{chainIndex, entryIndex}|null }
+TelephoneSnapshot { /* phase ∈ PROMPT|DRAW|DESCRIBE|REVEAL, phaseId, deadlineAt (null in REVEAL) and scores:null are in the common header;
+                       there is no WAITING phase: a viewer who has submitted shows submitted:true (design TC5) */
+                    step /* 0-based; in REVEAL = entriesPerChain */, totalSteps /* = entriesPerChain, effective E */,
+                    entriesPerChain, kind:"PROMPT|DRAW|DESCRIBE"|null /* null in REVEAL */,
+                    task:{kind, source:{kind:"TEXT|DRAWING", text?, strokes?, placeholder:boolean}|null}|null /* viewer only; source null in PROMPT; task null in REVEAL */,
+                    draft:{text?:string, strokes?:Stroke[], canvasBudget?:{points, maxPoints:12000, strokes, maxStrokes:300}}|null /* viewer only: own work in progress; strokes in DRAW, text otherwise */,
+                    submitted:boolean /* viewer's submission is in (final) */,
+                    submittedGuestIds:[guestId], waitingOn:int /* eligible holders not yet submitted */,
+                    reveal:{cursor:{chainIndex, entryIndex}, highWater:{chainIndex, entryIndex}, autoAdvanceAt, chains:int,
+                            albums:[{chainIndex, ownerGuestId, entryCount, revealedCount, entries:[RevealEntryDto]}]}|null /* REVEAL only */ }
+RevealEntryDto    { entryIndex, kind, authorGuestId, text?, strokes?:Stroke[]|null, omitted:boolean /* strokes withheld by the snapshot size budget (§3.10) */,
+                    fill, timedOut, placeholder }
 Stroke            { strokeId:uuid, tool:"PENCIL|ERASER", color:"#RRGGBB", size:int(1-4 index),
                     points:[[x,y],…] /* integers 0..10000 = fixed-point fraction of canvas width/height (16:10); shared with Telephone (D28) */,
                     closed?:boolean /* Draw & Guess snapshots only; false while the drawer's stroke is still open */ }
@@ -235,12 +253,14 @@ Implemented in Phase 3: `SET_READY`, `REQUEST_SNAPSHOT`, `PING`. Phase 4 adds `S
 | `DRAW_UNDO` | drawer (DRAWING) | `{}` | *Phase 5*, §3.9. Removes last stroke |
 | `DRAW_CLEAR` | drawer (DRAWING) | `{}` | *Phase 5*, §3.9 |
 | `SUBMIT_GUESS` | non-drawer (DRAWING) | `{text}` | *Phase 5*, §3.9. Also serves as chat in Draw & Guess (solvers: restricted chat) |
-| `TELEPHONE_SUBMIT_TEXT` | active player | `{text}` | *Phase 6*. prompt or description |
-| `TELEPHONE_SUBMIT_DRAWING` | active player | `{strokes:Stroke[]}` | *Phase 6*. one-shot |
-| `REVEAL_NEXT` / `REVEAL_PREV` | host (REVEAL) | `{}` | *Phase 6* |
+| `TELEPHONE_SUBMIT_TEXT` | roster member, not `LEFT` (`PROMPT`, `DESCRIBE`) | `{text}` | *Phase 6*, §3.10. Prompt or description; final |
+| `TELEPHONE_TEXT_DRAFT` | same | `{text}` | *Phase 6*, §3.10. Private draft; kept at the deadline |
+| `TELEPHONE_DRAW_STROKE` / `TELEPHONE_DRAW_UNDO` / `TELEPHONE_DRAW_CLEAR` | same (`DRAW`) | as `DRAW_STROKE` / `DRAW_UNDO` / `DRAW_CLEAR` | *Phase 6*, §3.10. Same protocol, applied to the sender's private draft; no broadcast |
+| `TELEPHONE_SUBMIT_DRAWING` | same (`DRAW`) | `{}` | *Phase 6*, §3.10. Commits the draft; final (replaces the earlier one-shot `{strokes}`, design TC1) |
+| `REVEAL_NEXT` / `REVEAL_PREV` | host (`REVEAL`) | `{chainIndex, entryIndex}` = the cursor the host saw | *Phase 6*, §3.10 |
 | `REMATCH_VOTE` | member (`RESULTS`) | `{vote:true|false}` | *Phase 4*. No `phaseId`. A voter may change their vote until the room resets. The host's `true` resets the room to `WAITING`; so does the last connected member's `true` once every connected member voted `true` (game-engine.md §10). `INVALID_PHASE` outside `RESULTS` |
 
-Game command rules (Phase 4, apply to every row from `CHOOSE_WORD` down except `REMATCH_VOTE`):
+Game command rules (Phase 4, apply to every row from `CHOOSE_WORD` down except `REMATCH_VOTE`; the Telephone rows are specified in §3.10):
 
 - `phaseId` is **required** and must equal the current phase's id; otherwise `GAME_ERROR` `STALE_ACTION` (`retryable:false`). A command that arrives after its phase's deadline is therefore `STALE_ACTION` too: the server applies every due deadline before it looks at a command, so there is no window in which a late action is accepted. A missing `phaseId` is `VALIDATION_FAILED`.
 - A command for a game phase that is valid in no phase of the game (wrong role, wrong kind) is `INVALID_ACTION`/`NOT_DRAWER`/`IS_DRAWER`; one valid in some phase but not the current one **with the current `phaseId`** is `INVALID_PHASE`.
@@ -277,8 +297,9 @@ Public stream (`/topic/rooms/{code}`):
 | `GUESS_ACCEPTED` | `{guestId, scoreDelta, totalScore, order}` (no word; `order` = 0-based solver index) | 5 |
 | `GUESS_CHAT` | `{guestId, text}` — a wrong guess shown as public chat (replaces the earlier name `GUESS_REJECTED_PUBLIC`) | 5 |
 | `ROUND_ENDED` | `{round, drawerGuestId, word, reason:"TIME|ALL_GUESSED|DRAWER_LEFT", scoreDeltas:{guestId:int}, scores:{guestId:int}}`; `word` is `null` only when the drawer left before a word was chosen. `scoreDeltas` lists every roster member in play order (0 for no points this round, including members who left); `scores` are the running totals of every roster member | 5 |
-| `TELEPHONE_PROGRESS` | `{submittedCount, total}` | 6 |
-| `ALBUM_REVEALED` | `{chainIndex, entryIndex, entry}` | 6 |
+| `TELEPHONE_PROGRESS` | `{phaseId, submittedCount, total, submittedGuestIds:[guestId]}` — names only, never content; `total` = eligible holders at the time. Published after every accepted submission and when a holder becomes `LEFT` | 6 |
+| `TELEPHONE_STEP_ENDED` | `{step, kind, reason:"ALL_SUBMITTED|TIME", timedOutGuestIds:[guestId], leftGuestIds:[guestId]}` — closing event of a step (before the next `PHASE_STARTED`) | 6 |
+| `ALBUM_REVEALED` | `{chainIndex, entryIndex, newlyRevealed:boolean, entry:RevealEntryDto|null, autoAdvanced:boolean, autoAdvanceAt}` — `entry` present only when `newlyRevealed` (§3.10) | 6 |
 | `GAME_FINISHED` | `{sessionId, endReason:"COMPLETED|INSUFFICIENT_PLAYERS", standings:[{rank, guestId, score, detail}], resultsReady}` — nicknames are not repeated, clients use the roster. `standings` is empty for unscored games. `resultsReady:false` means `GET …/results` may still answer `RESULTS_NOT_READY` | 4 |
 | `GAME_ABORTED` | `{sessionId, reason:"NO_COMPLETED_ROUND|INTERNAL_ERROR|SERVER_RESTART|SERVER_SHUTDOWN|ROOM_CLOSED"}`. The session ended without results; the room goes to `WAITING` (or `CLOSED`). `SERVER_RESTART` is never emitted live (only `lastSession` shows it, §3.8) | 4 |
 | `REMATCH_VOTES_UPDATED` | `{votes:{guestId:boolean}}` (full tally; only connected roster members appear) | 4 |
@@ -291,14 +312,14 @@ Private stream (`/user/queue/rooms/{code}`):
 |---|---|---|
 | `ROOM_SNAPSHOT` | `SnapshotDto` | 3 |
 | `ACTION_ACK` | `{actionId, accepted:true}` (envelope `actionId` echoes it) | 3 |
-| `GAME_ERROR` | `{actionId?, code, message, retryable, details?}` — `details` as in §1, only when the code documents it (e.g. `WORD_POOL_TOO_SMALL` on `START_GAME`); rejected command of a member (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `DUPLICATE_ACTION`, `STALE_ACTION`; `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `NOT_IN_ROOM` and `SERVER_ERROR` arrive as `ERROR` on `/user/queue/errors` with the same payload; exception: `PAYLOAD_TOO_LARGE`, `NOT_DRAWER` and `IS_DRAWER` raised by a *game module* — e.g. the Draw & Guess stroke budgets — are private `GAME_ERROR`s like any module rejection, because only the transport-level byte caps are decided before the mailbox) | 3 |
+| `GAME_ERROR` | `{actionId?, code, message, retryable, details?}` — `details` as in §1, only when the code documents it (e.g. `WORD_POOL_TOO_SMALL` on `START_GAME`); rejected command of a member (`VALIDATION_FAILED`, `INVALID_ACTION`, `INVALID_PHASE`, `NOT_HOST`, `DUPLICATE_ACTION`, `STALE_ACTION`; `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `NOT_IN_ROOM` and `SERVER_ERROR` arrive as `ERROR` on `/user/queue/errors` with the same payload; exception: `PAYLOAD_TOO_LARGE`, `NOT_DRAWER`, `IS_DRAWER` and `ALREADY_SUBMITTED` raised by a *game module* — e.g. the Draw & Guess and Telephone stroke budgets — are private `GAME_ERROR`s like any module rejection, because only the transport-level byte caps are decided before the mailbox) | 3 |
 | `PONG` | `{serverNow}` | 3 |
 | `SESSION_REPLACED` | `{}` then the connection is closed | 3 |
 | `WORD_CHOICES` | `{phaseId, choices:[string×3], deadlineAt}` — drawer only | 5 |
 | `DRAWER_WORD` | `{phaseId, word}` — drawer only | 5 |
 | `GUESS_FEEDBACK` | `{result:"CLOSE|DUPLICATE"}` — only to the sender of the guess (`ALREADY_GUESSED` is dropped: a solver's text is restricted chat) | 5 |
 | `GUESSER_CHAT` | `{guestId, text}` — restricted chat from a solver, delivered only to the other solvers and the drawer | 5 |
-| `TELEPHONE_TASK` | `{phaseId, step, kind:"PROMPT|DRAW|DESCRIBE", source:{kind, text?, strokes?}|null, deadlineAt}` | 6 |
+| `TELEPHONE_TASK` | `{phaseId, step, kind:"PROMPT|DRAW|DESCRIBE", source:{kind:"TEXT|DRAWING", text?, strokes?, placeholder:boolean}|null, deadlineAt}` — the previous entry of the chain the recipient holds; `source` is `null` in `PROMPT`; the author is never included (§3.10) | 6 |
 
 `SESSION_REPLACED` is delivered to the *replaced* connection only; `ACTION_ACK`, `GAME_ERROR`, `ROOM_SNAPSHOT` and `PONG` go to the guest's current connection.
 
@@ -373,6 +394,46 @@ The word and the three choices appear on no public event, in no other viewer's s
 
 **Standings detail** (`GAME_FINISHED.standings[].detail`, `ResultsDto.standings[].detail`): `{correctGuesses, guesserPoints, drawerPoints, roundsDrawn}` (`roundsDrawn` counts recorded rounds the player drew to the end, i.e. not `DRAWER_LEFT` ones; guesser counters include guesses of a round discarded by an early finish, matching the ledger). `ResultsDto.rounds[].meta`: `{drawerGuestId, word|null, autoPicked, correctGuessers:[guestId in guess order]}`; `endReason` ∈ `TIME|ALL_GUESSED|DRAWER_LEFT`.
 
+### 3.10 Dino Telephone (Phase 6 — design only, decisions D35–D48 proposed; nothing implemented)
+
+Rules: `docs/game-rules.md` (`[TP-1]…[TP-14]`); design, state machine, limits and open decisions: `docs/telephone-design.md`. Game key `telephone`; `GameDefinition`: 4–8 players, `minActivePlayers` 3, `scored:false` (`scores:null`, `standings:[]`, `PlayerDto.score:null`). Phases (`PHASE_STARTED.phase`): `PROMPT` (step 0), `DRAW` (odd steps), `DESCRIBE` (even steps > 0), `REVEAL`. A new `phaseId` per step; one `phaseId` for `REVEAL`. All commands carry `actionId` and the current `phaseId` (§3.3); the validation order is the engine pipeline (`game-engine.md` §4.1). Every roster member not `LEFT` has exactly one task per step, so there is no role error: a command legal in some phase but not the current one (current `phaseId`) is `INVALID_PHASE`, an old `phaseId` is `STALE_ACTION`.
+
+**Commands**
+
+| `type` | Sender | Legal phase | Payload | Per-type limits | Effect | Errors (code — when) |
+|---|---|---|---|---|---|---|
+| `TELEPHONE_SUBMIT_TEXT` | roster member, not `LEFT` | `PROMPT`, `DESCRIBE` | `{text}`: after stripping control/format characters (`Cc`/`Cf`) and trimming, 1–140 Unicode code points | 1 KiB; 2/s, burst 3 | Final submission of the sender's cell; clears the draft; `TELEPHONE_PROGRESS`; ends the step if it was the last eligible holder | `VALIDATION_FAILED` (missing, empty after trim, > 140), `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` (current phase is `DRAW`/`REVEAL`), `NOT_IN_ROOM` (left the session) |
+| `TELEPHONE_TEXT_DRAFT` | same | `PROMPT`, `DESCRIBE` | `{text}`: as above but may be empty (clears the draft) | 1 KiB; 2/s, burst 3 | Replaces the sender's private draft; nothing published | as above except no emptiness error; `ALREADY_SUBMITTED` after submitting |
+| `TELEPHONE_DRAW_STROKE` | same | `DRAW` | identical to `DRAW_STROKE` (§3.9): `{strokeId, batchNo, tool, color, size, points, final}` | 8 KiB; 30/s, burst 40 | Appends the batch to the sender's private draft (`drawing.CanvasBuffer`, limits of `[DG-14]`: 200 points/batch, 2000/stroke, 300 strokes, 12 000 live points). **Not published**; `ACTION_ACK` only | `VALIDATION_FAILED`, `INVALID_ACTION` (batch order/style), `PAYLOAD_TOO_LARGE` (a budget; whole batch rejected, draft unchanged; private `GAME_ERROR`), `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE`, `RATE_LIMITED` (transport) |
+| `TELEPHONE_DRAW_UNDO` | same | `DRAW` | `{}` | 128 B; 5/s, burst 5 | Removes the draft's last stroke; no-op ack when empty | `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` |
+| `TELEPHONE_DRAW_CLEAR` | same | `DRAW` | `{}` | 128 B; 2/s, burst 3 | Empties the draft; no-op ack when empty | same |
+| `TELEPHONE_SUBMIT_DRAWING` | same | `DRAW` | `{}` | 128 B; 2/s, burst 3 | Commits the draft (possibly empty) as the sender's final entry; same effects as `TELEPHONE_SUBMIT_TEXT` | `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` |
+| `REVEAL_NEXT` | the current host | `REVEAL` | `{chainIndex:int, entryIndex:int}` — the cursor the host saw | 256 B; 5/s, burst 5 | Moves the cursor forward (revealing the entry the first time); on the last entry of the last album finishes the game | `NOT_HOST`, `VALIDATION_FAILED` (indices missing/not ints), `STALE_ACTION` (wrong `phaseId`, or the cursor differs from the server's), `INVALID_PHASE` |
+| `REVEAL_PREV` | the current host | `REVEAL` | same | same | Moves the cursor back through revealed entries; acknowledged no-op at `(0,0)` | same |
+
+Rejections leave state unchanged. `ACTION_ACK` follows accepted commands. Roles come from the authenticated principal; the payload carries no guest id. An action after the step's deadline is `STALE_ACTION` (`[C-6]`); the draft already became the entry (`[TP-5]`).
+
+**Phase events and secrets (what each audience sees)**
+
+| Moment | Public stream | Private stream |
+|---|---|---|
+| Step starts | `PHASE_STARTED{phase:"PROMPT|DRAW|DESCRIBE", phaseId, step, totalSteps, kind, deadlineAt}`; `TELEPHONE_PROGRESS{submittedCount:0 …}` | each eligible holder: `TELEPHONE_TASK{phaseId, step, kind, source, deadlineAt}` |
+| During a step | `TELEPHONE_PROGRESS` | — (drafts are not echoed; commands are answered by `ACTION_ACK` / `GAME_ERROR`) |
+| Step ends | closing `TELEPHONE_STEP_ENDED{…}` then the next `PHASE_STARTED` (or `REVEAL`) | next tasks |
+| `REVEAL` starts | `PHASE_STARTED{phase:"REVEAL", phaseId, deadlineAt:null, totalSteps, chains, cursor:{0,0}, autoAdvanceAt}`, then `ALBUM_REVEALED{0, 0, newlyRevealed:true, entry}` | — |
+| Host moves / auto-advance | `ALBUM_REVEALED` | — |
+| Last entry passed | `GAME_FINISHED{standings:[]}` + status event (§3.7) | — |
+
+`PHASE_STARTED` for step phases is public and carries no entry content. No entry text or stroke appears in a public event before `ALBUM_REVEALED`, in another viewer's snapshot, in a `GAME_ERROR` or in a log line; the private `TELEPHONE_TASK` reaches only the next holder, and the source's author is not part of it.
+
+**`TelephoneSnapshot`** is §2.1. A holder's snapshot has their `task`, `draft`, `submitted`; during `REVEAL` the viewer gets `reveal` instead. Worst-case sizes (design §8.3): `DESCRIBE`/`DRAW` ≈ 210 KB; `REVEAL` ≈ 240 KB. **Reveal size budget:** the cursor entry is always included with its strokes, then earlier revealed entries newest-first while the cumulative serialized size of the included `strokes` arrays is ≤ 205 000 bytes; every other drawing entry is sent with `strokes:null, omitted:true` (its text/metadata stays). Omitted drawings become available through `GET /sessions/{id}/albums/{chainIndex}` once the session is `FINISHED`. A test serializes the maximal snapshots and asserts `< 262 144` bytes.
+
+**`ALBUM_REVEALED`**: `entry` is a `RevealEntryDto` (`omitted:false`, `strokes` present for drawings); `newlyRevealed:false` (cursor moved over an entry the clients already received) carries `entry:null`. A client that lacks such an entry (it reconnected after it was omitted) shows "available in the results". `autoAdvanced` is true when the server moved the cursor because of the idle deadline.
+
+**Results.** `GAME_FINISHED.standings` and `ResultsDto.standings` are empty. `ResultsDto.rounds[]` lists the completed steps: `roundNo = step + 1`, `endReason` ∈ `ALL_SUBMITTED|TIME`, `meta:{step, kind, submittedCount, timedOutCount, leftCount}` (no content). Content is only in the album endpoints (§2), authorized for current members of the session's room, read from the database, available once the session is `FINISHED` (`complete:false` albums after an early finish, `INSUFFICIENT_PLAYERS`).
+
+**Settings and start.** `entriesPerChain` is resolved when the roster freezes (`min(setting, n)`, auto = `n` if even else `n − 1`); the effective value is `totalSteps`. Start errors are the engine's; no Telephone-specific start check exists besides the roster size.
+
 ## 4. Phase 4 changes to existing contract text
 
 Everything below is additive unless stated.
@@ -400,3 +461,15 @@ Everything below is additive unless stated.
 | §3.4 `GAME_ERROR` | Module-raised `PAYLOAD_TOO_LARGE`/`NOT_DRAWER`/`IS_DRAWER` are private `GAME_ERROR`s |
 | §3.9 | New: Draw & Guess commands, drawing protocol, hint format, phase/secret table, standings detail |
 | §2.1 `DrawGuessSnapshot`, §3.9 | `canvasBudget` added; live-point budget 12 000 (not the 15 000 target: does not fit 256 KiB with `[[x,y]]` pairs); `DRAW_STROKE` ≤ 8 KiB; budget exhaustion rejects the whole batch with `PAYLOAD_TOO_LARGE`; `recentChat` ≤ 30 |
+
+### Phase 6 contract changes (Dino Telephone, design only; decisions D35–D48 proposed)
+
+| Where | Change |
+|---|---|
+| §1 error codes | New `ALREADY_SUBMITTED` (module rejection of a second submit/draft in a step; replaces the `DUPLICATE_ACTION` wording of `[TP-7]`), `ALBUM_NOT_FOUND` |
+| §2 | New `GET /sessions/{id}/albums`; `GET …/albums/{chainIndex}` specified (authorization, `RESULTS_NOT_READY` while `RUNNING`, `FINISHED` only) |
+| §2.1 | `AlbumDto` extended (`sessionId`, `entriesPerChain`, `complete`, entry `authorNickname`, `fill`, `placeholder`); new `AlbumSummaryDto`, `AlbumEntryDto`, `RevealEntryDto`; `TelephoneSnapshot` rewritten: no `WAITING` phase, `draft`, `submittedGuestIds`, `reveal` with a size budget, `entriesPerChain` |
+| §2.2 | Telephone settings gain `entriesPerChain` (0 or 4–8); `allowSkipTimeout` accepts only `true` |
+| §3.3 | `TELEPHONE_SUBMIT_DRAWING` payload `{strokes}` → `{}` (commit of a private draft); new `TELEPHONE_TEXT_DRAFT`, `TELEPHONE_DRAW_STROKE`/`UNDO`/`CLEAR`; `REVEAL_NEXT`/`PREV` carry the cursor. The earlier 256 KB one-shot drawing and D20's frame-cap increase are no longer needed |
+| §3.4 | `TELEPHONE_PROGRESS` gains `phaseId`, `submittedGuestIds`; new `TELEPHONE_STEP_ENDED`; `ALBUM_REVEALED` payload specified; `TELEPHONE_TASK.source` gains `placeholder` and never carries the author |
+| §3.10 | New: Telephone commands, events, secrecy table, snapshot size budget, results |
