@@ -199,4 +199,77 @@ describe('WordPackImportModal', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/modified or the file changed/i)
   })
+
+  it('shows the pack limit error when confirm is rejected with WORD_PACK_LIMIT_REACHED', async () => {
+    mockApi({
+      'POST /rooms/ABCDEF/word-packs/pack-999/imports/preview': {
+        status: 200,
+        body: PREVIEW_MOCK,
+      },
+      'POST /rooms/ABCDEF/word-packs/pack-999/imports/confirm': problem(
+        409,
+        'WORD_PACK_LIMIT_REACHED',
+      ),
+    })
+
+    const user = userEvent.setup()
+    renderApp(
+      [
+        {
+          path: '/',
+          element: (
+            <WordPackImportModal
+              open={true}
+              onOpenChange={vi.fn()}
+              roomCode="ABCDEF"
+              pack={PACK_MOCK}
+            />
+          ),
+        },
+      ],
+      '/',
+    )
+
+    const file = new File(['dinosaur'], 'words.txt', { type: 'text/plain' })
+    await user.upload(screen.getByLabelText(/select file/i), file)
+    await user.click(screen.getByRole('button', { name: /analyze & preview/i }))
+    await user.click(await screen.findByRole('button', { name: /confirm import/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/word pack limit reached/i)
+  })
+
+  it('accepts a file dropped onto the drop zone and rejects unsupported dropped files', async () => {
+    mockApi({})
+    renderApp(
+      [
+        {
+          path: '/',
+          element: (
+            <WordPackImportModal
+              open={true}
+              onOpenChange={vi.fn()}
+              roomCode="ABCDEF"
+              pack={PACK_MOCK}
+            />
+          ),
+        },
+      ],
+      '/',
+    )
+
+    const zone = screen.getByText(/drag & drop your txt or csv file here/i)
+      .parentElement as HTMLElement
+
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File(['a'], 'words.txt', { type: 'text/plain' })] },
+    })
+    expect(await screen.findByText('words.txt')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /analyze & preview/i })).toBeInTheDocument()
+
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File(['a'], 'words.pdf', { type: 'application/pdf' })] },
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(/only \.txt and \.csv/i)
+    expect(screen.queryByRole('button', { name: /analyze & preview/i })).not.toBeInTheDocument()
+  })
 })

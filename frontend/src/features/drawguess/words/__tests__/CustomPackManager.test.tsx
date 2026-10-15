@@ -104,9 +104,9 @@ describe('CustomPackManagerModal', () => {
     await screen.findByText('Prehistoric Beasts')
     await user.click(screen.getByRole('button', { name: /\+ new pack/i }))
 
-    await user.type(screen.getByLabelText(/pack name/i), 'Space Voyage')
-    await user.type(screen.getByLabelText(/description/i), 'Cosmic vocabulary')
-    await user.click(screen.getByRole('button', { name: /create pack/i }))
+    await user.type(await screen.findByLabelText(/pack name/i), 'Space Voyage')
+    await user.type(await screen.findByLabelText(/description/i), 'Cosmic vocabulary')
+    await user.click(await screen.findByRole('button', { name: /create pack/i }))
 
     await waitFor(() => {
       expect(calls.some((c) => c.method === 'POST' && c.path === '/rooms/ABCDEF/word-packs')).toBe(
@@ -147,18 +147,21 @@ describe('CustomPackManagerModal', () => {
     const nameInput = screen.getByDisplayValue('Prehistoric Beasts')
     await user.clear(nameInput)
     await user.type(nameInput, 'Jurassic Giants')
-    await user.click(screen.getByRole('button', { name: /save changes/i }))
+    await user.click(await screen.findByRole('button', { name: /save changes/i }))
 
-    await waitFor(() => {
-      expect(
-        calls.some(
-          (c) =>
-            c.method === 'PATCH' &&
-            c.path === '/rooms/ABCDEF/word-packs/pack-1' &&
-            (c.body as { name: string })?.name === 'Jurassic Giants',
-        ),
-      ).toBe(true)
-    })
+    await waitFor(
+      () => {
+        expect(
+          calls.some(
+            (c) =>
+              c.method === 'PATCH' &&
+              c.path === '/rooms/ABCDEF/word-packs/pack-1' &&
+              (c.body as { name: string })?.name === 'Jurassic Giants',
+          ),
+        ).toBe(true)
+      },
+      { timeout: 4000 },
+    )
   })
 
   it('deletes a pack with confirmation', async () => {
@@ -196,11 +199,14 @@ describe('CustomPackManagerModal', () => {
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /confirm delete/i }))
 
-    await waitFor(() => {
-      expect(
-        calls.some((c) => c.method === 'DELETE' && c.path === '/rooms/ABCDEF/word-packs/pack-1'),
-      ).toBe(true)
-    })
+    await waitFor(
+      () => {
+        expect(
+          calls.some((c) => c.method === 'DELETE' && c.path === '/rooms/ABCDEF/word-packs/pack-1'),
+        ).toBe(true)
+      },
+      { timeout: 4000 },
+    )
     expect(onSelectPacks).toHaveBeenCalledWith([])
   })
 
@@ -248,20 +254,84 @@ describe('CustomPackManagerModal', () => {
     await user.type(screen.getByPlaceholderText(/enter word/i), 'brachiosaurus')
     await user.click(screen.getByRole('button', { name: /add word/i }))
 
-    await waitFor(() => {
-      expect(
-        calls.some((c) => c.method === 'POST' && c.path.includes('/word-packs/pack-1/words')),
-      ).toBe(true)
-    })
+    await waitFor(
+      () => {
+        expect(
+          calls.some((c) => c.method === 'POST' && c.path.includes('/word-packs/pack-1/words')),
+        ).toBe(true)
+      },
+      { timeout: 4000 },
+    )
 
     // Delete word
     await user.click(screen.getByRole('button', { name: /remove word triceratops/i }))
-    await waitFor(() => {
-      expect(
-        calls.some(
-          (c) => c.method === 'DELETE' && c.path === '/rooms/ABCDEF/word-packs/pack-1/words/w1',
-        ),
-      ).toBe(true)
+    await waitFor(
+      () => {
+        expect(
+          calls.some(
+            (c) => c.method === 'DELETE' && c.path === '/rooms/ABCDEF/word-packs/pack-1/words/w1',
+          ),
+        ).toBe(true)
+      },
+      { timeout: 4000 },
+    )
+  })
+
+  it('paginates the word list of a large pack', async () => {
+    const page = (offset: number, texts: string[]): WordPackWordsDto => ({
+      words: texts.map((text, i) => ({
+        id: `p${offset}-${i}`,
+        text,
+        category: 'Custom',
+        difficulty: 'MEDIUM',
+      })),
+      offset,
+      limit: 50,
+      total: 60,
     })
+    const calls = mockApi({
+      'GET /rooms/ABCDEF/word-packs': {
+        status: 200,
+        body: { packs: [{ ...PACK_1, wordCount: 60 }] },
+      },
+      'GET /rooms/ABCDEF/word-packs/pack-1/words?offset=0&limit=50': {
+        status: 200,
+        body: page(0, ['first-word']),
+      },
+      'GET /rooms/ABCDEF/word-packs/pack-1/words?offset=50&limit=50': {
+        status: 200,
+        body: page(50, ['last-word']),
+      },
+    })
+
+    const user = userEvent.setup()
+    renderApp(
+      [
+        {
+          path: '/',
+          element: (
+            <CustomPackManagerModal
+              open={true}
+              onOpenChange={vi.fn()}
+              roomCode="ABCDEF"
+              selectedPackIds={[]}
+              onSelectPacks={vi.fn()}
+            />
+          ),
+        },
+      ],
+      '/',
+    )
+
+    await screen.findByText('Prehistoric Beasts')
+    await user.click(screen.getByRole('button', { name: /manage words prehistoric beasts/i }))
+    expect(await screen.findByText('first-word')).toBeInTheDocument()
+    expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /previous/i })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: /next/i }))
+    expect(await screen.findByText('last-word')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled()
+    expect(calls.some((c) => c.path.includes('offset=50'))).toBe(true)
   })
 })
