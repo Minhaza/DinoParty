@@ -84,7 +84,17 @@ export function isGameKey(value: string): value is GameKey {
 }
 
 export function defaultSettings(game: GameKey): SettingsMap {
-  return Object.fromEntries(GAME_CONFIGS[game].fields.map((f) => [f.key, f.defaultValue]))
+  const base = Object.fromEntries(GAME_CONFIGS[game].fields.map((f) => [f.key, f.defaultValue]))
+  if (game === 'draw-guess') {
+    return {
+      ...base,
+      wordSource: 'built-in',
+      wordCategories: ['random-mix'],
+      difficulty: 'mixed',
+      wordPackIds: [],
+    }
+  }
+  return base
 }
 
 export function maxPlayerChoices(game: GameKey): number[] {

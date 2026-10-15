@@ -12,6 +12,12 @@ const MESSAGES: Record<string, string> = {
   RATE_LIMITED: 'Too many attempts. Please wait a moment and try again.',
   UNAUTHENTICATED: 'Your session has expired. Please set up your profile again.',
   VALIDATION_FAILED: 'Some of the values are not valid.',
+  WORD_POOL_TOO_SMALL: 'Not enough words in the selection. Choose more categories or word packs.',
+  WORD_PACK_NOT_FOUND: 'That word pack could not be found.',
+  WORD_PACK_LIMIT_REACHED: 'Word pack limit reached.',
+  IMPORT_STALE: 'The word pack was modified or the file changed. Please preview again.',
+  PAYLOAD_TOO_LARGE: 'The file exceeds the 1 MiB size limit.',
+  UNSUPPORTED_MEDIA_TYPE: 'Only TXT and CSV files are supported.',
 }
 
 /** Turns any thrown value into a short, user-facing sentence (never a stack or raw payload). */
