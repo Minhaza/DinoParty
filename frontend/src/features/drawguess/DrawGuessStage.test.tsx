@@ -5,6 +5,7 @@ import type { PlayerDto } from '@/api/types'
 import type { RealtimeClient } from '@/features/realtime/realtimeClient'
 import { RealtimeContext } from '@/features/realtime/realtimeContext'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
+import { DrawGuessChatPanel } from './components/DrawGuessChatPanel'
 import { DrawGuessStage } from './DrawGuessStage'
 import { useDrawGuessStore } from './drawGuessStore'
 
@@ -145,6 +146,7 @@ describe('DrawGuessStage', () => {
     render(
       <RealtimeContext.Provider value={mockClient as unknown as RealtimeClient}>
         <DrawGuessStage players={mockPlayers} currentGuestId="p2" />
+        <DrawGuessChatPanel players={mockPlayers} currentGuestId="p2" />
       </RealtimeContext.Provider>,
     )
 

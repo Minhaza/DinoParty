@@ -18,19 +18,19 @@ const SOURCES: {
   {
     key: 'built-in',
     label: 'Built-in words',
-    description: 'Curated game dictionary',
+    description: 'Curated dictionary',
     icon: BookOpen,
   },
   {
     key: 'custom',
     label: 'Custom packs',
-    description: 'Your room custom packs',
+    description: 'Your room packs',
     icon: FolderHeart,
   },
   {
     key: 'combined',
     label: 'Built-in + Custom',
-    description: 'Blend built-in & custom packs',
+    description: 'Blend of both',
     icon: Sparkles,
   },
 ]
@@ -52,11 +52,12 @@ export function WordSourceSelector({ value, onChange, disabled }: WordSourceSele
           return (
             <label
               key={source.key}
+              title={source.description}
               className={cn(
-                'relative flex cursor-pointer items-center sm:items-start gap-3 rounded-2xl border-2 p-3 text-left transition-all outline-none',
+                'relative flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-center transition-all outline-none',
                 selected
-                  ? 'border-primary bg-primary/10 shadow-tactile ring-2 ring-primary/40'
-                  : 'border-border bg-card hover:bg-secondary/70',
+                  ? 'border-primary bg-primary/10 text-primary shadow-tactile'
+                  : 'border-border bg-card text-foreground hover:bg-secondary/70',
                 disabled && 'cursor-not-allowed opacity-60',
               )}
             >
@@ -70,24 +71,8 @@ export function WordSourceSelector({ value, onChange, disabled }: WordSourceSele
                 className="sr-only"
                 aria-label={source.label}
               />
-              <div
-                className={cn(
-                  'flex size-8 shrink-0 items-center justify-center rounded-xl',
-                  selected
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground',
-                )}
-              >
-                <Icon className="size-4" />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-sm font-bold text-foreground leading-snug">
-                  {source.label}
-                </span>
-                <span className="text-xs font-semibold text-muted-foreground leading-tight">
-                  {source.description}
-                </span>
-              </div>
+              <Icon className="size-4 shrink-0" />
+              <span className="text-sm font-bold leading-snug">{source.label}</span>
             </label>
           )
         })}

@@ -1,29 +1,24 @@
 import * as React from 'react'
-import { AlertCircle, RotateCcw, X, Users, Trophy } from 'lucide-react'
+import { AlertCircle, RotateCcw, X, Users } from 'lucide-react'
 
-import type { PlayerDto, StandingsEntry } from '@/api/types'
+import type { PlayerDto } from '@/api/types'
 import type { ConnectionStatus } from '@/features/realtime/connectionStore'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 import { GameInterruptedBanner } from './GameInterruptedBanner'
 import { PlayerRoster } from './PlayerRoster'
-import { Scoreboard } from './Scoreboard'
 import { SessionHeader } from './SessionHeader'
 
 export interface GameSessionLayoutProps {
   roomCode: string
   gameTitle: string
-  phase?: string | null
-  round?: number | null
-  totalRounds?: number | null
-  deadlineAt?: string | null
   players: PlayerDto[]
   currentGuestId?: string | null
   hostGuestId?: string | null
   activeGuestId?: string | null
+  guessedGuestIds?: string[]
   scores?: Record<string, number> | null
-  standings?: StandingsEntry[] | null
   connectionStatus: ConnectionStatus
   terminalReason?: string | null
   reconnectAttempt?: number
@@ -45,16 +40,12 @@ export interface GameSessionLayoutProps {
 export function GameSessionLayout({
   roomCode,
   gameTitle,
-  phase,
-  round,
-  totalRounds,
-  deadlineAt,
   players,
   currentGuestId,
   hostGuestId,
   activeGuestId,
+  guessedGuestIds,
   scores,
-  standings,
   connectionStatus,
   terminalReason,
   reconnectAttempt = 0,
@@ -72,18 +63,19 @@ export function GameSessionLayout({
   sidebarFooter,
   className,
 }: GameSessionLayoutProps) {
-  const [mobileTab, setMobileTab] = React.useState<'game' | 'players' | 'scores'>('game')
+  const [mobileTab, setMobileTab] = React.useState<'game' | 'players'>('game')
 
   return (
-    <div className={cn('min-h-screen flex flex-col bg-background text-foreground', className)}>
+    <div
+      className={cn(
+        'min-h-screen flex flex-col bg-background text-foreground lg:h-dvh lg:min-h-0 lg:overflow-hidden',
+        className,
+      )}
+    >
       {/* Top Session Header */}
       <SessionHeader
         roomCode={roomCode}
         gameTitle={gameTitle}
-        phase={phase}
-        round={round}
-        totalRounds={totalRounds}
-        deadlineAt={deadlineAt}
         connectionStatus={connectionStatus}
         reconnectAttempt={reconnectAttempt}
         isOnline={isOnline}
@@ -95,7 +87,7 @@ export function GameSessionLayout({
       />
 
       {/* Main Container & Alerts */}
-      <div className="flex-1 flex flex-col p-3 sm:p-5 max-w-7xl mx-auto w-full gap-3 sm:gap-4">
+      <div className="flex-1 flex flex-col min-h-0 p-3 sm:p-4 mx-auto w-full gap-3 sm:gap-4">
         {/* Terminal Alert (Single-tab restriction) */}
         {terminalReason === 'SESSION_REPLACED' && (
           <div
@@ -180,27 +172,14 @@ export function GameSessionLayout({
             <Users className="size-3.5" />
             Players ({players.length})
           </button>
-          <button
-            type="button"
-            className={cn(
-              'flex-1 py-1.5 rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
-              mobileTab === 'scores'
-                ? 'bg-background text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-            onClick={() => setMobileTab('scores')}
-          >
-            <Trophy className="size-3.5" />
-            Scores
-          </button>
         </div>
 
         {/* Content & Sidebar Grid */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 min-h-0">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-[minmax(0,1fr)] gap-4 sm:gap-6 min-h-0">
           {/* Main Game Stage */}
           <main
             className={cn(
-              'lg:col-span-8 xl:col-span-9 flex flex-col min-h-0',
+              'lg:col-span-8 xl:col-span-9 flex flex-col min-h-0 lg:overflow-y-auto',
               mobileTab !== 'game' && 'hidden lg:flex',
             )}
           >
@@ -210,35 +189,24 @@ export function GameSessionLayout({
           {/* Desktop & Mobile Sidebar */}
           <aside
             className={cn(
-              'lg:col-span-4 xl:col-span-3 flex flex-col gap-4',
+              'lg:col-span-4 xl:col-span-3 flex flex-col gap-4 lg:min-h-0 lg:overflow-hidden',
               mobileTab === 'game' && 'hidden lg:flex',
             )}
           >
-            {(mobileTab === 'players' || mobileTab === 'game') && (
-              <div className="rounded-2xl border border-border/70 bg-card/60 p-3 sm:p-4 shadow-xs">
-                <PlayerRoster
-                  players={players}
-                  currentGuestId={currentGuestId}
-                  hostGuestId={hostGuestId}
-                  activeGuestId={activeGuestId}
-                  scores={scores}
-                  isHost={isHost}
-                  onKickPlayer={onKickPlayer}
-                />
-              </div>
-            )}
+            <div className="rounded-2xl border border-border/70 bg-card/60 p-3 sm:p-4 shadow-xs lg:max-h-[50%] lg:shrink-0 lg:overflow-y-auto">
+              <PlayerRoster
+                players={players}
+                currentGuestId={currentGuestId}
+                hostGuestId={hostGuestId}
+                activeGuestId={activeGuestId}
+                guessedGuestIds={guessedGuestIds}
+                scores={scores}
+                isHost={isHost}
+                onKickPlayer={onKickPlayer}
+              />
+            </div>
 
-            {(mobileTab === 'scores' || mobileTab === 'game') && (
-              <div className="rounded-2xl border border-border/70 bg-card/60 p-3 sm:p-4 shadow-xs">
-                <Scoreboard
-                  standings={standings}
-                  players={players}
-                  currentGuestId={currentGuestId}
-                />
-              </div>
-            )}
-
-            {sidebarFooter && <div className="mt-auto pt-2">{sidebarFooter}</div>}
+            {sidebarFooter && <div className="flex min-h-0 flex-1 flex-col">{sidebarFooter}</div>}
           </aside>
         </div>
       </div>

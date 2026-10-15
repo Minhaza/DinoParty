@@ -1,17 +1,14 @@
 import * as React from 'react'
 
 import type { PlayerDto } from '@/api/types'
-import { useRealtimeClient } from '@/features/realtime/realtimeContext'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
 import { DrawCanvas } from '@/features/drawing/DrawCanvas'
 import { DrawingToolbar } from '@/features/drawing/DrawingToolbar'
-import { GuessFeed } from './components/GuessFeed'
-import { GuessInput } from './components/GuessInput'
-import { PlayerScoreboard } from './components/PlayerScoreboard'
 import { RoundEndOverlay } from './components/RoundEndOverlay'
 import { WordBanner } from './components/WordBanner'
 import { WordSelectionModal } from './components/WordSelectionModal'
 import { useDrawGuessStore } from './drawGuessStore'
+import { useDrawGuessCommands } from './useDrawGuessCommands'
 import type { DrawStrokePayload, StrokeTool } from './types'
 
 export interface DrawGuessStageProps {
@@ -20,13 +17,11 @@ export interface DrawGuessStageProps {
 }
 
 export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps) {
-  const client = useRealtimeClient()
+  const sendGameCommand = useDrawGuessCommands()
 
   // Game session store
   const phase = useGameSessionStore((s) => s.phase)
-  const phaseId = useGameSessionStore((s) => s.phaseId)
   const deadlineAt = useGameSessionStore((s) => s.deadlineAt)
-  const sessionScores = useGameSessionStore((s) => s.scores)
 
   // Draw & Guess module store
   const round = useDrawGuessStore((s) => s.round)
@@ -42,11 +37,7 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
   const addLocalStroke = useDrawGuessStore((s) => s.addLocalStroke)
   const appendLocalPoints = useDrawGuessStore((s) => s.appendLocalPoints)
   const guessedGuestIds = useDrawGuessStore((s) => s.guessedGuestIds)
-  const chat = useDrawGuessStore((s) => s.chat)
   const roundEnd = useDrawGuessStore((s) => s.roundEnd)
-  const feedback = useDrawGuessStore((s) => s.feedback)
-  const clearFeedback = useDrawGuessStore((s) => s.clearFeedback)
-  const trackCommand = useDrawGuessStore((s) => s.trackCommand)
 
   // Drawer toolbar state
   const [tool, setTool] = React.useState<StrokeTool>('PENCIL')
@@ -61,24 +52,6 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
 
   const drawerPlayer = players.find((p) => p.guestId === drawerGuestId)
   const drawerNickname = drawerPlayer?.nickname ?? 'Drawer'
-
-  /**
-   * Sends a game command for the current phase. Returns `false` instead of throwing while the
-   * socket is down: the reconnect snapshot restores the authoritative state afterwards.
-   */
-  const sendGameCommand = React.useCallback(
-    (type: string, payload: object, strokeId?: string): boolean => {
-      if (!phaseId) return false
-      try {
-        const actionId = client.sendCommand({ type, phaseId, payload })
-        trackCommand(actionId, type, strokeId)
-        return true
-      } catch {
-        return false
-      }
-    },
-    [client, phaseId, trackCommand],
-  )
 
   const handleChooseWord = React.useCallback(
     (wordIndex: number) => {
@@ -103,19 +76,11 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
     sendGameCommand('DRAW_CLEAR', {})
   }, [sendGameCommand, isDrawer, strokes.length])
 
-  const handleSubmitGuess = React.useCallback(
-    (text: string) => {
-      if (isDrawer) return
-      sendGameCommand('SUBMIT_GUESS', { text })
-    },
-    [sendGameCommand, isDrawer],
-  )
-
   return (
     <div
       role="region"
       aria-label="Draw & Guess gameplay stage"
-      className="flex-1 flex flex-col gap-3 min-h-0 w-full max-w-6xl mx-auto"
+      className="flex-1 flex flex-col gap-3 min-h-0 w-full mx-auto"
     >
       {/* Top Banner: Round indicator, Word/Hint, Drawer Info, and Countdown */}
       <WordBanner
@@ -128,79 +93,39 @@ export function DrawGuessStage({ players, currentGuestId }: DrawGuessStageProps)
         isSolved={isSolved}
       />
 
-      {/* Main Gameplay Grid: Canvas + Sidebar */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0">
-        {/* Left / Center Column: Canvas and Drawer Toolbar (8 cols on large screens) */}
-        <div className="lg:col-span-8 flex flex-col gap-2 min-h-0">
-          <div className="flex-1 flex items-center justify-center p-2 rounded-2xl bg-card border border-border shadow-xs overflow-hidden min-h-[260px] sm:min-h-[380px]">
-            <DrawCanvas
-              isDrawer={isDrawer}
-              isDrawingPhase={isDrawingPhase}
-              tool={tool}
-              color={color}
-              size={size}
-              strokes={strokes}
-              canvasFull={canvasFull}
-              strokeRejection={strokeRejection}
-              onSendStrokeBatch={handleSendStrokeBatch}
-              onLocalStrokeStart={addLocalStroke}
-              onLocalPoints={appendLocalPoints}
-            />
-          </div>
-
-          {/* Drawer Toolbar: Only interactive for authorized drawer during DRAWING */}
-          {isDrawer && isDrawingPhase && (
-            <DrawingToolbar
-              tool={tool}
-              color={color}
-              size={size}
-              canDraw={isDrawer && isDrawingPhase}
-              hasStrokes={strokes.length > 0}
-              onSelectTool={setTool}
-              onSelectColor={setColor}
-              onSelectSize={setSize}
-              onUndo={handleUndo}
-              onClear={handleClear}
-            />
-          )}
+      {/* Canvas, drawer toolbar, then guess feed and input stacked below */}
+      <div className="flex-1 flex flex-col gap-2 min-h-0">
+        <div className="flex-1 flex items-center justify-center p-2 rounded-2xl bg-card border border-border shadow-xs overflow-hidden min-h-[260px] lg:min-h-0">
+          <DrawCanvas
+            isDrawer={isDrawer}
+            isDrawingPhase={isDrawingPhase}
+            tool={tool}
+            color={color}
+            size={size}
+            strokes={strokes}
+            canvasFull={canvasFull}
+            strokeRejection={strokeRejection}
+            onSendStrokeBatch={handleSendStrokeBatch}
+            onLocalStrokeStart={addLocalStroke}
+            onLocalPoints={appendLocalPoints}
+          />
         </div>
 
-        {/* Right Column: Scoreboard, Guesses Feed, and Guess Input (4 cols on large screens) */}
-        <div className="lg:col-span-4 flex flex-col gap-2 min-h-0">
-          {/* Player Scoreboard */}
-          <div className="shrink-0">
-            <PlayerScoreboard
-              players={players}
-              drawerGuestId={drawerGuestId}
-              guessedGuestIds={guessedGuestIds}
-              scores={sessionScores}
-              scoreDeltas={roundEnd?.scoreDeltas}
-              currentGuestId={currentGuestId}
-            />
-          </div>
-
-          {/* Guess & Chat Feed */}
-          <div className="flex-1 min-h-[160px] flex flex-col">
-            <GuessFeed
-              chat={chat}
-              players={players}
-              guessedGuestIds={guessedGuestIds}
-              currentGuestId={currentGuestId}
-              feedback={feedback}
-              onClearFeedback={clearFeedback}
-            />
-          </div>
-
-          {/* Guess Form Input */}
-          <div className="shrink-0">
-            <GuessInput
-              isDrawer={isDrawer}
-              isSolved={isSolved}
-              isDrawingPhase={isDrawingPhase}
-              onSubmitGuess={handleSubmitGuess}
-            />
-          </div>
-        </div>
+        {/* Drawer Toolbar: Only interactive for authorized drawer during DRAWING */}
+        {isDrawer && isDrawingPhase && (
+          <DrawingToolbar
+            tool={tool}
+            color={color}
+            size={size}
+            canDraw={isDrawer && isDrawingPhase}
+            hasStrokes={strokes.length > 0}
+            onSelectTool={setTool}
+            onSelectColor={setColor}
+            onSelectSize={setSize}
+            onUndo={handleUndo}
+            onClear={handleClear}
+          />
+        )}
       </div>
 
       {/* Word Selection Modal (Drawer picks word / Guessers wait) */}

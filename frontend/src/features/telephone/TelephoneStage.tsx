@@ -145,7 +145,7 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
     <div
       role="region"
       aria-label="Dino Telephone gameplay stage"
-      className="mx-auto flex w-full max-w-6xl min-w-0 flex-1 flex-col gap-3"
+      className="mx-auto flex w-full min-w-0 flex-1 flex-col gap-3"
     >
       <p className="sr-only" aria-live="polite">
         {announcement}
@@ -160,7 +160,8 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
             step={step}
             totalSteps={totalSteps}
             deadlineAt={deadlineAt}
-            submitted={submitted}
+            showDrawSource={kind === 'DRAW' && !submitted}
+            drawSource={task ? task.source : undefined}
             onExpire={handleExpire}
           />
 

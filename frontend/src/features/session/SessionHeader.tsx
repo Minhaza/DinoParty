@@ -12,18 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { DinoLogo } from '@/components/DinoLogo'
 import { cn } from '@/lib/utils'
-
-import { PhaseIndicator } from './PhaseIndicator'
-import { ServerCountdown } from './ServerCountdown'
 
 export interface SessionHeaderProps {
   roomCode: string
   gameTitle: string
-  phase?: string | null
-  round?: number | null
-  totalRounds?: number | null
-  deadlineAt?: string | null
   connectionStatus: ConnectionStatus
   reconnectAttempt?: number
   isOnline?: boolean
@@ -38,10 +32,6 @@ export interface SessionHeaderProps {
 export function SessionHeader({
   roomCode,
   gameTitle,
-  phase,
-  round,
-  totalRounds,
-  deadlineAt,
   connectionStatus,
   reconnectAttempt = 0,
   isOnline = true,
@@ -92,12 +82,15 @@ export function SessionHeader({
   return (
     <header
       className={cn(
-        'sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-4 py-2.5 backdrop-blur-md',
+        'sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 sm:grid sm:grid-cols-[1fr_auto_1fr] border-b border-border/60 bg-background/90 px-4 py-2.5 backdrop-blur-md',
         className,
       )}
     >
-      {/* Left: Game Title & Room Code */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      {/* Left: brand (not a link: leaving mid-game goes through the Leave dialog) */}
+      <DinoLogo size="md" />
+
+      {/* Middle: Game Title & Room Code */}
+      <div className="flex items-center justify-center gap-2 sm:gap-3">
         <span className="font-fredoka text-lg sm:text-xl font-bold tracking-tight text-foreground">
           {gameTitle}
         </span>
@@ -118,14 +111,8 @@ export function SessionHeader({
         </button>
       </div>
 
-      {/* Middle: Phase & Countdown */}
-      <div className="flex items-center gap-2.5 order-3 sm:order-2 w-full sm:w-auto justify-center">
-        <PhaseIndicator phase={phase} round={round} totalRounds={totalRounds} />
-        <ServerCountdown deadlineAt={deadlineAt} />
-      </div>
-
       {/* Right: Connection & Actions */}
-      <div className="flex items-center gap-2 order-2 sm:order-3">
+      <div className="flex items-center justify-end gap-2">
         {/* Connection Status Badge */}
         {!isOnline || connectionStatus === 'DISCONNECTED' ? (
           <Badge
@@ -174,16 +161,16 @@ export function SessionHeader({
             size="sm"
             className="text-xs text-muted-foreground hover:text-destructive gap-1 px-2.5"
             onClick={() => setShowCloseDialog(true)}
-            title="Close room"
+            title="End game for everyone"
           >
             <XOctagon className="size-3.5" />
-            <span className="hidden md:inline">Close</span>
+            <span className="hidden md:inline">End</span>
           </Button>
         )}
 
         {/* Leave Room Button */}
         <Button
-          variant="outline"
+          variant="destructive"
           size="sm"
           className="text-xs gap-1 px-2.5"
           onClick={() => setShowLeaveDialog(true)}

@@ -7,7 +7,6 @@ import { resetServerClock } from '@/lib/serverClock'
 
 import { GameInterruptedBanner } from './GameInterruptedBanner'
 import { GameStartingOverlay } from './GameStartingOverlay'
-import { PhaseIndicator } from './PhaseIndicator'
 import { PlayerRoster } from './PlayerRoster'
 import { RematchControls } from './RematchControls'
 import { Scoreboard } from './Scoreboard'
@@ -69,16 +68,6 @@ describe('Session Components', () => {
     it('returns null when deadline is missing', () => {
       const { container } = render(<ServerCountdown deadlineAt={null} />)
       expect(container.firstChild).toBeNull()
-    })
-  })
-
-  describe('PhaseIndicator', () => {
-    it('formats phase names cleanly and announces them politely', () => {
-      render(<PhaseIndicator phase="DRAWING_ROUND" round={2} totalRounds={3} />)
-
-      expect(screen.getByText('Drawing Round')).toBeInTheDocument()
-      expect(screen.getByText('Round 2 / 3')).toBeInTheDocument()
-      expect(screen.getByText('Phase started: Drawing Round - Round 2')).toHaveClass('sr-only')
     })
   })
 

@@ -58,7 +58,7 @@ describe('WordSourceSelector', () => {
 })
 
 describe('DifficultySelector', () => {
-  it('renders all 4 difficulty levels with descriptions and fires onChange', async () => {
+  it('renders all 4 difficulty levels with hover hints and fires onChange', async () => {
     const onChange = vi.fn()
     const user = userEvent.setup()
 
@@ -68,7 +68,7 @@ describe('DifficultySelector', () => {
     )
 
     expect(screen.getByRole('radio', { name: /mixed/i })).toBeChecked()
-    expect(screen.getByText(/blend of all levels/i)).toBeInTheDocument()
+    expect(screen.getByTitle(/blend of all levels/i)).toBeInTheDocument()
 
     await user.click(screen.getByRole('radio', { name: /easy/i }))
     expect(onChange).toHaveBeenCalledWith('easy')
