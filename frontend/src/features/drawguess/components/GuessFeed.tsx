@@ -51,9 +51,9 @@ export function GuessFeed({
         </span>
       </div>
 
-      <div className="flex-1 p-2.5 overflow-y-auto space-y-2 text-xs min-h-[140px] max-h-[320px] sm:max-h-none">
+      <div className="flex-1 p-2.5 overflow-y-auto space-y-2 text-base min-h-[140px] max-h-[320px] sm:max-h-none">
         {chat.length === 0 && !feedback && (
-          <div className="flex flex-col items-center justify-center py-6 text-muted-foreground/70 italic text-center">
+          <div className="flex flex-col items-center justify-center py-6 text-xs text-muted-foreground/70 italic text-center">
             <span>No guesses yet!</span>
             <span className="text-[11px] mt-0.5">Type your guess below.</span>
           </div>
@@ -67,15 +67,15 @@ export function GuessFeed({
           return (
             <div
               key={`${msg.guestId}-${msg.ts || idx}-${idx}`}
-              className={`flex items-start gap-2 p-1.5 rounded-lg transition-colors ${
+              className={`flex items-start gap-2.5 p-2 rounded-lg transition-colors ${
                 isSolverChat
                   ? 'bg-primary/10 border border-primary/20 text-primary-foreground'
                   : 'bg-muted/40 text-foreground'
               }`}
             >
-              <DinoAvatar avatarKey={sender?.avatarKey ?? 'rex'} size="xs" />
+              <DinoAvatar avatarKey={sender?.avatarKey ?? 'rex'} size="sm" />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 leading-none mb-0.5">
+                <div className="flex items-center gap-1.5 leading-none mb-1 text-sm">
                   <span
                     className={`font-bold truncate ${
                       isSolverChat ? 'text-primary' : 'text-foreground'
@@ -84,15 +84,15 @@ export function GuessFeed({
                     {sender?.nickname ?? 'Unknown'}
                   </span>
                   {isMe && (
-                    <span className="text-[10px] text-muted-foreground font-semibold">(You)</span>
+                    <span className="text-xs text-muted-foreground font-semibold">(You)</span>
                   )}
                   {isSolverChat && (
-                    <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold bg-primary/20 text-primary uppercase">
+                    <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[11px] font-bold bg-primary/20 text-primary uppercase">
                       Solver Chat
                     </span>
                   )}
                 </div>
-                <p className="break-words font-medium text-foreground">{msg.text}</p>
+                <p className="break-words text-base font-medium text-foreground">{msg.text}</p>
               </div>
             </div>
           )

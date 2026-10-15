@@ -3,8 +3,8 @@ import { MessageSquareText, PencilLine, ScrollText } from 'lucide-react'
 import { ServerCountdown } from '@/features/session/ServerCountdown'
 import { useServerCountdown } from '@/features/session/useServerCountdown'
 
-import { STEP_COPY, stepLabel } from '../copy'
-import type { TelephoneKind } from '../types'
+import { STEP_COPY, stepCounter } from '../copy'
+import type { TelephoneKind, TelephoneSource } from '../types'
 
 const KIND_ICONS = {
   PROMPT: ScrollText,
@@ -17,7 +17,9 @@ export interface TelephonePhaseHeaderProps {
   step: number
   totalSteps: number
   deadlineAt: string | null
-  submitted: boolean
+  /** DRAW step only: the sentence to draw (`undefined` while the private task is in flight). */
+  drawSource?: TelephoneSource | null
+  showDrawSource?: boolean
   /** Called once when the local countdown reaches zero (display only; the server ends the step). */
   onExpire?: () => void
 }
@@ -27,7 +29,8 @@ export function TelephonePhaseHeader({
   step,
   totalSteps,
   deadlineAt,
-  submitted,
+  drawSource,
+  showDrawSource = false,
   onExpire,
 }: TelephonePhaseHeaderProps) {
   // The countdown only displays the server deadline; the phase changes when the server says so.
@@ -41,15 +44,30 @@ export function TelephonePhaseHeader({
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <Icon className="size-5" aria-hidden="true" />
         </div>
-        <div className="min-w-0">
-          <h2 className="font-fredoka text-lg leading-tight font-semibold text-foreground sm:text-xl">
-            {stepLabel(step, totalSteps, kind)}
-          </h2>
-          <p className="text-xs text-muted-foreground sm:text-sm">
-            {submitted ? 'Submitted — waiting for the other dinos' : STEP_COPY[kind].instruction}
-          </p>
-        </div>
+        <h2 className="font-fredoka text-lg leading-tight font-semibold text-foreground sm:text-xl">
+          {stepCounter(step, totalSteps)}
+        </h2>
       </div>
+
+      {showDrawSource && (
+        <section
+          aria-label="Your assignment"
+          className="min-w-0 flex-1 basis-full text-center sm:basis-0"
+        >
+          <p className="text-xs font-bold tracking-wider text-muted-foreground uppercase">
+            {STEP_COPY[kind].title}
+          </p>
+          {drawSource === undefined || drawSource === null ? (
+            <p className="text-sm text-muted-foreground">Getting your assignment…</p>
+          ) : drawSource.placeholder ? (
+            <p className="text-sm font-medium text-foreground">Nothing to go on — go wild!</p>
+          ) : drawSource.kind === 'TEXT' ? (
+            <p className="font-fredoka text-xl leading-snug font-semibold break-words text-foreground sm:text-2xl">
+              “{drawSource.text}”
+            </p>
+          ) : null}
+        </section>
+      )}
 
       <div className="flex items-center gap-2">
         {syncing ? (

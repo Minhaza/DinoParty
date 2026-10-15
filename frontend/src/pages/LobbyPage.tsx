@@ -44,7 +44,7 @@ import { useRoomStore } from '@/stores/roomStore'
 export function LobbyPage() {
   const { code = '' } = useParams()
   return (
-    <section className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+    <section className="mx-auto flex w-full flex-col gap-5">
       <RequireGuest>{(guest) => <Lobby code={code.toUpperCase()} guest={guest} />}</RequireGuest>
     </section>
   )
@@ -343,43 +343,61 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
         <div className="flex flex-col gap-5">
           {/* Lobby header: room identity */}
           <Card>
-            <CardHeader className="gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={currentRoom.gameKey === 'draw-guess' ? 'default' : 'accent'}>
-                  {game.name}
-                </Badge>
-                <Badge variant="muted">
-                  {currentRoom.status === 'WAITING' ? 'Waiting for players' : currentRoom.status}
-                </Badge>
-                {connectionStatus === 'CONNECTED' && (
-                  <Badge variant="success">
-                    <span className="size-2 rounded-full bg-success" aria-hidden />
-                    Live
+            <CardHeader className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+              <div className="flex min-w-0 flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={currentRoom.gameKey === 'draw-guess' ? 'default' : 'accent'}>
+                    {game.name}
                   </Badge>
-                )}
-              </div>
-              <CardTitle as="h1" className="flex flex-wrap items-center gap-3 text-3xl sm:text-4xl">
-                <span>Lobby</span>
-                <span
-                  aria-label={`Room code ${currentRoom.code.split('').join(' ')}`}
-                  className="rounded-2xl border-2 border-dashed border-primary/60 bg-primary/10 px-4 py-1 font-display text-2xl font-bold tracking-[0.25em] text-primary sm:text-3xl"
-                >
-                  {currentRoom.code}
-                </span>
-              </CardTitle>
-              <CardDescription>Share the code or invite link with your friends.</CardDescription>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => void copyInvite()}>
-                  {copied ? (
-                    <Check className="size-3.5 text-primary" aria-hidden />
-                  ) : (
-                    <Copy className="size-3.5" aria-hidden />
+                  <Badge variant="muted">
+                    {currentRoom.status === 'WAITING' ? 'Waiting for players' : currentRoom.status}
+                  </Badge>
+                  {connectionStatus === 'CONNECTED' && (
+                    <Badge variant="success">
+                      <span className="size-2 rounded-full bg-success" aria-hidden />
+                      Live
+                    </Badge>
                   )}
-                  Copy invite link
-                </Button>
-                <span aria-live="polite" className="text-xs font-bold text-primary">
-                  {copied ? 'Invite link copied.' : ''}
-                </span>
+                </div>
+                <CardTitle
+                  as="h1"
+                  className="flex flex-wrap items-center gap-3 text-3xl sm:text-4xl"
+                >
+                  <span>Lobby</span>
+                  <span
+                    aria-label={`Room code ${currentRoom.code.split('').join(' ')}`}
+                    className="rounded-2xl border-2 border-dashed border-primary/60 bg-primary/10 px-4 py-1 font-display text-2xl font-bold tracking-[0.25em] text-primary sm:text-3xl"
+                  >
+                    {currentRoom.code}
+                  </span>
+                </CardTitle>
+              </div>
+
+              {/* Invite panel: fills the right side and keeps sharing one click away */}
+              <div className="flex shrink-0 flex-col gap-3 rounded-2xl border-2 border-dashed border-border bg-secondary/40 p-4 md:min-w-72">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-xs font-extrabold tracking-wider text-muted-foreground uppercase">
+                    Invite friends
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-sm font-bold text-foreground">
+                    <Users className="size-4 text-primary" aria-hidden />
+                    {currentRoom.players.length}/{currentRoom.maxPlayers}
+                  </span>
+                </div>
+                <CardDescription>Share the code or invite link with your friends.</CardDescription>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => void copyInvite()}>
+                    {copied ? (
+                      <Check className="size-3.5 text-primary" aria-hidden />
+                    ) : (
+                      <Copy className="size-3.5" aria-hidden />
+                    )}
+                    Copy invite link
+                  </Button>
+                  <span aria-live="polite" className="text-xs font-bold text-primary">
+                    {copied ? 'Invite link copied.' : ''}
+                  </span>
+                </div>
               </div>
             </CardHeader>
           </Card>
@@ -419,78 +437,12 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
             </CardContent>
           </Card>
 
-          {startError && (
-            <p role="alert" className="text-sm font-bold text-destructive">
-              {startError}
-            </p>
-          )}
-        </div>
-
-        <aside className="flex flex-col gap-5">
-          {/* Ready toggle and host start */}
-          <Card>
-            <CardContent className="flex flex-col gap-4 pt-6">
-              <Button
-                variant={isReady ? 'outline' : 'default'}
-                size="lg"
-                onClick={() => void toggleReady()}
-                disabled={isTogglingReady || currentRoom.status !== 'WAITING'}
-                aria-pressed={isReady}
-              >
-                {isTogglingReady ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : isReady ? (
-                  <CheckCircle2 className="size-4 text-primary" />
-                ) : (
-                  <Check className="size-4" />
-                )}
-                {isReady ? 'Cancel ready' : 'Ready up'}
-              </Button>
-              <p className="text-center text-sm font-semibold text-muted-foreground">
-                {isReady ? 'You are marked ready!' : 'Click ready when you are set.'}
-              </p>
-
-              {isHost && (
-                <div className="flex flex-col gap-2 border-t-2 border-dashed border-border pt-4">
-                  <Button
-                    variant="accent"
-                    size="lg"
-                    onClick={() => void startGame()}
-                    disabled={!canStart}
-                  >
-                    {isStartingGame ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <Play className="size-4 fill-current" />
-                    )}
-                    {currentRoom.status === 'STARTING' ? 'Starting…' : 'Start game'}
-                  </Button>
-                  {missing > 0 ? (
-                    <span className="text-center text-xs font-bold text-muted-foreground">
-                      Needs at least {currentRoom.minPlayers} players
-                    </span>
-                  ) : !allReady ? (
-                    <span className="text-center text-xs font-bold text-muted-foreground">
-                      Waiting for players to ready up
-                    </span>
-                  ) : (
-                    <span className="text-center text-xs font-bold text-primary">
-                      All players ready!
-                    </span>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Settings */}
           <Card>
             <CardHeader>
               <CardTitle as="h2">Settings</CardTitle>
               <CardDescription>
-                {isHost
-                  ? 'You are the host. Changes apply to everyone in the lobby.'
-                  : 'Only the host can change these.'}
+                {isHost ? 'Changes apply to everyone.' : 'Only the host can change these.'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -534,11 +486,76 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
             </CardContent>
           </Card>
 
+          {startError && (
+            <p role="alert" className="text-sm font-bold text-destructive">
+              {startError}
+            </p>
+          )}
+        </div>
+
+        <aside className="flex flex-col gap-5">
+          {/* Ready toggle and host start */}
+          <Card>
+            <CardContent className="flex flex-col gap-4 pt-6">
+              <Button
+                variant={isReady ? 'outline' : 'default'}
+                size="lg"
+                onClick={() => void toggleReady()}
+                disabled={isTogglingReady || currentRoom.status !== 'WAITING'}
+                aria-pressed={isReady}
+              >
+                {isTogglingReady ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : isReady ? (
+                  <CheckCircle2 className="size-4 text-primary" />
+                ) : (
+                  <Check className="size-4" />
+                )}
+                {isReady ? 'Cancel ready' : 'Ready up'}
+              </Button>
+              <p className="text-center text-sm font-semibold text-muted-foreground">
+                {isReady ? 'You are marked ready!' : 'Click ready when you are set.'}
+              </p>
+
+              {isHost && (
+                <div className="flex flex-col gap-2 border-t-2 border-dashed border-border pt-4">
+                  <Button
+                    variant="default"
+                    size="lg"
+                    className="bg-purple text-white"
+                    onClick={() => void startGame()}
+                    disabled={!canStart}
+                  >
+                    {isStartingGame ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Play className="size-4 fill-current" />
+                    )}
+                    {currentRoom.status === 'STARTING' ? 'Starting…' : 'Start game'}
+                  </Button>
+                  {missing > 0 ? (
+                    <span className="text-center text-xs font-bold text-muted-foreground">
+                      Needs at least {currentRoom.minPlayers} players
+                    </span>
+                  ) : !allReady ? (
+                    <span className="text-center text-xs font-bold text-muted-foreground">
+                      Waiting for players to ready up
+                    </span>
+                  ) : (
+                    <span className="text-center text-xs font-bold text-primary">
+                      All players ready!
+                    </span>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <p aria-live="polite" role="status" className="min-h-5 text-sm font-bold text-foreground">
             {hostNotice}
           </p>
 
-          <Button variant="outline" onClick={() => leave.mutate()} disabled={leave.isPending}>
+          <Button variant="destructive" onClick={() => leave.mutate()} disabled={leave.isPending}>
             <LogOut className="size-4" aria-hidden />
             Leave room
           </Button>

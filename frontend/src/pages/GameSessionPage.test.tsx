@@ -106,7 +106,7 @@ describe('GameSessionPage', () => {
     )
   })
 
-  it('renders game stage with phase and server countdown when PLAYING', async () => {
+  it('renders the game stage for the named drawer when PLAYING', async () => {
     const room: RoomDto = {
       ...roomFixture(),
       gameKey: 'draw-guess',
@@ -156,9 +156,7 @@ describe('GameSessionPage', () => {
 
     renderSessionPage()
 
-    const drawingPhaseElements = await screen.findAllByText('Drawing Phase')
-    expect(drawingPhaseElements.length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('(Your Turn)')).toBeInTheDocument()
+    expect(await screen.findByText('(Your Turn)')).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Draw & Guess gameplay stage' })).toBeInTheDocument()
   })
 

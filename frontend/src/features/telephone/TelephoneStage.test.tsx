@@ -96,18 +96,18 @@ describe('TelephoneStage', () => {
     expect(screen.getByText(/getting the next step ready/i)).toBeInTheDocument()
 
     startPhase(promptPhaseStarted)
-    expect(screen.getByRole('heading', { name: 'Step 1 of 4 — Write a prompt' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Step 1 of 4' })).toBeVisible()
     expect(screen.getByRole('textbox', { name: /your prompt/i })).toBeInTheDocument()
 
     startPhase(drawPhaseStarted)
     act(() => useTelephoneStore.getState().applyTask(drawTask))
-    expect(screen.getByRole('heading', { name: 'Step 2 of 4 — Draw it' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Step 2 of 4' })).toBeVisible()
     expect(screen.getByText(/stegosaurus juggling teacups/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /your drawing/i })).toBeInTheDocument()
 
     startPhase(describePhaseStarted)
     act(() => useTelephoneStore.getState().applyTask(describeTask))
-    expect(screen.getByRole('heading', { name: /step 3 of 4 — describe/i })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Step 3 of 4' })).toBeVisible()
     expect(screen.getByRole('img', { name: /drawing you need to describe/i })).toBeInTheDocument()
     // [TP-8]: the sentence two steps back is never shown.
     expect(screen.queryByText(/stegosaurus/)).not.toBeInTheDocument()
