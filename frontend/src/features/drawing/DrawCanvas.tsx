@@ -1,20 +1,37 @@
 import * as React from 'react'
 
 import { generateUUID } from '@/lib/uuid'
-import { useDrawGuessStore } from '../drawGuessStore'
-import type { DrawStrokePayload, Stroke, StrokeTool } from '../types'
+import type { DrawStrokePayload, Stroke, StrokeRejection, StrokeTool } from './types'
 import { CANVAS_ASPECT_RATIO, CANVAS_BG_COLOR, clientToVirtualCoord } from './coords'
 import { renderAllStrokes } from './render'
 
+/**
+ * The canvas engine shared by every drawing game. It owns pointer handling and batching only; the
+ * game supplies the stroke list and stores local previews, so each game keeps its own state.
+ */
 export interface DrawCanvasProps {
   isDrawer: boolean
   isDrawingPhase: boolean
   tool: StrokeTool
   color: string
   size: number
+  /** Strokes to render, in drawing order (server state plus the local preview). */
+  strokes: Stroke[]
+  /** The server budget is exhausted: drawing stays disabled until undo/clear. */
+  canvasFull?: boolean
+  /** Latest rejection of one of this client's batches; a new `nonce` re-triggers handling. */
+  strokeRejection?: StrokeRejection | null
   /** Sends one batch; returns `false` when it could not be sent (socket down). */
-  onSendStrokeBatch: (payload: DrawStrokePayload) => boolean | void
+  onSendStrokeBatch?: (payload: DrawStrokePayload) => boolean | void
+  /** Stores a stroke started locally (preview). */
+  onLocalStrokeStart?: (stroke: Stroke) => void
+  /** Appends preview points to a local stroke, closing it when `isFinal`. */
+  onLocalPoints?: (strokeId: string, points: [number, number][], isFinal: boolean) => void
+  /** Accessible name; defaults to a generic one per mode. */
+  ariaLabel?: string
 }
+
+const noop = () => {}
 
 const BATCH_INTERVAL_MS = 50
 // Server limits (api-contracts §3.9): 200 points per batch, 2000 per stroke.
@@ -51,7 +68,13 @@ export function DrawCanvas({
   tool,
   color,
   size,
-  onSendStrokeBatch,
+  strokes,
+  canvasFull = false,
+  strokeRejection = null,
+  onSendStrokeBatch = noop,
+  onLocalStrokeStart = noop,
+  onLocalPoints = noop,
+  ariaLabel,
 }: DrawCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
@@ -61,21 +84,29 @@ export function DrawCanvas({
     height: 400,
   })
 
-  const strokes = useDrawGuessStore((s) => s.strokes)
-  const canvasFull = useDrawGuessStore((s) => s.canvasFull)
-  const strokeRejection = useDrawGuessStore((s) => s.strokeRejection)
-  const addLocalStroke = useDrawGuessStore((s) => s.addLocalStroke)
-  const appendLocalPoints = useDrawGuessStore((s) => s.appendLocalPoints)
-
   const activeStrokeRef = React.useRef<ActiveStroke | null>(null)
   // Every strokeId the current gesture has used, so a late rejection of an earlier one still counts.
   const gestureStrokeIdsRef = React.useRef<Set<string>>(new Set())
 
   // Keep latest props in refs for timer callbacks
   const onSendBatchRef = React.useRef(onSendStrokeBatch)
+  const onLocalStrokeStartRef = React.useRef(onLocalStrokeStart)
+  const onLocalPointsRef = React.useRef(onLocalPoints)
   React.useEffect(() => {
     onSendBatchRef.current = onSendStrokeBatch
-  }, [onSendStrokeBatch])
+    onLocalStrokeStartRef.current = onLocalStrokeStart
+    onLocalPointsRef.current = onLocalPoints
+  }, [onSendStrokeBatch, onLocalStrokeStart, onLocalPoints])
+
+  const addLocalStroke = React.useCallback((stroke: Stroke) => {
+    onLocalStrokeStartRef.current(stroke)
+  }, [])
+  const appendLocalPoints = React.useCallback(
+    (strokeId: string, points: [number, number][], isFinal: boolean) => {
+      onLocalPointsRef.current(strokeId, points, isFinal)
+    },
+    [],
+  )
 
   // Resize observer to ensure responsive 16:10 canvas fitting container
   React.useEffect(() => {
@@ -389,7 +420,9 @@ export function DrawCanvas({
       <canvas
         ref={canvasRef}
         role="img"
-        aria-label={canDraw ? 'Drawing canvas (interactive)' : 'Draw & Guess canvas view'}
+        aria-label={
+          ariaLabel ?? (canDraw ? 'Drawing canvas (interactive)' : 'Draw & Guess canvas view')
+        }
         className={`touch-none rounded-xl shadow-xs transition-shadow ${
           canDraw
             ? 'cursor-crosshair ring-2 ring-primary/30 hover:ring-primary/50'

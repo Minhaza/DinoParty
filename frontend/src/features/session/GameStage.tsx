@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useGameSessionStore } from '@/stores/gameSessionStore'
 
 import { DrawGuessStage } from '@/features/drawguess/DrawGuessStage'
+import { TelephoneStage } from '@/features/telephone/TelephoneStage'
 import { GameStartingOverlay } from './GameStartingOverlay'
 import { RematchControls } from './RematchControls'
 import { Scoreboard } from './Scoreboard'
@@ -58,19 +59,26 @@ export function GameStage({
               </div>
               <CardTitle className="font-fredoka text-3xl">Game Finished!</CardTitle>
               <CardDescription>
-                {session.endReason === 'COMPLETED'
-                  ? 'All rounds completed! Here are the final scores.'
-                  : `Game finished: ${session.endReason || 'Session ended'}`}
+                {gameKey === 'telephone'
+                  ? session.endReason === 'COMPLETED'
+                    ? 'Every chain is complete. Album browsing arrives with the reveal update.'
+                    : 'The game ended early. Album browsing arrives with the reveal update.'
+                  : session.endReason === 'COMPLETED'
+                    ? 'All rounds completed! Here are the final scores.'
+                    : `Game finished: ${session.endReason || 'Session ended'}`}
               </CardDescription>
             </CardHeader>
-            <CardContent className="pt-2">
-              <Scoreboard
-                standings={session.results?.standings}
-                players={players}
-                currentGuestId={currentGuestId}
-                title="Final Standings"
-              />
-            </CardContent>
+            {/* Telephone is unscored ([TP-11]): its results are the albums, not standings. */}
+            {gameKey !== 'telephone' && (
+              <CardContent className="pt-2">
+                <Scoreboard
+                  standings={session.results?.standings}
+                  players={players}
+                  currentGuestId={currentGuestId}
+                  title="Final Standings"
+                />
+              </CardContent>
+            )}
           </Card>
 
           {/* Rematch Voting Card */}
@@ -85,6 +93,8 @@ export function GameStage({
         </div>
       ) : gameKey === 'draw-guess' ? (
         <DrawGuessStage players={players} currentGuestId={currentGuestId} />
+      ) : gameKey === 'telephone' ? (
+        <TelephoneStage players={players} currentGuestId={currentGuestId} />
       ) : (
         /* PLAYING Phase View */
         <Card className="flex-1 flex flex-col border-border/70 shadow-xs overflow-hidden">
