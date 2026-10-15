@@ -73,8 +73,7 @@ class TelephoneSessionTest {
     submit(guest, "TELEPHONE_SUBMIT_DRAWING", Map.of());
   }
 
-  private static Map<String, Object> strokePayload(
-      UUID id, int batchNo, int points, boolean last) {
+  private static Map<String, Object> strokePayload(UUID id, int batchNo, int points, boolean last) {
     List<List<Integer>> pts = new ArrayList<>();
     for (int i = 0; i < points; i++) {
       pts.add(List.of(10_000, 10_000));
@@ -109,7 +108,9 @@ class TelephoneSessionTest {
     throw new AssertionError("expected a rejection");
   }
 
-  /** The player at order index {@code chain}'s holder in {@code step} (independent of the module). */
+  /**
+   * The player at order index {@code chain}'s holder in {@code step} (independent of the module).
+   */
   private static UUID holder(List<UUID> order, int chain, int step) {
     return order.get((chain + step) % order.size());
   }
@@ -238,7 +239,9 @@ class TelephoneSessionTest {
     for (int c = 0; c < 4; c++) {
       Map<String, Object> source = source(t1.get(holder(p, c, 1)));
       assertThat(source).containsEntry("kind", "TEXT").containsEntry("text", prompt.get(c));
-      assertThat(source).containsEntry("placeholder", false).doesNotContainKeys("author", "guestId");
+      assertThat(source)
+          .containsEntry("placeholder", false)
+          .doesNotContainKeys("author", "guestId");
     }
     Map<Integer, UUID> strokeIds = new HashMap<>();
     for (int c = 0; c < 4; c++) {
@@ -271,7 +274,8 @@ class TelephoneSessionTest {
     assertThat(f.recorder.rounds).hasSize(4);
     assertThat(f.recorder.rounds.stream().map(RoundRecord::roundNo).toList())
         .containsExactly(1, 2, 3, 4);
-    assertThat(f.recorder.rounds).allSatisfy(r -> assertThat(r.endReason()).isEqualTo("ALL_SUBMITTED"));
+    assertThat(f.recorder.rounds)
+        .allSatisfy(r -> assertThat(r.endReason()).isEqualTo("ALL_SUBMITTED"));
     assertThat(f.recorder.rounds.getFirst().meta())
         .containsEntry("step", 0)
         .containsEntry("kind", "PROMPT")
@@ -406,8 +410,7 @@ class TelephoneSessionTest {
   void TP14_textIsValidatedAndSanitized() {
     List<UUID> p = start(4);
 
-    assertThat(rejected(() -> text(p.get(0), "  ​ ")))
-        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    assertThat(rejected(() -> text(p.get(0), "  ​ "))).isEqualTo(ErrorCode.VALIDATION_FAILED);
     assertThat(rejected(() -> text(p.get(0), "x".repeat(141))))
         .isEqualTo(ErrorCode.VALIDATION_FAILED);
     assertThat(rejected(() -> submit(p.get(0), "TELEPHONE_SUBMIT_TEXT", Map.of("text", 5))))
@@ -446,9 +449,7 @@ class TelephoneSessionTest {
 
     assertThat(
             rejected(
-                () ->
-                    f.sessions.submit(
-                        CODE, p.get(0), "TELEPHONE_SUBMIT_DRAWING", old, Map.of())))
+                () -> f.sessions.submit(CODE, p.get(0), "TELEPHONE_SUBMIT_DRAWING", old, Map.of())))
         .isEqualTo(ErrorCode.STALE_ACTION);
   }
 
@@ -695,7 +696,8 @@ class TelephoneSessionTest {
     stroke(drawer, id, 4);
 
     @SuppressWarnings("unchecked")
-    Map<String, Object> draft = (Map<String, Object>) f.sessions.gameSnapshot(CODE, drawer).get("draft");
+    Map<String, Object> draft =
+        (Map<String, Object>) f.sessions.gameSnapshot(CODE, drawer).get("draft");
     assertThat(containsValue(draft.get("strokes"), id.toString())).isTrue();
     assertThat(draft).containsKey("canvasBudget");
   }
@@ -764,7 +766,8 @@ class TelephoneSessionTest {
     UUID drawer = holder(p, 0, 1);
     maximalDrawing(drawer);
 
-    byte[] snapshot = JsonMapper.builder().build().writeValueAsBytes(f.sessions.gameSnapshot(CODE, drawer));
+    byte[] snapshot =
+        JsonMapper.builder().build().writeValueAsBytes(f.sessions.gameSnapshot(CODE, drawer));
     assertThat(snapshot.length).isLessThan(262_144);
     assertThat(snapshot.length).isGreaterThan(150_000); // it really is the large case
   }
@@ -802,7 +805,8 @@ class TelephoneSessionTest {
       g.players(n);
       g.startAndPlay();
       @SuppressWarnings("unchecked")
-      List<UUID> order = (List<UUID>) g.sink.ofType("GAME_STARTED").getLast().payload().get("order");
+      List<UUID> order =
+          (List<UUID>) g.sink.ofType("GAME_STARTED").getLast().payload().get("order");
       Set<UUID> left = new java.util.HashSet<>();
       Map<UUID, String> leftIn = new HashMap<>();
       Map<String, UUID> authorOf = new HashMap<>();

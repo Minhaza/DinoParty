@@ -27,7 +27,7 @@ public record TelephoneSettings(
   static final int MAX_ENTRIES = 8;
 
   /** The catalog defaults ({@code game_definition.default_settings} of {@code telephone}). */
-  static Map<String, Object> defaults() {
+  public static Map<String, Object> defaults() {
     Map<String, Object> defaults = new LinkedHashMap<>();
     INT_BOUNDS.forEach((key, bound) -> defaults.put(key, bound.defaultValue()));
     defaults.put("entriesPerChain", 0);

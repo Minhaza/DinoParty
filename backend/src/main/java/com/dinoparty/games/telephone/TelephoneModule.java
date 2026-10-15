@@ -64,8 +64,7 @@ public class TelephoneModule implements GameModule {
   static final String DRAW_CLEAR = "TELEPHONE_DRAW_CLEAR";
   static final String SUBMIT_DRAWING = "TELEPHONE_SUBMIT_DRAWING";
 
-  private static final Set<String> TEXT_PHASES =
-      Set.of(Kind.PROMPT.name(), Kind.DESCRIBE.name());
+  private static final Set<String> TEXT_PHASES = Set.of(Kind.PROMPT.name(), Kind.DESCRIBE.name());
   private static final Set<String> DRAW_PHASES = Set.of(Kind.DRAW.name());
 
   private static final GameDefinition DEFINITION =
@@ -124,7 +123,8 @@ public class TelephoneModule implements GameModule {
     }
     TelephoneSettings settings = TelephoneSettings.from(ctx.settings());
     int n = ctx.order().size();
-    TelephoneState s = new TelephoneState(settings, ctx.order(), settings.entries(n), setup.prompts());
+    TelephoneState s =
+        new TelephoneState(settings, ctx.order(), settings.entries(n), setup.prompts());
     return startStep(s, 0, ctx);
   }
 
@@ -288,8 +288,8 @@ public class TelephoneModule implements GameModule {
   }
 
   /**
-   * Closes the running step: fills every missing cell ([TP-5]), records the round, publishes
-   * {@code TELEPHONE_STEP_ENDED} and starts the next step, or finishes after the last one.
+   * Closes the running step: fills every missing cell ([TP-5]), records the round, publishes {@code
+   * TELEPHONE_STEP_ENDED} and starts the next step, or finishes after the last one.
    */
   private Transition endStep(TelephoneState s, String reason, GameContext ctx) {
     for (int chain = 0; chain < s.n(); chain++) {
@@ -311,8 +311,7 @@ public class TelephoneModule implements GameModule {
     meta.put("submittedCount", s.submitted.size());
     meta.put("timedOutCount", s.timedOutGuests.size());
     meta.put("leftCount", s.leftGuests.size());
-    RoundRecord record =
-        new RoundRecord(s.step + 1, s.stepStartedAt, now, reason, Map.of(), meta);
+    RoundRecord record = new RoundRecord(s.step + 1, s.stepStartedAt, now, reason, Map.of(), meta);
     OutboundEvent stepEnded = OutboundEvent.publicEvent("TELEPHONE_STEP_ENDED", ended);
 
     if (s.step + 1 < s.totalSteps) {

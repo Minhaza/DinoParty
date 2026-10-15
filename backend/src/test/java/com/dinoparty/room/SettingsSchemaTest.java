@@ -80,8 +80,7 @@ class SettingsSchemaTest {
     }
     for (int bad : new int[] {-1, 1, 3, 9}) {
       assertThatThrownBy(
-              () ->
-                  SettingsSchema.resolve("telephone", Map.of(), Map.of("entriesPerChain", bad)))
+              () -> SettingsSchema.resolve("telephone", Map.of(), Map.of("entriesPerChain", bad)))
           .isInstanceOf(DomainException.class);
     }
   }

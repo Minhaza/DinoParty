@@ -11,8 +11,8 @@ import java.util.UUID;
 
 /**
  * The wire shapes of api-contracts §3.10 built from the state. The only place that turns chain
- * content into data a client may receive, so the secrecy rules of [TP-8] live here: a source is
- * the previous entry of the viewer's own chain and never carries its author.
+ * content into data a client may receive, so the secrecy rules of [TP-8] live here: a source is the
+ * previous entry of the viewer's own chain and never carries its author.
  */
 final class TelephoneViews {
 
