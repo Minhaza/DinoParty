@@ -1,0 +1,865 @@
+package com.dinoparty.session;
+
+import static com.dinoparty.session.SessionFixture.CODE;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.dinoparty.common.DomainException;
+import com.dinoparty.common.ErrorCode;
+import com.dinoparty.engine.GameDefinition;
+import com.dinoparty.engine.RoundRecord;
+import com.dinoparty.games.telephone.TelephoneModule;
+import com.dinoparty.session.SessionFixture.Published;
+import com.dinoparty.words.TestWords;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * Dino Telephone steps running inside the real engine with a manual clock and in-memory
+ * collaborators: transitions T1, T2, T6 of docs/telephone-design.md §4 (T3..T5 are P6-03), the
+ * rejection cells and the rules [TP-1]..[TP-14]. The WebSocket path is covered by {@code
+ * TelephoneIT}.
+ */
+class TelephoneSessionTest {
+
+  private final SessionFixture f = new SessionFixture(new TelephoneModule(TestWords.service()));
+
+  // ------------------------------------------------------------------ helpers
+
+  private List<UUID> start(int players) {
+    f.players(players);
+    f.startAndPlay();
+    return order();
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<UUID> order() {
+    return (List<UUID>) f.sink.ofType("GAME_STARTED").getLast().payload().get("order");
+  }
+
+  private Map<String, Object> last(String type) {
+    return f.sink.ofType(type).getLast().payload();
+  }
+
+  private String phase() {
+    return (String) last("PHASE_STARTED").get("phase");
+  }
+
+  private void submit(UUID guest, String type, Map<String, Object> payload) {
+    f.sessions.submit(CODE, guest, type, f.phaseId(), payload);
+  }
+
+  private void text(UUID guest, String text) {
+    submit(guest, "TELEPHONE_SUBMIT_TEXT", Map.of("text", text));
+  }
+
+  private void draftText(UUID guest, String text) {
+    submit(guest, "TELEPHONE_TEXT_DRAFT", Map.of("text", text));
+  }
+
+  private void stroke(UUID guest, UUID strokeId, int points) {
+    submit(guest, "TELEPHONE_DRAW_STROKE", strokePayload(strokeId, 0, points, true));
+  }
+
+  private void submitDrawing(UUID guest) {
+    submit(guest, "TELEPHONE_SUBMIT_DRAWING", Map.of());
+  }
+
+  private static Map<String, Object> strokePayload(
+      UUID id, int batchNo, int points, boolean last) {
+    List<List<Integer>> pts = new ArrayList<>();
+    for (int i = 0; i < points; i++) {
+      pts.add(List.of(10_000, 10_000));
+    }
+    Map<String, Object> p = new HashMap<>();
+    p.put("strokeId", id.toString());
+    p.put("batchNo", batchNo);
+    p.put("tool", "PENCIL");
+    p.put("color", "#123456");
+    p.put("size", 2);
+    p.put("points", pts);
+    p.put("final", last);
+    return p;
+  }
+
+  private void advance(Duration d) {
+    f.clock.advance(d);
+    f.scheduler.fireDue(f.clock, false);
+  }
+
+  private void leave(UUID guest) {
+    f.room.removeMember(guest);
+    f.sessions.onMemberLeft(CODE, guest);
+  }
+
+  private static ErrorCode rejected(Runnable action) {
+    try {
+      action.run();
+    } catch (DomainException e) {
+      return e.code();
+    }
+    throw new AssertionError("expected a rejection");
+  }
+
+  /** The player at order index {@code chain}'s holder in {@code step} (independent of the module). */
+  private static UUID holder(List<UUID> order, int chain, int step) {
+    return order.get((chain + step) % order.size());
+  }
+
+  private static int chainOf(List<UUID> order, UUID guest, int step) {
+    return Math.floorMod(order.indexOf(guest) - step, order.size());
+  }
+
+  /** The private tasks of the running phase by recipient. */
+  private Map<UUID, Map<String, Object>> tasks() {
+    String phaseId = f.phaseId();
+    Map<UUID, Map<String, Object>> tasks = new HashMap<>();
+    for (Published e : f.sink.ofType("TELEPHONE_TASK")) {
+      if (e.payload().get("phaseId").toString().equals(phaseId)) {
+        assertThat(tasks.put(e.recipient(), e.payload())).as("one task per holder").isNull();
+      }
+    }
+    return tasks;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> source(Map<String, Object> task) {
+    return (Map<String, Object>) task.get("source");
+  }
+
+  /** Everybody still in the game submits something unique for the running step. */
+  private void everybodySubmits(List<UUID> players, String tag) {
+    for (UUID g : players) {
+      switch (phase()) {
+        case "DRAW" -> {
+          stroke(g, UUID.randomUUID(), 3);
+          submitDrawing(g);
+        }
+        default -> text(g, tag + "-" + players.indexOf(g));
+      }
+    }
+  }
+
+  private void playToTheEnd(List<UUID> players) {
+    int guard = 0;
+    while (f.sessions.gameSnapshot(CODE, players.getFirst()).get("status").equals("RUNNING")
+        && guard++ < 20) {
+      everybodySubmits(players, "s" + guard);
+    }
+  }
+
+  private static boolean containsValue(Object value, String needle) {
+    return switch (value) {
+      case null -> false;
+      case String s -> s.contains(needle);
+      case UUID u -> u.toString().contains(needle);
+      case Map<?, ?> m -> m.values().stream().anyMatch(v -> containsValue(v, needle));
+      case Collection<?> c -> c.stream().anyMatch(v -> containsValue(v, needle));
+      default -> false;
+    };
+  }
+
+  // ------------------------------------------------------------------ definition and start
+
+  @Test
+  void theModuleDeclaresTheContractDefinition() {
+    GameDefinition d = new TelephoneModule(TestWords.service()).definition();
+
+    assertThat(d.key()).isEqualTo("telephone");
+    assertThat(d.minPlayers()).isEqualTo(4);
+    assertThat(d.maxPlayers()).isEqualTo(8);
+    assertThat(d.minActivePlayers()).isEqualTo(3);
+    assertThat(d.scored()).isFalse();
+    assertThat(d.commandsByType())
+        .containsOnlyKeys(
+            "TELEPHONE_SUBMIT_TEXT",
+            "TELEPHONE_TEXT_DRAFT",
+            "TELEPHONE_DRAW_STROKE",
+            "TELEPHONE_DRAW_UNDO",
+            "TELEPHONE_DRAW_CLEAR",
+            "TELEPHONE_SUBMIT_DRAWING");
+    var strokeSpec = d.commandsByType().get("TELEPHONE_DRAW_STROKE");
+    assertThat(strokeSpec.maxPayloadBytes()).isEqualTo(8 * 1024);
+    assertThat(strokeSpec.ratePerSecond()).isEqualTo(30.0);
+    assertThat(strokeSpec.burst()).isEqualTo(40);
+    assertThat(strokeSpec.phases()).containsExactly("DRAW");
+    assertThat(d.commandsByType().get("TELEPHONE_SUBMIT_TEXT").phases())
+        .containsExactlyInAnyOrder("PROMPT", "DESCRIBE");
+    assertThat(d.commandsByType().get("TELEPHONE_TEXT_DRAFT").ratePerSecond()).isEqualTo(2.0);
+    assertThat(d.publicEvents())
+        .containsExactlyInAnyOrder("TELEPHONE_PROGRESS", "TELEPHONE_STEP_ENDED");
+    assertThat(d.privateEvents()).containsExactly("TELEPHONE_TASK");
+  }
+
+  @Test
+  void T1_startOpensPromptStepAndEveryHolderGetsAPromptTask() {
+    List<UUID> p = start(4);
+
+    Map<String, Object> phase = last("PHASE_STARTED");
+    assertThat(phase.get("phase")).isEqualTo("PROMPT");
+    assertThat(phase.get("step")).isEqualTo(0);
+    assertThat(phase.get("totalSteps")).isEqualTo(4);
+    assertThat(phase.get("kind")).isEqualTo("PROMPT");
+    assertThat(phase.get("deadlineAt")).isNotNull();
+    assertThat(last("TELEPHONE_PROGRESS"))
+        .containsEntry("submittedCount", 0)
+        .containsEntry("total", 4);
+
+    Map<UUID, Map<String, Object>> tasks = tasks();
+    assertThat(tasks.keySet()).containsExactlyInAnyOrderElementsOf(p);
+    tasks.values().forEach(t -> assertThat(t.get("source")).isNull());
+    f.sink.ofType("TELEPHONE_TASK").forEach(e -> assertThat(e.isPublic()).isFalse());
+  }
+
+  // ------------------------------------------------------------------ a full game
+
+  @Test
+  void TP1_TP4_fourPlayersPlayFourStepsAndEachHolderOnlySeesThePreviousEntry() {
+    List<UUID> p = start(4);
+    List<String> kinds = new ArrayList<>(List.of(phase()));
+    Map<Integer, String> prompt = new HashMap<>();
+
+    // step 0: everybody writes a unique prompt
+    for (int i = 0; i < 4; i++) {
+      prompt.put(i, "prompt-" + i);
+      text(p.get(i), prompt.get(i));
+    }
+    // step 1 (DRAW): the holder of chain c is p[(c+1)%4] and sees the prompt of chain c only
+    kinds.add(phase());
+    Map<UUID, Map<String, Object>> t1 = tasks();
+    for (int c = 0; c < 4; c++) {
+      Map<String, Object> source = source(t1.get(holder(p, c, 1)));
+      assertThat(source).containsEntry("kind", "TEXT").containsEntry("text", prompt.get(c));
+      assertThat(source).containsEntry("placeholder", false).doesNotContainKeys("author", "guestId");
+    }
+    Map<Integer, UUID> strokeIds = new HashMap<>();
+    for (int c = 0; c < 4; c++) {
+      UUID id = UUID.randomUUID();
+      strokeIds.put(c, id);
+      stroke(holder(p, c, 1), id, 2);
+      submitDrawing(holder(p, c, 1));
+    }
+    // step 2 (DESCRIBE): sees the drawing, not the prompt
+    kinds.add(phase());
+    Map<UUID, Map<String, Object>> t2 = tasks();
+    for (int c = 0; c < 4; c++) {
+      Map<String, Object> source = source(t2.get(holder(p, c, 2)));
+      assertThat(source).containsEntry("kind", "DRAWING");
+      assertThat(source).doesNotContainKey("text");
+      assertThat(containsValue(source, strokeIds.get(c).toString())).isTrue();
+      assertThat(containsValue(t2.get(holder(p, c, 2)), prompt.get(c))).isFalse();
+      text(holder(p, c, 2), "describe-" + c);
+    }
+    // step 3 (DRAW), the last
+    kinds.add(phase());
+    Map<UUID, Map<String, Object>> t3 = tasks();
+    for (int c = 0; c < 4; c++) {
+      assertThat(source(t3.get(holder(p, c, 3)))).containsEntry("text", "describe-" + c);
+      submitDrawing(holder(p, c, 3)); // an empty canvas is a valid submission
+    }
+
+    assertThat(kinds).containsExactly("PROMPT", "DRAW", "DESCRIBE", "DRAW");
+    assertThat(f.sink.publicTypes()).contains("GAME_FINISHED");
+    assertThat(f.recorder.rounds).hasSize(4);
+    assertThat(f.recorder.rounds.stream().map(RoundRecord::roundNo).toList())
+        .containsExactly(1, 2, 3, 4);
+    assertThat(f.recorder.rounds).allSatisfy(r -> assertThat(r.endReason()).isEqualTo("ALL_SUBMITTED"));
+    assertThat(f.recorder.rounds.getFirst().meta())
+        .containsEntry("step", 0)
+        .containsEntry("kind", "PROMPT")
+        .containsEntry("submittedCount", 4)
+        .containsEntry("timedOutCount", 0)
+        .containsEntry("leftCount", 0);
+    assertThat(f.recorder.results.getFirst().standings()).isEmpty();
+  }
+
+  @Test
+  void TP2_fivePlayersAutoGivesFourEntries() {
+    List<UUID> p = start(5);
+
+    assertThat(last("PHASE_STARTED").get("totalSteps")).isEqualTo(4);
+    playToTheEnd(p);
+
+    assertThat(f.recorder.rounds).hasSize(4);
+    assertThat(f.sink.publicTypes()).contains("GAME_FINISHED");
+  }
+
+  @Test
+  void TP2_eightPlayersPlayEightSteps() {
+    List<UUID> p = start(8);
+
+    assertThat(last("PHASE_STARTED").get("totalSteps")).isEqualTo(8);
+    playToTheEnd(p);
+
+    assertThat(f.recorder.rounds).hasSize(8);
+    assertThat(f.sink.ofType("TELEPHONE_TASK")).hasSize(8 * 8);
+  }
+
+  @Test
+  void TP4_noOneEverReceivesAnEntryTheyAuthored() {
+    List<UUID> p = start(6);
+    Map<String, UUID> authorOf = new HashMap<>();
+    int step = 0;
+    while (f.sessions.gameSnapshot(CODE, p.getFirst()).get("status").equals("RUNNING")) {
+      for (Map.Entry<UUID, Map<String, Object>> t : tasks().entrySet()) {
+        Map<String, Object> src = source(t.getValue());
+        if (src != null && src.get("text") != null) {
+          assertThat(authorOf.get(src.get("text"))).isNotEqualTo(t.getKey());
+        }
+      }
+      for (UUID g : p) {
+        if (phase().equals("DRAW")) {
+          submitDrawing(g);
+        } else {
+          String tag = "x" + step + "-" + p.indexOf(g);
+          authorOf.put(tag, g);
+          text(g, tag);
+        }
+      }
+      step++;
+    }
+    assertThat(step).isEqualTo(6);
+  }
+
+  // ------------------------------------------------------------------ progress and early end
+
+  @Test
+  void TP4_progressNamesWhoSubmittedAndTheLastSubmissionEndsTheStepAtOnce() {
+    List<UUID> p = start(4);
+
+    text(p.get(0), "a");
+    assertThat(last("TELEPHONE_PROGRESS"))
+        .containsEntry("submittedCount", 1)
+        .containsEntry("total", 4)
+        .containsEntry("submittedGuestIds", List.of(p.get(0)));
+    assertThat(phase()).isEqualTo("PROMPT");
+    text(p.get(1), "b");
+    text(p.get(2), "c");
+    text(p.get(3), "d");
+
+    assertThat(phase()).isEqualTo("DRAW");
+    assertThat(last("TELEPHONE_STEP_ENDED"))
+        .containsEntry("step", 0)
+        .containsEntry("kind", "PROMPT")
+        .containsEntry("reason", "ALL_SUBMITTED")
+        .containsEntry("timedOutGuestIds", List.of())
+        .containsEntry("leftGuestIds", List.of());
+    // the step's events precede the next PHASE_STARTED
+    List<String> types = f.sink.events.stream().map(Published::type).toList();
+    assertThat(types.lastIndexOf("TELEPHONE_STEP_ENDED"))
+        .isLessThan(types.lastIndexOf("PHASE_STARTED"));
+  }
+
+  @Test
+  void TP4_disconnectedHolderBlocksTheEarlyEndUntilTheyAreLeft() {
+    List<UUID> p = start(4);
+    f.sessions.onConnection(CODE, p.get(3), false);
+
+    text(p.get(0), "a");
+    text(p.get(1), "b");
+    text(p.get(2), "c");
+    assertThat(phase()).isEqualTo("PROMPT");
+
+    leave(p.get(3)); // grace over: LEFT, filled at once, step re-evaluated (D48)
+    assertThat(phase()).isEqualTo("DRAW");
+    assertThat(last("TELEPHONE_STEP_ENDED").get("leftGuestIds")).isEqualTo(List.of(p.get(3)));
+  }
+
+  // ------------------------------------------------------------------ rejections
+
+  @Test
+  void TP7_aSecondSubmissionAndAnyLaterInputAreRejectedAndChangeNothing() {
+    List<UUID> p = start(4);
+    text(p.get(0), "first");
+
+    assertThat(rejected(() -> text(p.get(0), "second"))).isEqualTo(ErrorCode.ALREADY_SUBMITTED);
+    assertThat(rejected(() -> draftText(p.get(0), "more"))).isEqualTo(ErrorCode.ALREADY_SUBMITTED);
+    assertThat(last("TELEPHONE_PROGRESS")).containsEntry("submittedCount", 1);
+
+    text(p.get(1), "b");
+    text(p.get(2), "c");
+    text(p.get(3), "d");
+    assertThat(source(tasks().get(holder(p, 0, 1)))).containsEntry("text", "first");
+
+    // DRAW step: same finality for drawing commands
+    UUID drawer = holder(p, 0, 1);
+    stroke(drawer, UUID.randomUUID(), 2);
+    submitDrawing(drawer);
+    assertThat(rejected(() -> submitDrawing(drawer))).isEqualTo(ErrorCode.ALREADY_SUBMITTED);
+    assertThat(rejected(() -> stroke(drawer, UUID.randomUUID(), 1)))
+        .isEqualTo(ErrorCode.ALREADY_SUBMITTED);
+    assertThat(rejected(() -> submit(drawer, "TELEPHONE_DRAW_UNDO", Map.of())))
+        .isEqualTo(ErrorCode.ALREADY_SUBMITTED);
+    assertThat(rejected(() -> submit(drawer, "TELEPHONE_DRAW_CLEAR", Map.of())))
+        .isEqualTo(ErrorCode.ALREADY_SUBMITTED);
+  }
+
+  @Test
+  void TP14_textIsValidatedAndSanitized() {
+    List<UUID> p = start(4);
+
+    assertThat(rejected(() -> text(p.get(0), "  ​ ")))
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    assertThat(rejected(() -> text(p.get(0), "x".repeat(141))))
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    assertThat(rejected(() -> submit(p.get(0), "TELEPHONE_SUBMIT_TEXT", Map.of("text", 5))))
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    assertThat(rejected(() -> submit(p.get(0), "TELEPHONE_SUBMIT_TEXT", Map.of())))
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    assertThat(rejected(() -> draftText(p.get(0), "x".repeat(141))))
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    assertThat(last("TELEPHONE_PROGRESS")).containsEntry("submittedCount", 0);
+
+    text(p.get(0), "x".repeat(140)); // exactly 140 is fine
+    text(p.get(1), "  a\u0000b‮  ");
+    text(p.get(2), "c");
+    text(p.get(3), "d");
+    assertThat(source(tasks().get(holder(p, 1, 1)))).containsEntry("text", "ab");
+  }
+
+  @Test
+  void TP4_commandsOfAnotherPhaseKindAreRejected() {
+    List<UUID> p = start(4);
+
+    assertThat(rejected(() -> submitDrawing(p.get(0)))).isEqualTo(ErrorCode.INVALID_PHASE);
+    assertThat(rejected(() -> stroke(p.get(0), UUID.randomUUID(), 1)))
+        .isEqualTo(ErrorCode.INVALID_PHASE);
+
+    everybodySubmits(p, "a"); // now DRAW
+    assertThat(rejected(() -> text(p.get(0), "x"))).isEqualTo(ErrorCode.INVALID_PHASE);
+    assertThat(rejected(() -> draftText(p.get(0), "x"))).isEqualTo(ErrorCode.INVALID_PHASE);
+  }
+
+  @Test
+  void C6_aCommandWithAnOldPhaseIdIsStale() {
+    List<UUID> p = start(4);
+    String old = f.phaseId();
+    everybodySubmits(p, "a");
+
+    assertThat(
+            rejected(
+                () ->
+                    f.sessions.submit(
+                        CODE, p.get(0), "TELEPHONE_SUBMIT_DRAWING", old, Map.of())))
+        .isEqualTo(ErrorCode.STALE_ACTION);
+  }
+
+  @Test
+  void TP9_drawingBudgetsRejectTheWholeBatchAndLeaveTheDraftUnchanged() {
+    List<UUID> p = start(4);
+    everybodySubmits(p, "a");
+    UUID drawer = holder(p, 0, 1);
+
+    submit(drawer, "TELEPHONE_DRAW_STROKE", strokePayload(UUID.randomUUID(), 0, 200, true));
+    UUID id = UUID.randomUUID();
+    ErrorCode code =
+        rejected(
+            () -> {
+              for (int b = 0; b < 12; b++) {
+                submit(drawer, "TELEPHONE_DRAW_STROKE", strokePayload(id, b, 200, false));
+              }
+            });
+    assertThat(code).isEqualTo(ErrorCode.PAYLOAD_TOO_LARGE);
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> budget =
+        (Map<String, Object>)
+            ((Map<String, Object>) f.sessions.gameSnapshot(CODE, drawer).get("draft"))
+                .get("canvasBudget");
+    assertThat(budget.get("points")).isEqualTo(2_000 + 200); // 200 + the 10 accepted of the stroke
+    assertThat(f.sink.ofType("DRAWING_UPDATED")).isEmpty(); // nothing is broadcast ([TP-9])
+  }
+
+  // ------------------------------------------------------------------ timeouts and fills
+
+  @Test
+  void TP3_TP5_deadlineKeepsDraftsAndFillsTheRestFromThePool() {
+    List<UUID> p = start(4);
+    draftText(p.get(0), "half typed");
+    draftText(p.get(1), "x");
+    draftText(p.get(1), ""); // cleared again
+    text(p.get(2), "done");
+
+    advance(Duration.ofSeconds(60));
+
+    assertThat(phase()).isEqualTo("DRAW");
+    RoundRecord round = f.recorder.rounds.getFirst();
+    assertThat(round.endReason()).isEqualTo("TIME");
+    assertThat(round.meta()).containsEntry("submittedCount", 1).containsEntry("timedOutCount", 3);
+    assertThat(last("TELEPHONE_STEP_ENDED").get("timedOutGuestIds"))
+        .isEqualTo(List.of(p.get(0), p.get(1), p.get(3)));
+
+    Map<UUID, Map<String, Object>> tasks = tasks();
+    assertThat(source(tasks.get(holder(p, 0, 1)))).containsEntry("text", "half typed");
+    assertThat(source(tasks.get(holder(p, 2, 1)))).containsEntry("text", "done");
+    for (int c : new int[] {1, 3}) {
+      Map<String, Object> auto = source(tasks.get(holder(p, c, 1)));
+      assertThat(auto.get("text")).asString().isNotBlank();
+      assertThat(auto).containsEntry("placeholder", false);
+    }
+    // the late command of a timed-out holder is stale ([TP-12])
+    assertThat(
+            rejected(
+                () ->
+                    f.sessions.submit(
+                        CODE,
+                        p.get(3),
+                        "TELEPHONE_SUBMIT_TEXT",
+                        f.sink.ofType("PHASE_STARTED").get(0).payload().get("phaseId").toString(),
+                        Map.of("text", "late"))))
+        .isEqualTo(ErrorCode.STALE_ACTION);
+  }
+
+  @Test
+  void TP3_autoPromptsAreDrawnWithoutReplacement() {
+    List<UUID> p = start(8);
+
+    advance(Duration.ofSeconds(60));
+
+    Set<Object> texts = new java.util.HashSet<>();
+    tasks().values().forEach(t -> texts.add(source(t).get("text")));
+    assertThat(texts).hasSize(8);
+  }
+
+  @Test
+  void TP5_aPartialDrawingIsKeptAndAnEmptyOneBecomesAPlaceholderThatIsPassedOn() {
+    List<UUID> p = start(4);
+    everybodySubmits(p, "a");
+    UUID id = UUID.randomUUID();
+    stroke(holder(p, 0, 1), id, 5); // chain 0 drew something, never submitted
+    // chains 1..3: nothing drawn, nothing submitted
+
+    advance(Duration.ofSeconds(90));
+
+    assertThat(phase()).isEqualTo("DESCRIBE");
+    Map<UUID, Map<String, Object>> tasks = tasks();
+    Map<String, Object> kept = source(tasks.get(holder(p, 0, 2)));
+    assertThat(kept).containsEntry("kind", "DRAWING").containsEntry("placeholder", false);
+    assertThat(containsValue(kept, id.toString())).isTrue();
+    Map<String, Object> blank = source(tasks.get(holder(p, 1, 2)));
+    assertThat(blank).containsEntry("kind", "DRAWING").containsEntry("placeholder", true);
+    assertThat(blank.get("strokes")).isEqualTo(List.of());
+
+    advance(Duration.ofSeconds(45)); // nobody describes: placeholders
+    assertThat(phase()).isEqualTo("DRAW");
+    for (int c = 0; c < 4; c++) {
+      Map<String, Object> s = source(tasks().get(holder(p, c, 3)));
+      assertThat(s).containsEntry("text", "(no description)");
+      assertThat(s).containsEntry("placeholder", true);
+    }
+  }
+
+  @Test
+  void TP5_aDescriptionDraftSurvivesTheDeadline() {
+    List<UUID> p = start(4);
+    everybodySubmits(p, "a");
+    everybodySubmits(p, "b"); // now DESCRIBE
+    draftText(holder(p, 2, 2), "a pink thing");
+
+    advance(Duration.ofSeconds(45));
+
+    assertThat(source(tasks().get(holder(p, 2, 3))))
+        .containsEntry("text", "a pink thing")
+        .containsEntry("placeholder", false);
+  }
+
+  @Test
+  void TP12_theNextStepDeadlineIsMeasuredFromTheMomentItStarts() {
+    List<UUID> p = start(4);
+    advance(Duration.ofSeconds(20));
+    everybodySubmits(p, "a");
+
+    Instant drawStarted = f.clock.instant();
+    assertThat(last("PHASE_STARTED").get("deadlineAt"))
+        .isEqualTo(com.dinoparty.common.Timestamps.format(drawStarted.plusSeconds(90)));
+  }
+
+  // ------------------------------------------------------------------ leaving
+
+  @Test
+  void TP10_aHolderWhoLeavesIsFilledFromTheirDraftAndTheStepIsReEvaluated() {
+    List<UUID> p = start(5);
+    text(p.get(0), "a");
+    text(p.get(1), "b");
+    text(p.get(2), "c");
+    text(p.get(3), "d");
+    draftText(p.get(4), "unfinished");
+
+    leave(p.get(4));
+
+    assertThat(phase()).isEqualTo("DRAW");
+    assertThat(last("TELEPHONE_STEP_ENDED")).containsEntry("reason", "ALL_SUBMITTED");
+    assertThat(last("TELEPHONE_STEP_ENDED").get("leftGuestIds")).isEqualTo(List.of(p.get(4)));
+    assertThat(source(tasks().get(holder(p, 4, 1)))).containsEntry("text", "unfinished");
+    assertThat(tasks()).doesNotContainKey(p.get(4)); // a left holder is never asked again
+  }
+
+  @Test
+  void TP10_aLeftHoldersLaterCellsAreFilledWhenTheStepStarts() {
+    List<UUID> p = start(5);
+    leave(p.get(4));
+    everybodySubmitsExcept(p, p.get(4), "a");
+
+    assertThat(phase()).isEqualTo("DRAW");
+    assertThat(tasks().keySet()).doesNotContain(p.get(4));
+    assertThat(tasks()).hasSize(4);
+    assertThat(last("TELEPHONE_PROGRESS")).containsEntry("total", 4);
+    // the cell of p4's chain holder in step 1 is p0's... p4 is the holder of chain 3 at step 1
+    UUID leftHolderChain = holder(p, 3, 1);
+    assertThat(leftHolderChain).isEqualTo(p.get(4));
+    submitEveryoneBut(p.get(4));
+    assertThat(phase()).isEqualTo("DESCRIBE");
+    assertThat(last("TELEPHONE_STEP_ENDED").get("leftGuestIds")).isEqualTo(List.of(p.get(4)));
+    // chain 3's drawing is a placeholder: the next holder is told so
+    assertThat(source(tasks().get(holder(p, 3, 2)))).containsEntry("placeholder", true);
+  }
+
+  private void everybodySubmitsExcept(List<UUID> p, UUID skip, String tag) {
+    for (UUID g : p) {
+      if (!g.equals(skip)) {
+        text(g, tag + p.indexOf(g));
+      }
+    }
+  }
+
+  private void submitEveryoneBut(UUID skip) {
+    for (UUID g : tasks().keySet()) {
+      if (!g.equals(skip)) {
+        submitDrawing(g);
+      }
+    }
+  }
+
+  @Test
+  void C1_fewerThanThreeActivePlayersEndTheGame() {
+    List<UUID> p = start(4);
+    everybodySubmits(p, "a"); // step 0 done: one completed round
+    leave(p.get(3));
+    leave(p.get(2));
+
+    assertThat(last("GAME_FINISHED")).containsEntry("endReason", "INSUFFICIENT_PLAYERS");
+    assertThat(f.recorder.rounds).hasSize(1); // the step in progress is discarded
+  }
+
+  @Test
+  void C1_fewerThanThreeActivePlayersBeforeAnyStepCompletedAbort() {
+    List<UUID> p = start(4);
+    leave(p.get(3));
+    leave(p.get(2));
+
+    assertThat(f.recorder.aborts).hasSize(1);
+    assertThat(f.sink.publicTypes()).doesNotContain("GAME_FINISHED");
+  }
+
+  // ------------------------------------------------------------------ snapshots and secrecy
+
+  @Test
+  void TP9_aReconnectingHolderGetsTaskDraftAndSubmittedFromTheSnapshot() {
+    List<UUID> p = start(4);
+    draftText(p.get(0), "typing...");
+    f.sessions.onConnection(CODE, p.get(0), false);
+    f.sessions.onConnection(CODE, p.get(0), true);
+
+    Map<String, Object> snap = f.sessions.gameSnapshot(CODE, p.get(0));
+    assertThat(snap).containsEntry("phase", "PROMPT").containsEntry("submitted", false);
+    assertThat(snap).containsEntry("step", 0).containsEntry("totalSteps", 4);
+    assertThat(snap).containsEntry("entriesPerChain", 4).containsEntry("kind", "PROMPT");
+    assertThat(snap.get("draft")).isEqualTo(Map.of("text", "typing..."));
+    @SuppressWarnings("unchecked")
+    Map<String, Object> task = (Map<String, Object>) snap.get("task");
+    assertThat(task).containsEntry("kind", "PROMPT");
+    assertThat(task.get("source")).isNull();
+    assertThat(snap).containsEntry("waitingOn", 4).containsEntry("reveal", null);
+
+    text(p.get(0), "done");
+    snap = f.sessions.gameSnapshot(CODE, p.get(0));
+    assertThat(snap).containsEntry("submitted", true).containsEntry("waitingOn", 3);
+    assertThat(snap.get("draft")).isNull();
+    assertThat(snap.get("submittedGuestIds")).isEqualTo(List.of(p.get(0)));
+  }
+
+  @Test
+  void TP9_aDrawingDraftIsRestoredFromTheSnapshot() {
+    List<UUID> p = start(4);
+    everybodySubmits(p, "a");
+    UUID drawer = holder(p, 0, 1);
+    UUID id = UUID.randomUUID();
+    stroke(drawer, id, 4);
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> draft = (Map<String, Object>) f.sessions.gameSnapshot(CODE, drawer).get("draft");
+    assertThat(containsValue(draft.get("strokes"), id.toString())).isTrue();
+    assertThat(draft).containsKey("canvasBudget");
+  }
+
+  @Test
+  void TP8_anEntryReachesOnlyItsNextHolderAndNeverAPublicEventOrAnotherSnapshot() {
+    List<UUID> p = start(4);
+    for (int i = 0; i < 4; i++) {
+      text(p.get(i), "secret-" + i);
+    }
+    // step 1 running: "secret-c" belongs to chain c's holder only
+    for (int c = 0; c < 4; c++) {
+      String needle = "secret-" + c;
+      UUID next = holder(p, c, 1);
+      for (Published e : f.sink.events) {
+        boolean carries = containsValue(e.payload(), needle);
+        if (e.isPublic()) {
+          assertThat(carries).as("public %s carries %s", e.type(), needle).isFalse();
+        } else if (e.type().equals("TELEPHONE_TASK")) {
+          boolean step1 = e.payload().get("step").equals(1);
+          assertThat(carries).isEqualTo(step1 && e.recipient().equals(next));
+        } else {
+          assertThat(carries).isFalse();
+        }
+      }
+      for (UUID viewer : p) {
+        Map<String, Object> snap = f.sessions.gameSnapshot(CODE, viewer);
+        assertThat(containsValue(snap, needle)).isEqualTo(viewer.equals(next));
+      }
+    }
+    // nothing is revealed in P6-02: the unrelated viewer of a later step still sees one source
+    assertThat(f.sessions.gameSnapshot(CODE, UUID.randomUUID())).isNull();
+  }
+
+  @Test
+  void TP8_theSnapshotOfAFinishedGameCarriesNoTaskOrContent() {
+    List<UUID> p = start(4);
+    for (int i = 0; i < 4; i++) {
+      everybodySubmits(p, "k" + i);
+    }
+
+    Map<String, Object> snap = f.sessions.gameSnapshot(CODE, p.get(0));
+    assertThat(snap).containsEntry("status", "FINISHED");
+    assertThat(snap.get("task")).isNull();
+    assertThat(snap.get("draft")).isNull();
+    assertThat(snap.get("kind")).isNull();
+    assertThat(snap).containsEntry("step", 4);
+    assertThat(containsValue(snap, "k0")).isFalse();
+  }
+
+  // ------------------------------------------------------------------ size bound
+
+  /** A drawing of 300 strokes with 40 points each: the 12 000-point budget at maximal digits. */
+  private void maximalDrawing(UUID drawer) {
+    for (int i = 0; i < 300; i++) {
+      stroke(drawer, UUID.randomUUID(), 40);
+    }
+  }
+
+  @Test
+  void TP9_aMaximalDraftInTheDrawSnapshotStaysBelowTheEngineBound() {
+    List<UUID> p = start(4);
+    for (UUID g : p) {
+      text(g, "t".repeat(140));
+    }
+    UUID drawer = holder(p, 0, 1);
+    maximalDrawing(drawer);
+
+    byte[] snapshot = JsonMapper.builder().build().writeValueAsBytes(f.sessions.gameSnapshot(CODE, drawer));
+    assertThat(snapshot.length).isLessThan(262_144);
+    assertThat(snapshot.length).isGreaterThan(150_000); // it really is the large case
+  }
+
+  @Test
+  void TP9_aMaximalDrawingSourceFitsTheDescribeSnapshotAndTheTaskEvent() {
+    List<UUID> p = start(4);
+    for (UUID g : p) {
+      text(g, "t");
+    }
+    UUID drawer = holder(p, 0, 1);
+    maximalDrawing(drawer);
+    for (UUID g : p) {
+      submitDrawing(g);
+    }
+    UUID describer = holder(p, 0, 2);
+    draftText(describer, "d".repeat(140));
+
+    JsonMapper json = JsonMapper.builder().build();
+    byte[] snapshot = json.writeValueAsBytes(f.sessions.gameSnapshot(CODE, describer));
+    byte[] task = json.writeValueAsBytes(tasks().get(describer));
+    assertThat(snapshot.length).isLessThan(262_144);
+    assertThat(task.length).isLessThan(262_144);
+    assertThat(snapshot.length).isGreaterThan(150_000); // it really is the large case
+  }
+
+  // ------------------------------------------------------------------ invariants
+
+  @Test
+  void invariantWalk_randomInterleavingsKeepEveryStepAPermutation() {
+    for (int seed = 0; seed < 12; seed++) {
+      SessionFixture g = new SessionFixture(new TelephoneModule(TestWords.service()));
+      java.util.Random random = new java.util.Random(seed);
+      int n = 4 + random.nextInt(5);
+      g.players(n);
+      g.startAndPlay();
+      @SuppressWarnings("unchecked")
+      List<UUID> order = (List<UUID>) g.sink.ofType("GAME_STARTED").getLast().payload().get("order");
+      Set<UUID> left = new java.util.HashSet<>();
+      Map<UUID, String> leftIn = new HashMap<>();
+      Map<String, UUID> authorOf = new HashMap<>();
+      int counter = 0;
+      int guard = 0;
+      while ("RUNNING".equals(g.sessions.gameSnapshot(CODE, firstActive(order, left)).get("status"))
+          && guard++ < 400) {
+        String phaseId = g.phaseId();
+        String phase = (String) g.sink.ofType("PHASE_STARTED").getLast().payload().get("phase");
+        // every non-left holder got exactly one task this step, none went to a left player
+        Map<UUID, Map<String, Object>> tasks = new HashMap<>();
+        for (Published e : g.sink.ofType("TELEPHONE_TASK")) {
+          if (e.payload().get("phaseId").toString().equals(phaseId)) {
+            assertThat(tasks.put(e.recipient(), e.payload())).isNull();
+          }
+        }
+        // nobody who left in an earlier phase is asked again
+        tasks.keySet().forEach(who -> assertThat(leftIn.get(who)).isIn(null, phaseId));
+        tasks.forEach(
+            (who, task) -> {
+              Object text = source(task) == null ? null : source(task).get("text");
+              if (text != null && authorOf.containsKey(text.toString())) {
+                assertThat(authorOf.get(text.toString())).isNotEqualTo(who);
+              }
+            });
+        int action = random.nextInt(10);
+        UUID who = order.get(random.nextInt(n));
+        try {
+          if (action < 6 && !left.contains(who)) {
+            if (phase.equals("DRAW")) {
+              g.sessions.submit(CODE, who, "TELEPHONE_SUBMIT_DRAWING", phaseId, Map.of());
+            } else {
+              String token = "w" + counter++;
+              authorOf.put(token, who);
+              g.sessions.submit(CODE, who, "TELEPHONE_SUBMIT_TEXT", phaseId, Map.of("text", token));
+            }
+          } else if (action == 6 && left.size() < n - 3 && !left.contains(who)) {
+            left.add(who);
+            leftIn.put(who, phaseId);
+            g.room.removeMember(who);
+            g.sessions.onMemberLeft(CODE, who);
+          } else if (action == 7) {
+            g.sessions.onConnection(CODE, who, random.nextBoolean());
+          } else if (action == 8) {
+            g.clock.advance(Duration.ofSeconds(1 + random.nextInt(100)));
+            g.scheduler.fireDue(g.clock, false);
+          }
+        } catch (DomainException expected) {
+          assertThat(expected.code())
+              .isIn(ErrorCode.ALREADY_SUBMITTED, ErrorCode.NOT_IN_ROOM, ErrorCode.INVALID_PHASE);
+        }
+      }
+      assertThat(g.sink.publicTypes()).as("seed %d finishes", seed).contains("GAME_FINISHED");
+    }
+  }
+
+  private static UUID firstActive(List<UUID> order, Set<UUID> left) {
+    return order.stream().filter(x -> !left.contains(x)).findFirst().orElseThrow();
+  }
+}

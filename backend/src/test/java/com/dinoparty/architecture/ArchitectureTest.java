@@ -262,6 +262,23 @@ class ArchitectureTest {
               "org.springframework.stereotype..",
               "java..");
 
+  /** Telephone uses the engine SPI, the drawing library, the word pool and common only. */
+  @ArchTest
+  static final ArchRule telephoneUsesEngineDrawingAndCommonOnly =
+      classes()
+          .that()
+          .resideInAPackage("com.dinoparty.games.telephone..")
+          .should()
+          .onlyDependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.games.telephone..",
+              "com.dinoparty.engine..",
+              "com.dinoparty.drawing..",
+              "com.dinoparty.words",
+              "com.dinoparty.common..",
+              "org.springframework.stereotype..",
+              "java..");
+
   /** The session module talks to sockets and storage only through its ports. */
   @ArchTest
   static final ArchRule sessionUsesPortsOnly =

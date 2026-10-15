@@ -786,7 +786,9 @@ public class SessionService {
     for (DeadlineRequest request : t.deadlines()) {
       s.deadlines.set(request.id(), DeadlineBook.Kind.INTERNAL, s.phaseId, request.at());
     }
-    t.scores().forEach(s.ledger::apply);
+    if (!t.scores().isEmpty()) { // an unscored game has no ledger; validate() rejects its deltas
+      t.scores().forEach(s.ledger::apply);
+    }
     for (RoundRecord round : t.rounds()) {
       s.completedRounds++;
       recorder.roundCompleted(s.sessionId, round);
