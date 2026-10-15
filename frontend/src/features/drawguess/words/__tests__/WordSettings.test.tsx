@@ -171,6 +171,41 @@ describe('EligibleWordCountBadge', () => {
   })
 })
 
+describe('EligibleWordCountBadge multi-category', () => {
+  it('sums the counts of every selected category', async () => {
+    mockApi({
+      'GET /word-catalog/counts?category=animals&difficulty=MIXED': {
+        status: 200,
+        body: { ...COUNTS_MOCK, total: 50 },
+      },
+      'GET /word-catalog/counts?category=nature&difficulty=MIXED': {
+        status: 200,
+        body: { ...COUNTS_MOCK, total: 40 },
+      },
+    })
+
+    renderApp(
+      [
+        {
+          path: '/',
+          element: (
+            <EligibleWordCountBadge
+              roomCode="ABCDEF"
+              wordSource="built-in"
+              wordCategories={['animals', 'nature']}
+              difficulty="mixed"
+              wordPackIds={[]}
+            />
+          ),
+        },
+      ],
+      '/',
+    )
+
+    expect(await screen.findByText(/90 eligible words/i)).toBeInTheDocument()
+  })
+})
+
 describe('WordSettingsSummary', () => {
   it('renders read-only word source, categories, and difficulty for non-host', () => {
     renderApp(

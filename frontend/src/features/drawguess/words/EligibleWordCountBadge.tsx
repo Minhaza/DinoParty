@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueries } from '@tanstack/react-query'
 import { AlertTriangle, Sparkles } from 'lucide-react'
 import type { DifficultySetting, WordSourceSetting } from '@/api/types'
 import { getWordCounts, wordCatalogQueryKeys } from '@/api/wordCatalog'
@@ -27,14 +27,19 @@ export function EligibleWordCountBadge({
   const isRandomMix =
     wordCategories.length === 0 ||
     (wordCategories.length === 1 && wordCategories[0] === 'random-mix')
-  const catParam = isRandomMix ? 'random-mix' : wordCategories[0]
+  const builtInActive = wordSource === 'built-in' || wordSource === 'combined'
+  // The counts endpoint takes a single category, so a multi-select is summed per key.
+  const catParams = isRandomMix ? ['random-mix'] : wordCategories
 
-  // Query catalog counts when built-in words are active
-  const { data: catalogCounts, isLoading: isLoadingCatalog } = useQuery({
-    queryKey: wordCatalogQueryKeys.counts({ category: catParam, difficulty: diffParam }),
-    queryFn: ({ signal }) => getWordCounts({ category: catParam, difficulty: diffParam }, signal),
-    enabled: wordSource === 'built-in' || wordSource === 'combined',
+  const catalogQueries = useQueries({
+    queries: catParams.map((category) => ({
+      queryKey: wordCatalogQueryKeys.counts({ category, difficulty: diffParam }),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        getWordCounts({ category, difficulty: diffParam }, signal),
+      enabled: builtInActive,
+    })),
   })
+  const isLoadingCatalog = catalogQueries.some((q) => q.isLoading)
 
   // Query custom packs when custom packs are active
   const { data: packs, isLoading: isLoadingPacks } = useQuery({
@@ -43,21 +48,9 @@ export function EligibleWordCountBadge({
     enabled: Boolean(roomCode && (wordSource === 'custom' || wordSource === 'combined')),
   })
 
-  let builtInTotal = 0
-  if (wordSource === 'built-in' || wordSource === 'combined') {
-    if (isRandomMix || wordCategories.length === 1) {
-      builtInTotal = catalogCounts?.total ?? 0
-    } else {
-      const byCat = catalogCounts?.byCategory ?? []
-      if (byCat.length > 0) {
-        builtInTotal = byCat
-          .filter((c) => wordCategories.includes(c.key))
-          .reduce((sum, c) => sum + c.total, 0)
-      } else {
-        builtInTotal = catalogCounts?.total ?? 0
-      }
-    }
-  }
+  const builtInTotal = builtInActive
+    ? catalogQueries.reduce((sum, q) => sum + (q.data?.total ?? 0), 0)
+    : 0
 
   let customTotal = 0
   if (wordSource === 'custom' || wordSource === 'combined') {
