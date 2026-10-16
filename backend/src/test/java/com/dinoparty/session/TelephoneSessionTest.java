@@ -997,6 +997,11 @@ class TelephoneSessionTest {
 
     // a double click carries the cursor it saw: nothing is skipped
     assertThat(rejected(() -> submit(host, "REVEAL_NEXT", seen))).isEqualTo(ErrorCode.STALE_ACTION);
+    // an album past the last one is never the cursor, even where 2^30 * 4 + 1 wraps to it
+    assertThat(
+            rejected(
+                () -> submit(host, "REVEAL_NEXT", Map.of("chainIndex", 1 << 30, "entryIndex", 1))))
+        .isEqualTo(ErrorCode.STALE_ACTION);
     assertThat(f.sink.ofType("ALBUM_REVEALED")).hasSize(2);
     // step commands are refused in the reveal
     assertThat(rejected(() -> text(host, "late"))).isEqualTo(ErrorCode.INVALID_PHASE);

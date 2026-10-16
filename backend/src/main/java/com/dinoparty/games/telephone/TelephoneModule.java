@@ -409,7 +409,8 @@ public class TelephoneModule implements GameModule {
     }
     int chain = index(action, "chainIndex");
     int entry = index(action, "entryIndex");
-    if (chain * s.totalSteps + entry != s.cursor || entry >= s.totalSteps) {
+    // Bounds first: an out-of-range chain could wrap the int position onto the cursor.
+    if (chain >= s.n() || entry >= s.totalSteps || chain * s.totalSteps + entry != s.cursor) {
       throw new ActionRejected(ErrorCode.STALE_ACTION, "The reveal has already moved on.");
     }
     if (forward) {
