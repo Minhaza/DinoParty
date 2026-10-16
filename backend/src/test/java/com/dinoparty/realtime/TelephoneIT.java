@@ -2,6 +2,8 @@ package com.dinoparty.realtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dinoparty.games.telephone.TelephoneSettings;
 import com.dinoparty.room.CreateRoomCommand;
@@ -11,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -19,10 +22,11 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Dino Telephone steps end to end over real STOMP with the registered module (P6-02): a full
- * four-player game with the secrecy of [TP-8], role/phase/finality errors, draft restore, the
- * maximal drawing task, and the settings defaults against the catalog row. The reveal and the album
- * endpoints are P6-03.
+ * Dino Telephone steps end to end over real STOMP with the registered module (P6-02, integrated in
+ * P6-04): start validation and initial tasks, a full four-player game with the secrecy of [TP-8],
+ * role/phase/finality errors, timeout progression, concurrent final submissions, reconnect restore,
+ * results and rematch, draft restore, the maximal drawing task, and the settings defaults against
+ * the catalog row. The reveal and the album endpoints are the design's P6-03.
  */
 @RealtimeIntegrationTest
 class TelephoneIT extends GameEngineSupport {
@@ -37,9 +41,13 @@ class TelephoneIT extends GameEngineSupport {
     List<String> order = new ArrayList<>();
 
     Room(int players) {
+      this(players, Map.of());
+    }
+
+    Room(int players, Map<String, Object> settings) {
       Guest host = newGuest();
       code =
-          roomService.create(host.id(), new CreateRoomCommand("telephone", Map.of(), null)).code();
+          roomService.create(host.id(), new CreateRoomCommand("telephone", settings, null)).code();
       guests.add(host);
       for (int i = 1; i < players; i++) {
         Guest g = newGuest();
@@ -63,6 +71,33 @@ class TelephoneIT extends GameEngineSupport {
         }
       }
       throw new AssertionError("unknown guest");
+    }
+
+    /** Replaces a guest's socket with a fresh connection (a browser refresh). */
+    StompTestClient reconnect(String guestId) {
+      int index = sockets.indexOf(socketOf(guestId));
+      sockets.get(index).drop();
+      StompTestClient again = connectAndSubscribe(guests.get(index), code);
+      sockets.set(index, again);
+      return again;
+    }
+
+    /** Every holder submits their entry of {@code step}; texts are tagged with step and chain. */
+    void playStep(int step, String tag) {
+      for (int c = 0; c < order.size(); c++) {
+        StompTestClient ws = socketOf(holder(c, step));
+        JsonNode task = task(ws, step);
+        String phase = task.get("phaseId").asString();
+        if (task.get("kind").asString().equals("DRAW")) {
+          sendAcked(ws, "TELEPHONE_SUBMIT_DRAWING", phase, "{}");
+        } else {
+          sendAcked(
+              ws,
+              "TELEPHONE_SUBMIT_TEXT",
+              phase,
+              "{\"text\":\"%s-%d-%d\"}".formatted(tag, step, c));
+        }
+      }
     }
 
     /** The player holding chain {@code chain} in {@code step} (chain c is owned by order[c]). */
@@ -256,6 +291,255 @@ class TelephoneIT extends GameEngineSupport {
         "{\"type\":\"TELEPHONE_SUBMIT_TEXT\",\"actionId\":\"%s\",\"phaseId\":\"%s\",\"payload\":{\"text\":\"hi\"}}"
             .formatted(actionId(), phase));
     assertThat(ws.awaitType("ERROR").payload().get("code").asString()).isEqualTo("NOT_IN_ROOM");
+  }
+
+  // ------------------------------------------------------------------ start
+
+  @Test
+  void C1_aStartWithFewerThanFourPlayersIsRefusedAndNoSessionStarts() {
+    Room r = new Room(3);
+    String id = actionId();
+    r.sockets.get(0).command(r.code, "START_GAME", id, "{}");
+    assertThat(errorCode(r.sockets.get(0), id)).isEqualTo("NOT_ENOUGH_PLAYERS");
+    for (StompTestClient ws : r.sockets) {
+      assertThat(ws.ofType("GAME_STARTED")).isEmpty();
+      assertThat(ws.ofType("TELEPHONE_TASK")).isEmpty();
+    }
+  }
+
+  @Test
+  void T1_everyHolderGetsOnePrivatePromptTaskAndASnapshotWithTheServerDeadline() {
+    Room r = new Room(4);
+    r.start();
+    JsonNode phase = awaitLong(r.sockets.get(0), m -> m.type().equals("PHASE_STARTED")).payload();
+    assertThat(phase.get("phase").asString()).isEqualTo("PROMPT");
+    assertThat(phase.get("totalSteps").asInt()).isEqualTo(4);
+    String deadline = phase.get("deadlineAt").asString();
+    assertThat(deadline).isNotBlank();
+    String phaseId = phase.get("phaseId").asString();
+
+    for (StompTestClient ws : r.sockets) {
+      JsonNode task = r.task(ws, 0);
+      assertThat(task.get("phaseId").asString()).isEqualTo(phaseId);
+      assertThat(task.get("kind").asString()).isEqualTo("PROMPT");
+      assertThat(ws.ofType("TELEPHONE_TASK")).hasSize(1);
+      // the task is private: it never travels on the room topic
+      assertThat(ws.onStream("ROOM", r.code)).noneMatch(m -> m.type().equals("TELEPHONE_TASK"));
+
+      JsonNode game = r.snapshot(ws).get("game");
+      assertThat(game.get("phaseId").asString()).isEqualTo(phaseId);
+      assertThat(game.get("deadlineAt").asString()).isEqualTo(deadline);
+      assertThat(game.get("task").get("kind").asString()).isEqualTo("PROMPT");
+      assertThat(game.get("submitted").asBoolean()).isFalse();
+    }
+  }
+
+  // ------------------------------------------------------------------ synchronized progression
+
+  @Test
+  void TP5_theDeadlineAdvancesTheStepWithTheDraftOrAnAutoPromptForThoseWhoDidNotSubmit() {
+    Room r = new Room(4, Map.of("promptSeconds", 20));
+    r.start();
+    String drafter = r.order.get(0); // chain 0: drafts but never submits
+    String phase = r.task(r.socketOf(drafter), 0).get("phaseId").asString();
+    r.sendAcked(
+        r.socketOf(drafter), "TELEPHONE_TEXT_DRAFT", phase, "{\"text\":\"zz-unsent-draft\"}");
+    // chain 1's owner does nothing at all; chains 2 and 3 are submitted
+    for (int c = 2; c < 4; c++) {
+      r.sendAcked(
+          r.socketOf(r.order.get(c)),
+          "TELEPHONE_SUBMIT_TEXT",
+          phase,
+          "{\"text\":\"zz-sent-%d\"}".formatted(c));
+    }
+
+    // Only the server deadline ends the step (no client clock): one ending, one next phase.
+    StompTestClient observer = r.socketOf(r.order.get(2));
+    JsonNode ended =
+        await()
+            .atMost(Duration.ofSeconds(35))
+            .until(
+                () ->
+                    observer.messages().stream()
+                        .filter(m -> m.type().equals("TELEPHONE_STEP_ENDED"))
+                        .findFirst()
+                        .orElse(null),
+                m -> m != null)
+            .payload();
+    assertThat(ended.get("reason").asString()).isEqualTo("TIME");
+    assertThat(r.task(r.socketOf(r.holder(0, 1)), 1).get("source").get("text").asString())
+        .isEqualTo("zz-unsent-draft");
+    JsonNode autoPrompt = r.task(r.socketOf(r.holder(1, 1)), 1).get("source");
+    assertThat(autoPrompt.get("text").asString()).isNotBlank().doesNotStartWith("zz-");
+    assertThat(autoPrompt.get("placeholder").asBoolean()).isFalse();
+    r.snapshot(observer);
+    for (StompTestClient ws : r.sockets) {
+      assertThat(ws.ofType("TELEPHONE_STEP_ENDED")).hasSize(1);
+      assertThat(ws.ofType("PHASE_STARTED").stream().map(m -> m.payload().get("phase").asString()))
+          .containsExactly("PROMPT", "DRAW");
+    }
+  }
+
+  @Test
+  void TP4_concurrentFinalSubmissionsEndTheStepExactlyOnce() {
+    Room r = new Room(4);
+    r.start();
+    String phase = r.task(r.sockets.get(0), 0).get("phaseId").asString();
+    for (int i = 0; i < 2; i++) {
+      r.sendAcked(r.sockets.get(i), "TELEPHONE_SUBMIT_TEXT", phase, "{\"text\":\"early\"}");
+    }
+    List<String> ids = List.of(actionId(), actionId());
+    CompletableFuture.allOf(
+            IntStream.range(0, 2)
+                .mapToObj(
+                    i ->
+                        CompletableFuture.runAsync(
+                            () ->
+                                r.send(
+                                    r.sockets.get(2 + i),
+                                    "TELEPHONE_SUBMIT_TEXT",
+                                    phase,
+                                    "{\"text\":\"last\"}",
+                                    ids.get(i))))
+                .toArray(CompletableFuture[]::new))
+        .join();
+    awaitAck(r.sockets.get(2), ids.get(0));
+    awaitAck(r.sockets.get(3), ids.get(1));
+
+    for (StompTestClient ws : r.sockets) {
+      r.task(ws, 1);
+      JsonNode ended = awaitLong(ws, m -> m.type().equals("TELEPHONE_STEP_ENDED")).payload();
+      assertThat(ended.get("reason").asString()).isEqualTo("ALL_SUBMITTED");
+      // a snapshot round trip orders every earlier frame of this socket before counting
+      r.snapshot(ws);
+      assertThat(ws.ofType("TELEPHONE_STEP_ENDED")).hasSize(1);
+      assertThat(ws.ofType("PHASE_STARTED")).hasSize(2);
+      assertThat(ws.ofType("TELEPHONE_TASK")).hasSize(2);
+    }
+  }
+
+  // ------------------------------------------------------------------ reconnect
+
+  @Test
+  void TP9_aRefreshMidDescribeRestoresTaskDraftAndDeadlineThenTheSubmissionIsFinal() {
+    Room r = new Room(4);
+    r.start();
+    r.playStep(0, "zz-prompt");
+    r.playStep(1, "zz-draw");
+    String describer = r.holder(0, 2);
+    String phase = r.task(r.socketOf(describer), 2).get("phaseId").asString();
+    r.sendAcked(
+        r.socketOf(describer), "TELEPHONE_TEXT_DRAFT", phase, "{\"text\":\"zz-half-typed\"}");
+
+    StompTestClient again = r.reconnect(describer);
+    JsonNode game = r.snapshot(again).get("game");
+    assertThat(game.get("phase").asString()).isEqualTo("DESCRIBE");
+    assertThat(game.get("phaseId").asString()).isEqualTo(phase);
+    assertThat(game.get("deadlineAt").asString()).isNotBlank();
+    assertThat(game.get("task").get("source").get("kind").asString()).isEqualTo("DRAWING");
+    assertThat(game.get("draft").get("text").asString()).isEqualTo("zz-half-typed");
+    assertThat(game.get("submitted").asBoolean()).isFalse();
+    // [TP-8]: the chain's original prompt is not part of the describer's view
+    assertThat(game.toString()).doesNotContain("zz-prompt");
+
+    r.sendAcked(again, "TELEPHONE_SUBMIT_TEXT", phase, "{\"text\":\"zz-final\"}");
+    StompTestClient third = r.reconnect(describer);
+    JsonNode after = r.snapshot(third).get("game");
+    assertThat(after.get("submitted").asBoolean()).isTrue();
+    assertThat(after.toString()).doesNotContain("zz-half-typed");
+    String id = actionId();
+    r.send(third, "TELEPHONE_SUBMIT_TEXT", phase, "{\"text\":\"again\"}", id);
+    assertThat(errorCode(third, id)).isEqualTo("ALREADY_SUBMITTED");
+  }
+
+  // ------------------------------------------------------------------ results and rematch
+
+  @Test
+  void TP13_aFinishedGameReachesResultsAndARematchStartsAFreshSessionWithNewTasks()
+      throws Exception {
+    Room r = new Room(4);
+    r.start();
+    StompTestClient host = r.sockets.get(0);
+    String firstSession =
+        awaitLong(host, m -> m.type().equals("GAME_STARTED")).payload().get("sessionId").asString();
+    String oldPhase = r.task(host, 0).get("phaseId").asString();
+    for (int step = 0; step < 4; step++) {
+      r.playStep(step, "zz-first");
+    }
+    awaitLong(host, m -> m.type().equals("GAME_FINISHED"));
+    awaitLong(
+        host,
+        m ->
+            m.type().equals("ROOM_STATUS_CHANGED")
+                && m.payload().get("status").asString().equals("RESULTS"));
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .until(
+            () ->
+                "FINISHED"
+                    .equals(
+                        jdbc.queryForObject(
+                            "select status from game_session where id = ?::uuid",
+                            String.class,
+                            firstSession)));
+    JsonNode results =
+        JsonMapper.builder()
+            .build()
+            .readTree(
+                mvc.perform(
+                        get("/api/v1/sessions/" + firstSession + "/results")
+                            .header("Authorization", bearer(r.guests.get(0))))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString());
+    assertThat(results.get("standings")).isEmpty();
+    assertThat(results.get("rounds")).hasSize(4);
+    // neither results nor a finished snapshot carry entry content ([TP-8]); albums are P6-03
+    assertThat(results.toString()).doesNotContain("zz-first");
+    assertThat(r.snapshot(r.sockets.get(1)).toString()).doesNotContain("zz-first");
+
+    for (StompTestClient ws : r.sockets) {
+      ws.command(r.code, "REMATCH_VOTE", actionId(), "{\"vote\":true}");
+    }
+    awaitLong(
+        host,
+        m ->
+            m.type().equals("ROOM_STATUS_CHANGED")
+                && m.payload().get("reason").asString().equals("REMATCH"));
+    host.command(r.code, "START_GAME", actionId(), "{}");
+    String secondSession =
+        awaitLong(
+                host,
+                m ->
+                    m.type().equals("GAME_STARTED")
+                        && !m.payload().get("sessionId").asString().equals(firstSession))
+            .payload()
+            .get("sessionId")
+            .asString();
+
+    for (StompTestClient ws : r.sockets) {
+      JsonNode fresh =
+          awaitLong(
+                  ws,
+                  m ->
+                      m.type().equals("TELEPHONE_TASK")
+                          && m.payload().get("step").asInt() == 0
+                          && !m.payload().get("phaseId").asString().equals(oldPhase))
+              .payload();
+      assertThat(fresh.get("kind").asString()).isEqualTo("PROMPT");
+      JsonNode game = r.snapshot(ws).get("game");
+      assertThat(game.get("sessionId").asString()).isEqualTo(secondSession);
+      assertThat(game.get("submitted").asBoolean()).isFalse();
+      assertThat(game.toString()).doesNotContain("zz-first");
+    }
+    String id = actionId();
+    r.send(host, "TELEPHONE_SUBMIT_TEXT", oldPhase, "{\"text\":\"old\"}", id);
+    assertThat(errorCode(host, id)).isEqualTo("STALE_ACTION");
+    assertThat(
+            jdbc.queryForObject(
+                "select status from game_session where id = ?::uuid", String.class, firstSession))
+        .isEqualTo("FINISHED");
   }
 
   // ------------------------------------------------------------------ drafts and sizes
