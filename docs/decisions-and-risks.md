@@ -150,7 +150,7 @@ Phase 5 risks:
 
 ## 7. Phase 6 decisions needing approval (Dino Telephone)
 
-Design: `docs/telephone-design.md` (§1 lists the contradictions found in the earlier text, §14 the options). Contract: `api-contracts.md` §3.10. Rules: `game-rules.md` `[TP-*]`. Status of every row: **PROPOSED**; the docs already apply the recommended option. If one is rejected, rules and contract change in a `docs(contract)` commit before the task that needs it (P6-02: D35–D40, D46–D48; P6-03: D41–D45). D36 makes **D20 (frame size) unnecessary for Telephone**: the frame cap stays 64 KiB, D20 stays open only as a record of the rejected alternative.
+Design: `docs/telephone-design.md` (§1 lists the contradictions found in the earlier text, §14 the options). Contract: `api-contracts.md` §3.10. Rules: `game-rules.md` `[TP-*]`. Status: **D41–D45 APPROVED** by the user on 2026-10-16 (before P6-03, recommended option as written); every other row is **PROPOSED**. The docs already apply the recommended option. If one is rejected, rules and contract change in a `docs(contract)` commit before the task that needs it (P6-02: D35–D40, D46–D48; P6-03: D41–D45). D36 makes **D20 (frame size) unnecessary for Telephone**: the frame cap stays 64 KiB, D20 stays open only as a record of the rejected alternative.
 
 | ID | Decision | Recommendation | Alternative / consequence |
 |---|---|---|---|
@@ -160,11 +160,11 @@ Design: `docs/telephone-design.md` (§1 lists the contradictions found in the ea
 | D38 | `entriesPerChain`. | 0 (auto) or 4–8, clamped to `n` at roster freeze; odd values warn. | "Even or `n`" (not checkable at save time). |
 | D39 | `allowSkipTimeout`. | Keep the key, accept only `true`. | Remove it, or define a strict mode. |
 | D40 | Placeholder as next source. | Pass on, flagged. | Replace by a fresh prompt. |
-| D41 | Early end (< 3 active) and the reveal. | No reveal after an early finish; albums via REST. | A module wind-down (engine hook). |
-| D42 | Reveal pacing. | Host-driven, cursor-guarded, idle auto-advance 60 s (15 s if host disconnected). | No timeout (can strand the room); auto-play only. |
-| D43 | Reveal data delivery. | Entries in public `ALBUM_REVEALED`; snapshot byte budget with `omitted` entries; REST after `FINISHED`. | Cursor events + REST fetch during the reveal. |
-| D44 | Submission persistence. | Never-drop `SubmissionRecord` on `Transition` (R21 SPI change) + `V9 game_submission`. | Droppable (holes in albums) or all at finish. |
-| D45 | Album access. | Any current member of the session's room; no retention job in the MVP. | Roster only; expiring links. |
+| D41 | Early end (< 3 active) and the reveal. | **Approved:** No reveal after an early finish; albums via REST. | A module wind-down (engine hook). |
+| D42 | Reveal pacing. | **Approved:** Host-driven, cursor-guarded, idle auto-advance 60 s (15 s if host disconnected). | No timeout (can strand the room); auto-play only. |
+| D43 | Reveal data delivery. | **Approved:** Entries in public `ALBUM_REVEALED`; snapshot byte budget with `omitted` entries; REST after `FINISHED`. | Cursor events + REST fetch during the reveal. |
+| D44 | Submission persistence. | **Approved:** Never-drop `SubmissionRecord` on `Transition` (R21 SPI change) + `V10 game_submission` (V9 went to the P6-02 settings). | Droppable (holes in albums) or all at finish. |
+| D45 | Album access. | **Approved:** Any current member of the session's room; no retention job in the MVP. | Roster only; expiring links. |
 | D46 | Auto-prompt source. | Built-in catalog words `EASY` ∪ `MEDIUM`. | A new phrase list. |
 | D47 | Rotation. | Keep `holder = (i + k) mod n` (constant predecessor). | Latin-square offsets. |
 | D48 | Disconnected holder and early end. | Blocks until the 60 s grace or the deadline (as D25). | Ignore disconnected holders. |
