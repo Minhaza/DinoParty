@@ -97,7 +97,7 @@ class RealtimeCommandIT extends RealtimeFixture {
   @Test
   void unregisteredGameCommandsAndUnknownTypesAreInvalidActions() {
     joinRoom();
-    for (String type : List.of("REVEAL_NEXT", "REVEAL_PREV", "MAKE_ME_ADMIN")) {
+    for (String type : List.of("REVEAL_EVERYTHING", "SKIP_ALBUM", "MAKE_ME_ADMIN")) {
       StompTestClient.Message error =
           errorFor(
               "{\"type\":\"%s\",\"actionId\":\"%s\",\"payload\":{}}".formatted(type, actionId()));
@@ -120,7 +120,9 @@ class RealtimeCommandIT extends RealtimeFixture {
             "TELEPHONE_DRAW_STROKE",
             "TELEPHONE_DRAW_UNDO",
             "TELEPHONE_DRAW_CLEAR",
-            "TELEPHONE_SUBMIT_DRAWING")) {
+            "TELEPHONE_SUBMIT_DRAWING",
+            "REVEAL_NEXT",
+            "REVEAL_PREV")) {
       StompTestClient.Message error =
           errorFor(
               "{\"type\":\"%s\",\"actionId\":\"%s\",\"phaseId\":null,\"payload\":{}}"
