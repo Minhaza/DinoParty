@@ -4,6 +4,7 @@ import com.dinoparty.common.SeededRandomSource;
 import com.dinoparty.engine.GameModule;
 import com.dinoparty.engine.GameRegistry;
 import com.dinoparty.engine.RoundRecord;
+import com.dinoparty.engine.SubmissionRecord;
 import com.dinoparty.games.testgame.TestGameModule;
 import com.dinoparty.room.RoomStatus;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -152,6 +153,11 @@ final class SessionFixture {
     final List<RoundRecord> rounds = new CopyOnWriteArrayList<>();
     final List<SessionResult> results = new CopyOnWriteArrayList<>();
     final List<String> aborts = new CopyOnWriteArrayList<>();
+    final List<SubmissionRecord> submissions = new CopyOnWriteArrayList<>();
+
+    /** Every call in order, so tests can check that submissions precede the finish. */
+    final List<String> log = new CopyOnWriteArrayList<>();
+
     volatile boolean failStart;
 
     @Override
@@ -170,6 +176,13 @@ final class SessionFixture {
     @Override
     public void sessionFinished(SessionResult result) {
       results.add(result);
+      log.add("finished");
+    }
+
+    @Override
+    public void submissionAccepted(UUID sessionId, SubmissionRecord submission) {
+      submissions.add(submission);
+      log.add("submission");
     }
 
     @Override

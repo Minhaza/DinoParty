@@ -39,6 +39,10 @@ final class ActiveSession {
   Instant startedAt;
   final Map<UUID, RosterSlot> roster = new LinkedHashMap<>();
   List<UUID> order = List.of();
+
+  /** The room's host, kept in step with the room's HostChanged events (no lookup per call). */
+  UUID host;
+
   GameState state;
   ScoreLedger ledger;
 
