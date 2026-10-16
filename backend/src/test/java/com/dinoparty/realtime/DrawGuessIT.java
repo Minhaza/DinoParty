@@ -285,7 +285,9 @@ class DrawGuessIT extends GameEngineSupport {
       }
     }
     for (StompTestClient.Message m : drawer.ofType("GAME_ERROR")) {
-      assertThat(m.envelope().toString()).doesNotContain(word);
+      // Whole-word match: a short secret ("ear") is a substring of the error copy ("earlier").
+      assertThat(m.envelope().toString())
+          .doesNotContainPattern("(?i)\\b" + java.util.regex.Pattern.quote(word) + "\\b");
     }
 
     // Round 2: its drawer leaves for good; the round ends DRAWER_LEFT and the game goes on.
