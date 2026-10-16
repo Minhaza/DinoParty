@@ -1,6 +1,6 @@
 # DinoParty — Dino Telephone Design (Phase 6)
 
-Status: **P6-01 design; P6-02 (the step phases `PROMPT`/`DRAW`/`DESCRIBE`) is implemented in `games.telephone`; the reveal, album persistence and album endpoints (P6-03) are not.** The `entriesPerChain` default shipped as migration `V9__telephone_settings.sql`, so `game_submission` (§12.2) becomes `V10`. Decisions D35–D48 are **PROPOSED** and listed in §14 (mirrored in `docs/decisions-and-risks.md` §7); the rules (`game-rules.md` Game 2) and the contract (`api-contracts.md` §3.10) already apply the recommended option, marked *(proposed, Dn)*. If one is rejected, rules and contract change in a `docs(contract)` commit before the task that depends on it (§13) starts.
+Status: **P6-01 design; P6-02 (the step phases `PROMPT`/`DRAW`/`DESCRIBE`) is implemented in `games.telephone`, the step gameplay UI in `frontend/src/features/telephone`, and the multiplayer integration of both is verified end to end (P6-04, §15); the reveal, album persistence and album endpoints (P6-03) are not.** The `entriesPerChain` default shipped as migration `V9__telephone_settings.sql`, so `game_submission` (§12.2) becomes `V10`. Decisions D35–D48 are **PROPOSED** and listed in §14 (mirrored in `docs/decisions-and-risks.md` §7); the rules (`game-rules.md` Game 2) and the contract (`api-contracts.md` §3.10) already apply the recommended option, marked *(proposed, Dn)*. If one is rejected, rules and contract change in a `docs(contract)` commit before the task that depends on it (§13) starts.
 
 Written against the Phase 4 engine and the Phase 5 drawing library as merged (`docs/game-engine.md`, `docs/draw-guess-design.md`; code read: `engine.GameModule`, `Transition`, `GameDefinition`, `GameRegistry`, `drawing.CanvasBuffer`/`CanvasLimits`, `room.SettingsSchema`, `realtime.CommandRouter`, migrations `V2`–`V8`). Normative sources: rules `game-rules.md` `[TP-*]`, wire formats `api-contracts.md` §2.1/§3.10. Where this document and those differ, they win; fix this document. **No separate engine, no new messaging infrastructure and no new transport**: Telephone is a `GameModule` (`telephone`) behind the same registry, mailbox, STOMP streams, snapshots and recorder as Draw & Guess. One small SPI addition is proposed (§12.1, R21).
 
@@ -285,3 +285,75 @@ P6-02 and P6-04 run in parallel; P6-03 follows P6-02; P6-05 starts on fixtures a
 | D46 | Source of auto prompts. | **Built-in catalog words (`EASY`∪`MEDIUM`).** | A new curated prompt-phrase list (content work, more fun, more review). |
 | D47 | Rotation formula. | **Keep `+k`** (documented weakness: constant predecessor). | Latin-square offsets (hides the neighbour; new proof and tests). |
 | D48 | Does a `DISCONNECTED` holder block early end? | **Yes, until the 60 s grace or the deadline** (consistent with D25/D23). | Ignore disconnected holders (a blip silently costs the turn, though their draft still auto-submits). |
+
+## 15. Multiplayer integration (P6-04)
+
+How the shipped backend module (P6-02) and the step UI meet over the existing transport. Nothing here is new infrastructure: the room mailbox, the STOMP streams, `ACTION_ACK`/`GAME_ERROR`, snapshots and the shared `roomStore`/`gameSessionStore` are those of Phase 4/5. Task numbering: this integration slice is called P6-04 by the task that delivered it; in §13.2 its content spans P6-04/P6-05 (frontend) and part of P6-06 (integration tests, E2E).
+
+### 15.1 Message flow
+
+```mermaid
+sequenceDiagram
+  participant H as Host client
+  participant P as Player client
+  participant S as Server (room mailbox, TelephoneModule)
+  H->>S: START_GAME
+  S-->>P: GAME_STARTED, PHASE_STARTED{PROMPT, step 0, totalSteps, deadlineAt} (/topic, public)
+  S-->>P: TELEPHONE_TASK{phaseId, kind, source} (/user/queue, private)
+  P->>S: TELEPHONE_TEXT_DRAFT{text} (debounced 700 ms)
+  P->>S: TELEPHONE_SUBMIT_TEXT{text}
+  Note over P: submitting: button locked, watchdog armed
+  S-->>P: ACTION_ACK{actionId} → submitted (waiting screen)
+  S-->>H: TELEPHONE_PROGRESS{submittedGuestIds}
+  Note over S: last eligible submit, or PHASE_END deadline
+  S-->>P: TELEPHONE_STEP_ENDED, PHASE_STARTED{DRAW, step 1}, TELEPHONE_TASK{source: previous text}
+  P->>S: TELEPHONE_DRAW_STROKE* (ACK only, never broadcast), TELEPHONE_SUBMIT_DRAWING{}
+  Note over S: … DESCRIBE / DRAW … last step
+  S-->>P: GAME_FINISHED{standings: []}, ROOM_STATUS_CHANGED{RESULTS}
+  H->>S: REMATCH_VOTE … START_GAME → new GAME_STARTED (new sessionId, new shuffle)
+```
+
+Every command carries the envelope of §3.3 (`type`, `actionId`, `phaseId`, `payload`); the sender is the authenticated principal, never a payload field. Command types and destinations are exactly those of `api-contracts.md` §3.10; the canvas uses the Phase 5 batch format with the command-type mapping `DRAW_*` → `TELEPHONE_DRAW_*` (`TelephoneStage`), no second drawing protocol.
+
+### 15.2 Submission acknowledgement (frontend)
+
+| Event | `submission` | Notes |
+|---|---|---|
+| Submit clicked | `submitting` | `trackCommand(actionId, type, phaseId)`; a second click in the same tick is refused (the store is read directly) |
+| `ACTION_ACK` of a tracked submit whose `phaseId` is the current phase | `submitted` | the only way besides a snapshot; transmission success means nothing |
+| `GAME_ERROR` `ALREADY_SUBMITTED` | `submitted` + resync | the server holds a final entry (`[TP-7]`) |
+| `GAME_ERROR` `STALE_ACTION` / `INVALID_PHASE` | `editing`, `syncing` + resync | the deadline won; the draft already became the entry (`[TP-5]`) |
+| `GAME_ERROR` `DUPLICATE_ACTION` | unchanged | the first copy's answer decides |
+| Any other `GAME_ERROR` on a submit | `error` | player copy per code (`copy.ts` `submitErrorCopy`); the server message is never rendered |
+| Reconnect snapshot of the same phase with `submitted:false` while `submitting` | `error` ("not received") | the snapshot is authoritative; a late ACK of the lost command still confirms |
+| No answer within `SUBMIT_WATCHDOG_MS` (10 s) | `error` ("no answer") + resync | no indefinite pending state; a retry of an accepted entry is answered `ALREADY_SUBMITTED` |
+| ACK/error of a command of an earlier phase | ignored | it can never mark the current step |
+
+The next step starts only on `PHASE_STARTED` or a snapshot; the local countdown only locks input when it reaches zero (the step stays locked until the server moves on). A private task that arrives before its public `PHASE_STARTED` is held (`pendingTask`) and applied when that phase starts.
+
+### 15.3 Ordering, duplicates, sessions
+
+- Per-stream `seq` (§3.2): an envelope at or below the last seen `seq` is ignored, a gap triggers a snapshot resync.
+- `phaseId`s are server UUIDs, unique across sessions, so a late `TELEPHONE_*` event of a previous session (rematch) can never match the current step; `GAME_STARTED` resets the Telephone store.
+- `GAME_FINISHED` drops the step's task and draft; `ROOM_STATUS_CHANGED{WAITING}` and `GAME_ABORTED` reset the store.
+- Entering a different room (`roomStore.enterRoom`) resets every game store and stream position, so drafts never cross rooms or guests; leaving/closing resets them as before.
+
+### 15.4 Reconnect recovery
+
+| Moment | Restored from the viewer's snapshot | Local |
+|---|---|---|
+| Writing / describing, not submitted | task (source for `DESCRIBE`), server text draft, deadline | newer local text of the same phase is kept |
+| Drawing, not submitted | task, server stroke draft, canvas budget | strokes the server did not take are dropped (server draft wins) |
+| After submitting | `submitted:true` → waiting screen; resubmit refused (`ALREADY_SUBMITTED`) | drafts cleared |
+| Phase changed while away | the new task, empty draft | stale drafts discarded (`workPhaseId` differs) |
+| Game finished | `RESULTS` status, no task, no entry content | store reset |
+
+### 15.5 Private assignment isolation
+
+Verified on the wire (`TelephoneIT`) and in the browser (`telephone.e2e.ts`): a task travels only on the holder's private queue, never on the room topic; each entry reaches exactly its next holder; snapshots carry only the viewer's task and draft; neither results nor a finished snapshot carry entry content; a reconnect snapshot during `DESCRIBE` does not contain the chain's original prompt. In the browser, every page shows exactly one entry per step, never its own, and no prompt during `DESCRIBE`.
+
+### 15.6 Known limitations
+
+- No `REVEAL` phase or album browsing yet (§13.2 P6-03): the last step finishes the game and results show no albums; entries live only in memory until then.
+- The submit watchdog is a client fallback; while connected the server answers every `actionId`.
+- Every player always receives work from the same predecessor (D47, by design).

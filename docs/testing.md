@@ -441,3 +441,22 @@ Scope: `games.telephone` (`PROMPT`/`DRAW`/`DESCRIBE`); reveal, persistence and a
 - No reveal yet: the game finishes when the last step ends and the entries are only held in memory (lost with the session) until P6-03.
 - Rematch (new shuffle) and a restart mid-game were not exercised for Telephone in this task.
 - No frontend or browser verification (backend-only task).
+
+## P6-04 verification record (Dino Telephone multiplayer integration)
+
+Scope: the P6-02 backend steps and the step UI played together over the real STOMP transport; reveal and albums remain P6-03. Flow, acknowledgement table, reconnect matrix and isolation: `telephone-design.md` §15.
+
+### Automated tests
+- Backend, real STOMP (`TelephoneIT`, 10 tests): 3-player start refused (`NOT_ENOUGH_PLAYERS`, no session, no task); every holder gets exactly one private `PROMPT` task (never on the room topic) and a snapshot with the server deadline; the `PROMPT` deadline (real 20 s, awaited, no sleep) ends the step `TIME` with the unsent draft or an auto prompt as the next source; two concurrent final submissions end the step exactly once; a refresh mid-`DESCRIBE` restores task, draft and deadline without the chain's prompt, and after submitting the snapshot says `submitted` and a resubmit is `ALREADY_SUBMITTED`; a full game reaches `RESULTS` with empty standings, 4 rounds and no entry content in results or snapshots; a rematch gives a new `sessionId`, new tasks and clean snapshots, and the old `phaseId` is `STALE_ACTION`; plus the P6-02 cases.
+- Frontend (Vitest): `telephoneStore.test.ts` (snapshot without the pending submission → retryable error and a late ACK still confirms; watchdog expiry; player copy per error code, server message never shown), `TelephoneStage.test.tsx` (10 s watchdog with fake timers → retry enabled and resync requested), `roomStore.telephone.test.ts` (duplicate private task ignored by `seq`; a late task of the previous session never reaches the rematch session; `GAME_FINISHED` drops task and draft; entering another room resets every game store and stream position).
+- Browser (`frontend/e2e/telephone.e2e.ts`, Playwright, 4 contexts: 3 desktop mouse + 1 Pixel 7 touch, against the dev backend on :8080): host picks Dino Telephone in the create-room UI; 3 players join; start; a refresh mid-writing restores the server-held draft; 4 different prompts; each page shows exactly one prompt that is not its own and the 4 assignments are distinct; a refresh mid-drawing restores task and strokes; drawings sent (mouse and touch); every describer sees an inked drawing and no prompt; 4 descriptions; each last-step drawer sees exactly one description, not their own; results on every screen with no entries; rematch → lobby → new game with empty editors and a new session. 4 green runs (1 + `--repeat-each=2` + 1 after formatting), ≈ 40 s each, no page errors.
+
+### Commands run
+- `./mvnw verify` (backend): unit 350, integration 234, 0 failures/errors/skips, BUILD SUCCESS (Docker PostgreSQL via Testcontainers).
+- `npm --prefix frontend run format`, `format:check` (clean), `lint` (clean), `typecheck` (clean), `test` (44 files, 281 tests, all passed), `build` (success; the existing chunk-size warning only).
+- `npx playwright test e2e/telephone.e2e.ts`: passed (see above).
+
+### Not verified / known issues
+- **`e2e/drawguess.e2e.ts` fails on `main` already** (since the layout redesign #23): it looks for the removed `Players and scores` region and an `Offline` label, and on mobile the roster is now behind a toggle. Selector updates were tried and reverted in this task (each exposed the next layout difference: the open roster then hid the drawing toolbar); the spec needs an update in the frontend lane. Draw & Guess behaviour is still covered by `DrawGuessIT`/`DrawGuessWordSelectionIT` and its Vitest suites, all green; this task changed no Draw & Guess code.
+- 3-browser verification was replaced by 4 (Telephone's minimum, `[C-1]`); network cut during a submission was covered by store/component tests, not in the browser.
+- No reveal, albums, axe smoke or load check (P6-03, P6-06).

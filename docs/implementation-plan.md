@@ -141,7 +141,7 @@ Exit: three browsers play a complete game (word choice, drawing, guessing, scori
 
 ## Phase 6 — Dino Telephone  (parallel with Phase 5)
 
-Design: `docs/telephone-design.md`; contract: `api-contracts.md` §3.10; rules `game-rules.md` `[TP-1]…[TP-14]`; decisions D35–D48 (`decisions-and-risks.md` §7) must be approved or amended **before P6-02 starts** (D41–D45 before P6-03). **P6-01 (design) and P6-02 (step phases, backend) are done; the reveal, persistence and albums (P6-03) are not.** P6-02 took migration `V9` (`entriesPerChain` default), so P6-03's `game_submission` is `V10`. The earlier tasks 6.1–6.4 are replaced by P6-02…P6-06 (6.1 → P6-02, 6.2/6.3 → P6-02/P6-03, 6.4 → P6-05). No new engine or messaging infrastructure: one SPI addition (`Transition.submissions`, R21) in P6-03.
+Design: `docs/telephone-design.md`; contract: `api-contracts.md` §3.10; rules `game-rules.md` `[TP-1]…[TP-14]`; decisions D35–D48 (`decisions-and-risks.md` §7) must be approved or amended **before P6-02 starts** (D41–D45 before P6-03). **P6-01 (design) and P6-02 (step phases, backend) are done; the step UI and the multiplayer integration (frontend part of P6-04/P6-05, and P6-06 for the steps: STOMP ITs, 4-browser Playwright game, `telephone-design.md` §15) are done; the reveal, persistence and albums (P6-03), the reveal viewer and album browser, and the axe/load checks of P6-06 are not.** P6-02 took migration `V9` (`entriesPerChain` default), so P6-03's `game_submission` is `V10`. The earlier tasks 6.1–6.4 are replaced by P6-02…P6-06 (6.1 → P6-02, 6.2/6.3 → P6-02/P6-03, 6.4 → P6-05). No new engine or messaging infrastructure: one SPI addition (`Transition.submissions`, R21) in P6-03.
 
 | ID | Task | Owner | Depends | Acceptance |
 |---|---|---|---|---|
