@@ -6,6 +6,7 @@ import { useConnectionStore } from '@/features/realtime/connectionStore'
 import type { RealtimeClient } from '@/features/realtime/realtimeClient'
 import { RealtimeContext } from '@/features/realtime/realtimeContext'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
+import { useRoomStore } from '@/stores/roomStore'
 
 import {
   describePhaseStarted,
@@ -20,7 +21,7 @@ import {
   promptPhaseStarted,
   promptSnapshotWithDraft,
 } from './fixtures'
-import { TelephoneStage } from './TelephoneStage'
+import { SUBMIT_WATCHDOG_MS, TelephoneStage } from './TelephoneStage'
 import { useTelephoneStore } from './telephoneStore'
 import type { TelephonePhaseStartedPayload, TelephoneSnapshot } from './types'
 
@@ -69,6 +70,7 @@ describe('TelephoneStage', () => {
     sendCommand.mockClear()
     useGameSessionStore.getState().reset()
     useTelephoneStore.getState().reset()
+    useRoomStore.getState().setNeedsResync(false)
     useConnectionStore.setState({ status: 'CONNECTED' })
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(null)
     Element.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
@@ -138,6 +140,23 @@ describe('TelephoneStage', () => {
     act(() => useTelephoneStore.getState().applyActionAck('action-1'))
     expect(screen.getByText(/your prompt is on its way/i)).toBeInTheDocument()
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('stops waiting for an unanswered submission, resyncs and lets the player send again', () => {
+    renderStage()
+    startPhase(promptPhaseStarted)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'A T-rex at the dentist' } })
+    fireEvent.click(screen.getByRole('button', { name: /send prompt/i }))
+    expect(useTelephoneStore.getState().submission).toBe('submitting')
+
+    act(() => vi.advanceTimersByTime(SUBMIT_WATCHDOG_MS - 1))
+    expect(useTelephoneStore.getState().submission).toBe('submitting')
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(useTelephoneStore.getState().submission).toBe('error')
+    expect(useRoomStore.getState().needsResync).toBe(true)
+    expect(screen.getByText(/no answer from the server/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /send prompt/i })).toBeEnabled()
   })
 
   it('TP9 syncs the text draft to the server after a pause in typing', () => {

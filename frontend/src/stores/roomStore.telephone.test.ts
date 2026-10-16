@@ -137,6 +137,60 @@ describe('roomStore × Dino Telephone', () => {
     expect(telephone().kind).toBeNull()
   })
 
+  it('a duplicated private task is applied once and changes nothing the second time', () => {
+    apply(pub('PHASE_STARTED', describePhaseStarted))
+    const task = priv('TELEPHONE_TASK', describeTask)
+    expect(apply(task)).toBe('applied')
+    telephone().setTextDraft('a heron in a hat')
+    expect(apply(task)).toBe('ignored')
+    expect(telephone().textDraft).toBe('a heron in a hat')
+  })
+
+  it('a late task of the previous session never reaches the rematch session', () => {
+    apply(
+      pub('GAME_STARTED', {
+        sessionId: 'session-tp-02',
+        gameKey: 'telephone',
+        settings: {},
+        order: ['guest-2', 'guest-1', 'guest-4', 'guest-3'],
+      }),
+    )
+    apply(pub('PHASE_STARTED', { ...describePhaseStarted, phaseId: 'phase-rematch-prompt' }))
+    // Phase ids are server UUIDs, unique across sessions: the old task cannot match the new step.
+    apply(priv('TELEPHONE_TASK', describeTask))
+    expect(telephone().task).toBeNull()
+  })
+
+  it('TP8 the assignment and draft are dropped when the game finishes', () => {
+    telephone().setTextDraft('half typed')
+    apply(
+      pub('GAME_FINISHED', {
+        sessionId: 'session-tp-01',
+        endReason: 'COMPLETED',
+        standings: [],
+        resultsReady: true,
+      }),
+    )
+    expect(telephone().task).toBeNull()
+    expect(telephone().strokes).toEqual([])
+    expect(telephone().textDraft).toBe('')
+  })
+
+  it('entering another room drops every trace of the previous room', () => {
+    telephone().setTextDraft('a draft of room 1')
+    useRoomStore.getState().enterRoom({ ...room, id: 'room-2', code: 'OTHER2', sessionId: null })
+    expect(telephone().textDraft).toBe('')
+    expect(telephone().kind).toBeNull()
+    expect(useGameSessionStore.getState().phaseId).toBeNull()
+    expect(useRoomStore.getState().lastSeq).toEqual({ room: 0, private: 0 })
+    expect(useRoomStore.getState().room?.code).toBe('OTHER2')
+
+    // Re-entering the same room keeps its state.
+    telephone().setTextDraft('kept')
+    useRoomStore.getState().enterRoom({ ...room, id: 'room-2', code: 'OTHER2', sessionId: null })
+    expect(telephone().textDraft).toBe('kept')
+  })
+
   it('a new GAME_STARTED clears the previous session', () => {
     apply(
       pub('GAME_STARTED', {

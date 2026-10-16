@@ -61,6 +61,8 @@ export interface RoomState {
   setSyncStatus: (status: SyncStatus) => void
   setNeedsResync: (needsResync: boolean) => void
   clearLastError: () => void
+  /** Shows `room` before its snapshot; entering a different room first drops all state of the last. */
+  enterRoom: (room: RoomDto) => void
   reset: () => void
 }
 
@@ -181,6 +183,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setNeedsResync: (needsResync) => set({ needsResync }),
   clearLastError: () => set({ lastError: null }),
 
+  enterRoom: (room) => {
+    const current = get().room
+    if (current?.code === room.code) return
+    // Drafts, tasks and stream positions belong to one room (and the guest in it); never carry them over.
+    if (current) get().reset()
+    set({ room })
+  },
+
   reset: () => {
     useGameSessionStore.getState().reset()
     useDrawGuessStore.getState().reset()
@@ -278,6 +288,8 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
       break
     case 'GAME_FINISHED':
       sessionStore.applyGameFinished(envelope.payload as GameFinishedPayload)
+      // Results never show a step's task or draft ([TP-8]); a reconnect snapshot carries none either.
+      telephoneStore.reset()
       break
     case 'GAME_ABORTED':
       sessionStore.applyGameAborted(envelope.payload as GameAbortedPayload)
