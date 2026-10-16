@@ -266,4 +266,12 @@ describe('TelephoneDrawingView', () => {
     expect(screen.queryByRole('button', { name: /skip/i })).not.toBeInTheDocument()
     expect(renderAllStrokes.mock.calls.at(-1)?.[3]).toEqual([sampleTelephoneStroke])
   })
+
+  it('draws a withheld drawing once its strokes arrive (a resync on the cursor entry)', () => {
+    const { rerender } = render(<TelephoneDrawingView strokes={null} label="Drawing" />)
+    expect(renderAllStrokes).not.toHaveBeenCalled()
+    rerender(<TelephoneDrawingView strokes={[sampleTelephoneStroke]} label="Drawing" />)
+    expect(screen.getByRole('img', { name: 'Drawing' }).tagName).toBe('CANVAS')
+    expect(renderAllStrokes.mock.calls.at(-1)?.[3]).toEqual([sampleTelephoneStroke])
+  })
 })
