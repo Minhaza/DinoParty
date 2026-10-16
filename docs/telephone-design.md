@@ -229,16 +229,16 @@ Persistence: each accepted entry is one `game_submission` row at accept time (§
 
 `Transition` gains `submissions: List<SubmissionRecord>` (`SubmissionRecord(chainIndex, stepNo, authorGuestId, kind, text, payload, fill, timedOut, submittedAt)`), handed to `SessionRecorder` as a never-drop record. Alternatives rejected: stuffing entries into `RoundRecord.meta` (it is returned verbatim by `GET /sessions/{id}/results`, which would leak every entry to any member during `RESULTS`-less reads and bloat `game_round`), and writing everything in `GameOutcome` at finish (a crash loses the game; one huge transaction). No other SPI change is expected (`phase.deadlineAt = null`, INTERNAL deadlines, `nextPhaseId`, per-recipient `PRIVATE` events already exist).
 
-### 12.2 Schema (`V9`, owned by `history`)
+### 12.2 Schema (`V10`, owned by `history`)
 
 ```
 game_submission (id uuid PK, session_id FK, round_id FK NULL, author_guest_id uuid, kind varchar(8) CHECK in ('TEXT','DRAWING'),
                  chain_index int, step_no int, text varchar(560) NULL, payload jsonb NULL,
                  fill varchar(12) CHECK in ('NONE','TIMEOUT','LEFT_PLAYER','AUTO_PROMPT'), placeholder boolean, timed_out boolean,
-                 submitted_at, UNIQUE(session_id, chain_index, step_no))
+                 entries_per_chain smallint, submitted_at, UNIQUE(session_id, chain_index, step_no))
 ```
 
-The engine doc's key `(session_id, author_guest_id, chain_index, step_no)` is replaced by `(session_id, chain_index, step_no)`: the cell is the identity, and two cells can never share a holder but the author may be a left player. No FK to `guest_identity` (D21). Upserts are idempotent; the nickname comes from `game_session.roster`.
+The engine doc's key `(session_id, author_guest_id, chain_index, step_no)` is replaced by `(session_id, chain_index, step_no)`: the cell is the identity, and two cells can never share a holder but the author may be a left player. No FK to `guest_identity` (D21). Upserts are idempotent; the nickname comes from `game_session.roster`. `entries_per_chain` repeats the session's effective `E` on every row so the album read side can tell complete albums from an early end without knowing Telephone's settings rules.
 
 ## 13. Testing strategy and task breakdown
 

@@ -137,7 +137,8 @@ TelephoneSnapshot { /* phase ∈ PROMPT|DRAW|DESCRIBE|REVEAL, phaseId, deadlineA
                     submittedGuestIds:[guestId], waitingOn:int /* eligible holders not yet submitted */,
                     reveal:{cursor:{chainIndex, entryIndex}, highWater:{chainIndex, entryIndex}, autoAdvanceAt, chains:int,
                             albums:[{chainIndex, ownerGuestId, entryCount, revealedCount, entries:[RevealEntryDto]}]}|null /* REVEAL only */ }
-RevealEntryDto    { entryIndex, kind, authorGuestId, text?, strokes?:Stroke[]|null, omitted:boolean /* strokes withheld by the snapshot size budget (§3.10) */,
+RevealEntryDto    { entryIndex, kind, authorGuestId, authorNickname /* roster snapshot, so a player who left is still attributed */,
+                    text?, strokes?:Stroke[]|null, omitted:boolean /* strokes withheld by the snapshot size budget (§3.10) */,
                     fill, timedOut, placeholder }
 Stroke            { strokeId:uuid, tool:"PENCIL|ERASER", color:"#RRGGBB", size:int(1-4 index),
                     points:[[x,y],…] /* integers 0..10000 = fixed-point fraction of canvas width/height (16:10); shared with Telephone (D28) */,
@@ -428,7 +429,7 @@ Rejections leave state unchanged. `ACTION_ACK` follows accepted commands. Roles 
 
 **`TelephoneSnapshot`** is §2.1. A holder's snapshot has their `task`, `draft`, `submitted`; during `REVEAL` the viewer gets `reveal` instead. Worst-case sizes (design §8.3): `DESCRIBE`/`DRAW` ≈ 210 KB; `REVEAL` ≈ 240 KB. **Reveal size budget:** the cursor entry is always included with its strokes, then earlier revealed entries newest-first while the cumulative serialized size of the included `strokes` arrays is ≤ 205 000 bytes; every other drawing entry is sent with `strokes:null, omitted:true` (its text/metadata stays). Omitted drawings become available through `GET /sessions/{id}/albums/{chainIndex}` once the session is `FINISHED`. A test serializes the maximal snapshots and asserts `< 262 144` bytes.
 
-**`ALBUM_REVEALED`**: `entry` is a `RevealEntryDto` (`omitted:false`, `strokes` present for drawings); `newlyRevealed:false` (cursor moved over an entry the clients already received) carries `entry:null`. A client that lacks such an entry (it reconnected after it was omitted) shows "available in the results". `autoAdvanced` is true when the server moved the cursor because of the idle deadline.
+**`ALBUM_REVEALED`**: `entry` is a `RevealEntryDto` (`omitted:false`, `strokes` present for drawings); `newlyRevealed:false` (cursor moved over an entry the clients already received) carries `entry:null`. A client that lacks such an entry (it reconnected after it was omitted) shows "available in the results". `autoAdvanced` is true when the server moved the cursor because of the idle deadline. `autoAdvanceAt` is display-only: when the host becomes `DISCONNECTED` the server brings the pending auto-advance forward to at most 15 s from then without publishing an event; snapshots carry the current value.
 
 **Results.** `GAME_FINISHED.standings` and `ResultsDto.standings` are empty. `ResultsDto.rounds[]` lists the completed steps: `roundNo = step + 1`, `endReason` ∈ `ALL_SUBMITTED|TIME`, `meta:{step, kind, submittedCount, timedOutCount, leftCount}` (no content). Content is only in the album endpoints (§2), authorized for current members of the session's room, read from the database, available once the session is `FINISHED` (`complete:false` albums after an early finish, `INSUFFICIENT_PLAYERS`).
 
