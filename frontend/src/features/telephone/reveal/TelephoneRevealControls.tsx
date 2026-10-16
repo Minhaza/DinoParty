@@ -34,7 +34,7 @@ export function TelephoneRevealControls(props: TelephoneRevealControlsProps) {
     props
 
   return (
-    <div className="sticky bottom-2 z-10 flex flex-col gap-2 rounded-2xl border border-border bg-card/95 p-3 shadow-[var(--ds-card)] backdrop-blur sm:static sm:bg-card">
+    <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-[var(--ds-card)]">
       {isHost ? (
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button

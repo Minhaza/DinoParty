@@ -6,8 +6,10 @@ import { authHeaders, canvasStats, drag, newPlayer, type Player } from './suppor
  * Dino Telephone smoke (P6-04): four players (the game's minimum, [C-1]) in separate browser
  * contexts play a complete game against the real backend: the host picks Telephone in the UI,
  * everyone writes, draws, describes and draws again, the game reaches results, two players refresh
- * mid-step, and a rematch starts a fresh session. After every step each page may show exactly the
- * one entry it was assigned ([TP-8]). One long test because each step depends on the last.
+ * mid-step, the host reveals every album page by page while a player reloads (P6-05), everyone
+ * browses the albums in the results, and a rematch starts a fresh session. Until the reveal each
+ * page may show exactly the one entry it was assigned ([TP-8]). One long test because each step
+ * depends on the last.
  */
 test('four players complete a Dino Telephone game and rematch', async ({ browser, request }) => {
   const suffix = Math.floor(Math.random() * 1e6)
@@ -138,7 +140,7 @@ test('four players complete a Dino Telephone game and rematch', async ({ browser
       await expect(
         p.page
           .getByText(/your masterpiece is on its way/i)
-          .or(p.page.getByText(/every chain is complete/i)),
+          .or(p.page.getByRole('region', { name: 'Album reveal' })),
       ).toBeVisible()
     } else {
       await expectAccepted(p.page, /your masterpiece is on its way/i, nextStep)
@@ -216,11 +218,76 @@ test('four players complete a Dino Telephone game and rematch', async ({ browser
 
   const firstSession = (await snapshot()).room.sessionId
 
-  await test.step('results: every screen shows the finished game and no entries', async () => {
+  const reveal = (page: Page) => page.getByRole('region', { name: 'Album reveal' })
+  const position = (page: Page, album: number, step: number) =>
+    reveal(page).getByText(`Album ${album} of 4 — Step ${step} of 4`).first()
+
+  await test.step('reveal: the first album opens on its prompt, and only on it', async () => {
     for (const p of players) {
-      await expect(p.page.getByText(/every chain is complete/i)).toBeVisible({ timeout: 20_000 })
-      expect(await visibleOf(p.page, [...allPrompts, ...allDescriptions])).toEqual([])
+      await expect(reveal(p.page)).toBeVisible({ timeout: 20_000 })
+      await expect(position(p.page, 1, 1)).toBeVisible()
+      const seen = await visibleOf(p.page, [...allPrompts, ...allDescriptions])
+      expect(seen, `${p.nickname} sees only album 1's prompt`).toHaveLength(1)
     }
+    // only the host turns the shared pages; the server enforces it too (TelephoneIT)
+    await expect(host.page.getByRole('button', { name: /reveal next/i })).toBeVisible()
+    for (const p of others) {
+      await expect(p.page.getByRole('button', { name: /reveal next/i })).toHaveCount(0)
+      await expect(p.page.getByText(/host is turning the pages/i)).toBeVisible()
+    }
+  })
+
+  const revealNext = async (album: number, step: number) => {
+    // REVEAL_NEXT is limited to 5/s per player (api-contracts §3.10); a human never clicks faster,
+    // a test would and gets RATE_LIMITED.
+    await host.page.waitForTimeout(250)
+    await host.page.getByRole('button', { name: /reveal next|finish/i }).click()
+    if (album <= 4) await expect(position(host.page, album, step)).toBeVisible()
+  }
+
+  await test.step('reveal: pages turn for everyone; a reload rejoins the same page', async () => {
+    await revealNext(1, 2)
+    await revealNext(1, 3)
+    for (const p of players) await expect(position(p.page, 1, 3)).toBeVisible()
+    const drawing = host.page.getByRole('img', { name: /^drawing by/i }).first()
+    await expect.poll(() => inkOf(drawing), { timeout: 10_000 }).toBeGreaterThan(50)
+
+    const reloader = others[1]
+    await reloader.page.reload()
+    await expect(position(reloader.page, 1, 3)).toBeVisible({ timeout: 20_000 })
+    expect(await visibleOf(reloader.page, allDescriptions)).toHaveLength(1)
+  })
+
+  await test.step('reveal: the phone layout has no horizontal overflow', async () => {
+    const phone = others[0].page
+    const overflow = await phone.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow).toBeLessThanOrEqual(0)
+  })
+
+  await test.step('reveal: the host turns every page, the last one finishes the game', async () => {
+    for (let i = 3; i < 16; i++) await revealNext(Math.floor(i / 4) + 1, (i % 4) + 1)
+    await revealNext(5, 1) // "Finish & see albums"
+  })
+
+  await test.step('results: everyone can open the albums; there are no scores', async () => {
+    for (const p of players) {
+      await expect(p.page.getByRole('heading', { name: /the albums are in/i })).toBeVisible({
+        timeout: 20_000,
+      })
+      await expect(p.page.getByRole('button', { name: /open .* album/i })).toHaveCount(4)
+      await expect(p.page.getByText(/final standings/i)).toHaveCount(0)
+    }
+    const reader = others[2]
+    await reader.page
+      .getByRole('button', { name: /open .* album/i })
+      .first()
+      .click()
+    await expect(reader.page.getByRole('article')).toHaveCount(4)
+    expect(await visibleOf(reader.page, allPrompts)).toHaveLength(1)
+    expect((await visibleOf(reader.page, allDescriptions)).length).toBeGreaterThanOrEqual(1)
+    await reader.page.getByRole('button', { name: /all albums/i }).click()
     expect((await snapshot()).room.status).toBe('RESULTS')
   })
 
