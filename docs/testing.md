@@ -457,6 +457,6 @@ Scope: the P6-02 backend steps and the step UI played together over the real STO
 - `npx playwright test e2e/telephone.e2e.ts`: passed (see above).
 
 ### Not verified / known issues
-- **`e2e/drawguess.e2e.ts` fails on `main` already** (since the layout redesign #23): it looks for the removed `Players and scores` region and an `Offline` label, and on mobile the roster is now behind a toggle. Selector updates were tried and reverted in this task (each exposed the next layout difference: the open roster then hid the drawing toolbar); the spec needs an update in the frontend lane. Draw & Guess behaviour is still covered by `DrawGuessIT`/`DrawGuessWordSelectionIT` and its Vitest suites, all green; this task changed no Draw & Guess code.
+- `e2e/drawguess.e2e.ts` had been failing on `main` since the layout redesign (#23); it was updated in this task to the new layout, without changing what it asserts: the roster is the `Game session players` list and a disconnected player carries the `Player disconnected` icon (no `Offline` label); below `lg` the spec switches to the `Players (n)` tab for roster, feed and guess input and back to `Game Area` for the stage, dispatching the tab click directly because the round-end and word-choice overlays cover the tab bar. Full E2E suite (`drawguess` + `telephone`) `--repeat-each=2`: 4/4 passed.
 - 3-browser verification was replaced by 4 (Telephone's minimum, `[C-1]`); network cut during a submission was covered by store/component tests, not in the browser.
 - No reveal, albums, axe smoke or load check (P6-03, P6-06).

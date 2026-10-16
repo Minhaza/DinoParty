@@ -89,7 +89,19 @@ test('two players complete a Draw & Guess game and rematch', async ({ browser, r
     return { drawer, guesser, word }
   }
 
-  const scores = (p: Page) => p.getByRole('region', { name: 'Players and scores' })
+  // Session layout (#23): the roster is the "Game session players" list, a disconnected player is
+  // marked by an icon titled "Player disconnected". Below `lg` the layout shows one tab at a time:
+  // "Game Area" (stage, canvas, toolbar, overlays) or "Players (n)" (roster, guess feed and input).
+  const scores = (p: Page) => p.getByRole('list', { name: 'Game session players' })
+  const offlineMarks = (p: Page) => scores(p).getByTitle('Player disconnected')
+  const showTab = async (p: Page, name: string | RegExp) => {
+    const tab = p.getByRole('button', { name, exact: typeof name === 'string' })
+    // Dispatched to the tab itself: a round-end or word-choice overlay may cover the tab bar, and a
+    // pointer click would wait for it to close (and miss the timed phase behind it).
+    if (await tab.isVisible()) await tab.dispatchEvent('click')
+  }
+  const showGame = (p: Page) => showTab(p, 'Game Area')
+  const showSidebar = (p: Page) => showTab(p, /^Players \(\d+\)$/)
 
   await test.step('lobby → game start', startFromLobby)
 
@@ -157,7 +169,9 @@ test('two players complete a Draw & Guess game and rematch', async ({ browser, r
   await test.step('round 1: guesser loses the network while the drawer draws', async () => {
     r1.guesser.network.cut()
     await expect(r1.guesser.page.getByText(/Reconnecting/).first()).toBeVisible()
-    await expect(scores(r1.drawer.page)).toContainText('Offline')
+    await showSidebar(r1.drawer.page)
+    await expect(offlineMarks(r1.drawer.page)).toHaveCount(1)
+    await showGame(r1.drawer.page)
     const tools = r1.drawer.page.getByRole('toolbar', { name: 'Drawing controls' })
     await tools.getByRole('button', { name: 'Select Green color' }).click()
     await drag(r1.drawer, [0.15, 0.25], [0.85, 0.25])
@@ -166,7 +180,9 @@ test('two players complete a Draw & Guess game and rematch', async ({ browser, r
       .toBeGreaterThan(50)
     r1.guesser.network.restore()
     await expect(r1.guesser.page.getByText(/Reconnecting/)).toHaveCount(0, { timeout: 30_000 })
-    await expect(scores(r1.drawer.page)).not.toContainText('Offline')
+    await showSidebar(r1.drawer.page)
+    await expect(offlineMarks(r1.drawer.page)).toHaveCount(0)
+    await showGame(r1.drawer.page)
     await expect
       .poll(async () => (await canvasStats(r1.guesser.page, GREEN)).matching)
       .toBeGreaterThan(50)
@@ -184,14 +200,17 @@ test('two players complete a Draw & Guess game and rematch', async ({ browser, r
   })
 
   await test.step('round 1: wrong guess is chat, right guess scores on both screens', async () => {
+    await showSidebar(r1.guesser.page)
     const input = r1.guesser.page.getByRole('textbox', { name: 'Type your guess here…' })
     await input.fill('zzqqzz')
     await input.press('Enter')
     const feed = (p: Page) => p.getByRole('log', { name: 'Guess and chat feed' })
+    await showSidebar(r1.drawer.page)
     await expect(feed(r1.drawer.page)).toContainText('zzqqzz')
     await input.fill(r1.word.toUpperCase())
     await input.press('Enter')
     for (const p of players) {
+      await showGame(p.page)
       await expect(p.page.getByText('Round 1 of 2 Complete!')).toBeVisible()
       await expect(p.page.getByText(r1.word, { exact: true }).first()).toBeVisible()
     }
@@ -201,8 +220,11 @@ test('two players complete a Draw & Guess game and rematch', async ({ browser, r
     expect(guesserScore).toBeGreaterThan(0)
     expect(drawerScore).toBeGreaterThan(0)
     for (const p of players) {
+      await showSidebar(p.page)
       await expect(scores(p.page)).toContainText(String(guesserScore))
       await expect(scores(p.page)).toContainText(String(drawerScore))
+      // Back to the stage before the next word choice: its overlay would cover the tabs.
+      await showGame(p.page)
     }
   })
 
@@ -225,6 +247,7 @@ test('two players complete a Draw & Guess game and rematch', async ({ browser, r
   const firstSession = (await snapshot()).room.sessionId
   await test.step('results: identical final standings on both screens', async () => {
     const standings = async (p: Page) => {
+      await showGame(p)
       await expect(p.getByText('Game Finished!')).toBeVisible({ timeout: 30_000 })
       const rows = p.getByRole('table', { name: 'Final Standings' }).getByRole('row')
       return (await rows.allInnerTexts()).map((t) =>
