@@ -22,11 +22,12 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Dino Telephone steps end to end over real STOMP with the registered module (P6-02, integrated in
- * P6-04): start validation and initial tasks, a full four-player game with the secrecy of [TP-8],
- * role/phase/finality errors, timeout progression, concurrent final submissions, reconnect restore,
- * results and rematch, draft restore, the maximal drawing task, and the settings defaults against
- * the catalog row. The reveal and the album endpoints are the design's P6-03.
+ * Dino Telephone end to end over real STOMP with the registered module (P6-02..P6-04, the reveal
+ * and albums of P6-03): start validation and initial tasks, a full four-player game with the
+ * secrecy of [TP-8] and the host-driven reveal, role/phase/finality errors, timeout progression,
+ * concurrent final submissions, reconnect restore in a step and in the reveal, results, albums and
+ * rematch, draft restore, the maximal drawing task, and the settings defaults against the catalog
+ * row.
  */
 @RealtimeIntegrationTest
 class TelephoneIT extends GameEngineSupport {
@@ -123,6 +124,41 @@ class TelephoneIT extends GameEngineSupport {
       ws.command(code, "REQUEST_SNAPSHOT", actionId(), "{}");
       await().atMost(Duration.ofSeconds(5)).until(() -> ws.ofType("ROOM_SNAPSHOT").size() > before);
       return ws.ofType("ROOM_SNAPSHOT").getLast().payload();
+    }
+
+    /** The REVEAL phase id, waiting for the reveal to start. */
+    String revealPhase(StompTestClient ws) {
+      return awaitLong(
+              ws,
+              m ->
+                  m.type().equals("PHASE_STARTED")
+                      && m.payload().get("phase").asString().equals("REVEAL"))
+          .payload()
+          .get("phaseId")
+          .asString();
+    }
+
+    /**
+     * The cursor of the {@code n}-th ALBUM_REVEALED a socket received (1-based), waiting for it.
+     */
+    JsonNode revealed(StompTestClient ws, int n) {
+      await().atMost(LONG).until(() -> ws.ofType("ALBUM_REVEALED").size() >= n);
+      return ws.ofType("ALBUM_REVEALED").get(n - 1).payload();
+    }
+
+    static String cursor(JsonNode revealed) {
+      return "{\"chainIndex\":%d,\"entryIndex\":%d}"
+          .formatted(revealed.get("chainIndex").asInt(), revealed.get("entryIndex").asInt());
+    }
+
+    /** The host steps through every entry; the last NEXT finishes the game. */
+    void revealAll(StompTestClient host) {
+      String phase = revealPhase(host);
+      int total = order.size() * order.size(); // E = n for the even rooms used here
+      for (int i = host.ofType("ALBUM_REVEALED").size(); i <= total; i++) {
+        sendAcked(host, "REVEAL_NEXT", phase, cursor(revealed(host, i)));
+      }
+      awaitLong(host, m -> m.type().equals("GAME_FINISHED"));
     }
 
     /** The private task of {@code step}, waiting for it. */
@@ -224,13 +260,12 @@ class TelephoneIT extends GameEngineSupport {
       r.sendAcked(ws, "TELEPHONE_SUBMIT_DRAWING", task.get("phaseId").asString(), "{}");
     }
 
-    JsonNode finished = awaitLong(host, m -> m.type().equals("GAME_FINISHED")).payload();
-    assertThat(finished.get("endReason").asString()).isEqualTo("COMPLETED");
-    assertThat(finished.get("standings")).isEmpty();
-    assertThat(host.ofType("PHASE_STARTED").stream().map(m -> m.payload().get("phase").asString()))
-        .containsExactly("PROMPT", "DRAW", "DESCRIBE", "DRAW");
+    r.revealPhase(host);
+    for (StompTestClient ws : r.sockets) {
+      r.snapshot(ws); // orders every earlier frame of this socket
+    }
 
-    // secrecy [TP-8]: no entry text reached anybody but its next holder
+    // secrecy [TP-8]: until ALBUM_REVEALED no entry text reached anybody but its next holder
     for (int c = 0; c < 4; c++) {
       String prompt = "zz-prompt-" + c;
       String describe = "zz-describe-" + c;
@@ -238,15 +273,100 @@ class TelephoneIT extends GameEngineSupport {
         String who = r.order.get(i);
         boolean nextOfPrompt = r.holder(c, 1).equals(who);
         boolean nextOfDescribe = r.holder(c, 3).equals(who);
+        java.util.function.Predicate<StompTestClient.Message> secret =
+            m -> !m.type().equals("ALBUM_REVEALED") && !m.type().equals("ROOM_SNAPSHOT");
         long withPrompt =
-            r.socketOf(who).messages().stream().filter(m -> carries(m, prompt)).count();
+            r.socketOf(who).messages().stream()
+                .filter(secret)
+                .filter(m -> carries(m, prompt))
+                .count();
         long withDescribe =
-            r.socketOf(who).messages().stream().filter(m -> carries(m, describe)).count();
+            r.socketOf(who).messages().stream()
+                .filter(secret)
+                .filter(m -> carries(m, describe))
+                .count();
         // the author sees their own text only in the echo of nothing: it is never sent back
         assertThat(withPrompt).as("%s sees %s", i, prompt).isEqualTo(nextOfPrompt ? 1 : 0);
         assertThat(withDescribe).as("%s sees %s", i, describe).isEqualTo(nextOfDescribe ? 1 : 0);
       }
     }
+    // the reveal starts with album 0's prompt only; no other album has been shown
+    for (StompTestClient ws : r.sockets) {
+      assertThat(ws.ofType("ALBUM_REVEALED")).hasSize(1);
+      assertThat(carries(ws.ofType("ALBUM_REVEALED").getFirst(), "zz-prompt-0")).isTrue();
+      for (int c = 1; c < 4; c++) {
+        String prompt = "zz-prompt-" + c;
+        assertThat(ws.messages().stream().filter(m -> m.type().equals("ALBUM_REVEALED")))
+            .noneMatch(m -> carries(m, prompt));
+      }
+    }
+
+    r.revealAll(host);
+    JsonNode finished = awaitLong(host, m -> m.type().equals("GAME_FINISHED")).payload();
+    assertThat(finished.get("endReason").asString()).isEqualTo("COMPLETED");
+    assertThat(finished.get("standings")).isEmpty();
+    assertThat(host.ofType("PHASE_STARTED").stream().map(m -> m.payload().get("phase").asString()))
+        .containsExactly("PROMPT", "DRAW", "DESCRIBE", "DRAW", "REVEAL");
+    // every player saw every entry exactly once, in reveal order
+    for (StompTestClient ws : r.sockets) {
+      r.snapshot(ws);
+      List<JsonNode> shown = ws.ofType("ALBUM_REVEALED").stream().map(m -> m.payload()).toList();
+      assertThat(shown).hasSize(16);
+      for (int i = 0; i < 16; i++) {
+        assertThat(shown.get(i).get("chainIndex").asInt()).isEqualTo(i / 4);
+        assertThat(shown.get(i).get("entryIndex").asInt()).isEqualTo(i % 4);
+        assertThat(shown.get(i).get("newlyRevealed").asBoolean()).isTrue();
+      }
+      assertThat(shown.get(4 + 2).get("entry").get("text").asString()).isEqualTo("zz-describe-1");
+    }
+  }
+
+  @Test
+  void TP6_onlyTheHostRevealsADoubleClickIsStaleAndAReconnectRestoresThePosition()
+      throws Exception {
+    Room r = new Room(4);
+    r.start();
+    for (int step = 0; step < 4; step++) {
+      r.playStep(step, "zz-r");
+    }
+    StompTestClient host = r.sockets.get(0);
+    StompTestClient guest = r.sockets.get(1);
+    String phase = r.revealPhase(host);
+    String session =
+        awaitLong(host, m -> m.type().equals("GAME_STARTED")).payload().get("sessionId").asString();
+
+    String id = actionId();
+    r.send(guest, "REVEAL_NEXT", phase, Room.cursor(r.revealed(guest, 1)), id);
+    assertThat(errorCode(guest, id)).isEqualTo("NOT_HOST");
+
+    String first = Room.cursor(r.revealed(host, 1));
+    r.sendAcked(host, "REVEAL_NEXT", phase, first);
+    id = actionId();
+    r.send(host, "REVEAL_NEXT", phase, first, id); // the double click
+    assertThat(errorCode(host, id)).isEqualTo("STALE_ACTION");
+    r.sendAcked(host, "REVEAL_NEXT", phase, Room.cursor(r.revealed(host, 2)));
+    r.sendAcked(host, "REVEAL_PREV", phase, Room.cursor(r.revealed(host, 3)));
+    assertThat(r.revealed(host, 4).get("entryIndex").asInt()).isEqualTo(1);
+    assertThat(r.revealed(host, 4).get("newlyRevealed").asBoolean()).isFalse();
+
+    // the albums cannot be fetched around the reveal while it runs
+    mvc.perform(
+            get("/api/v1/sessions/" + session + "/albums/1")
+                .header("Authorization", bearer(r.guests.get(1))))
+        .andExpect(status().isConflict());
+
+    StompTestClient again = r.reconnect(r.guests.get(1).id().toString());
+    JsonNode game = r.snapshot(again).get("game");
+    assertThat(game.get("phase").asString()).isEqualTo("REVEAL");
+    assertThat(game.get("phaseId").asString()).isEqualTo(phase);
+    assertThat(game.get("deadlineAt").isNull()).isTrue();
+    JsonNode reveal = game.get("reveal");
+    assertThat(reveal.get("cursor").get("entryIndex").asInt()).isEqualTo(1);
+    assertThat(reveal.get("highWater").get("entryIndex").asInt()).isEqualTo(2);
+    assertThat(reveal.get("albums").get(0).get("entries")).hasSize(3);
+    assertThat(reveal.get("albums").get(1).get("entries")).isEmpty();
+    // nothing of an unrevealed album is in the restored view
+    assertThat(reveal.toString()).doesNotContain("zz-r-0-1").doesNotContain("zz-r-2-1");
   }
 
   // ------------------------------------------------------------------ errors and authorization
@@ -466,7 +586,7 @@ class TelephoneIT extends GameEngineSupport {
     for (int step = 0; step < 4; step++) {
       r.playStep(step, "zz-first");
     }
-    awaitLong(host, m -> m.type().equals("GAME_FINISHED"));
+    r.revealAll(host);
     awaitLong(
         host,
         m ->
@@ -495,9 +615,16 @@ class TelephoneIT extends GameEngineSupport {
                     .getContentAsString());
     assertThat(results.get("standings")).isEmpty();
     assertThat(results.get("rounds")).hasSize(4);
-    // neither results nor a finished snapshot carry entry content ([TP-8]); albums are P6-03
+    // neither results nor a finished snapshot carry entry content ([TP-8]): only the albums do
     assertThat(results.toString()).doesNotContain("zz-first");
     assertThat(r.snapshot(r.sockets.get(1)).toString()).doesNotContain("zz-first");
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> album(r, firstSession, 1).get("entries").size() == 4);
+    JsonNode album = album(r, firstSession, 1);
+    assertThat(album.get("entries").get(0).get("text").asString()).isEqualTo("zz-first-0-1");
+    assertThat(album.get("entries").get(0).get("authorGuestId").asString())
+        .isEqualTo(r.order.get(1));
 
     for (StompTestClient ws : r.sockets) {
       ws.command(r.code, "REMATCH_VOTE", actionId(), "{\"vote\":true}");
@@ -540,6 +667,21 @@ class TelephoneIT extends GameEngineSupport {
             jdbc.queryForObject(
                 "select status from game_session where id = ?::uuid", String.class, firstSession))
         .isEqualTo("FINISHED");
+    // the finished game's albums stay readable after the rematch reset ([TP-13], D45)
+    assertThat(album(r, firstSession, 0).get("complete").asBoolean()).isTrue();
+  }
+
+  private JsonNode album(Room r, String sessionId, int chain) throws Exception {
+    return JsonMapper.builder()
+        .build()
+        .readTree(
+            mvc.perform(
+                    get("/api/v1/sessions/" + sessionId + "/albums/" + chain)
+                        .header("Authorization", bearer(r.guests.get(2))))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
   }
 
   // ------------------------------------------------------------------ drafts and sizes
