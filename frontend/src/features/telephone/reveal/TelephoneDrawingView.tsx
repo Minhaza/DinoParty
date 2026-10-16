@@ -39,17 +39,20 @@ export const TelephoneDrawingView = React.memo(function TelephoneDrawingView({
   const reducedMotion = usePrefersReducedMotion()
   const animate = replay && !compact && !reducedMotion && strokes !== null
   const [replaying, setReplaying] = React.useState(animate)
+  const held = strokes !== null
 
+  // The canvas only exists once the strokes do: a withheld drawing that arrives later (a resync
+  // while the cursor is on it) must still be measured.
   React.useEffect(() => {
     const container = containerRef.current
-    if (!container) return
+    if (!held || !container) return
     const measure = () => setWidth(Math.floor(container.getBoundingClientRect().width))
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
     observer.observe(container)
     return () => observer.disconnect()
-  }, [])
+  }, [held])
 
   const draw = React.useCallback(
     (visible: Stroke[]) => {
