@@ -44,3 +44,15 @@ export function submitErrorCopy(code: string, retryable: boolean): string {
       return retryable ? 'Too fast! Wait a moment and try again.' : 'Your entry could not be sent.'
   }
 }
+
+/** Player-facing copy for a rejected reveal move (api-contracts §3.10). */
+export function revealNavErrorCopy(code: string): string {
+  switch (code) {
+    case 'NOT_HOST':
+      return 'Only the host can turn the pages now.'
+    case 'RATE_LIMITED':
+      return 'Easy there! Give the album a moment.'
+    default:
+      return 'That page turn did not go through. Try again.'
+  }
+}
