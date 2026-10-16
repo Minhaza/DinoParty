@@ -2,10 +2,12 @@ package com.dinoparty.games.telephone;
 
 import com.dinoparty.common.DomainException;
 import com.dinoparty.common.ErrorCode;
+import com.dinoparty.common.Timestamps;
 import com.dinoparty.drawing.StrokeBatch;
 import com.dinoparty.engine.ActionRejected;
 import com.dinoparty.engine.CommandSpec;
 import com.dinoparty.engine.DeadlineFired;
+import com.dinoparty.engine.DeadlineRequest;
 import com.dinoparty.engine.FinishReason;
 import com.dinoparty.engine.GameContext;
 import com.dinoparty.engine.GameDefinition;
@@ -19,6 +21,7 @@ import com.dinoparty.engine.PlayerAction;
 import com.dinoparty.engine.PlayerStatus;
 import com.dinoparty.engine.PlayerStatusChange;
 import com.dinoparty.engine.RoundRecord;
+import com.dinoparty.engine.SubmissionRecord;
 import com.dinoparty.engine.Transition;
 import com.dinoparty.games.telephone.TelephoneState.Draft;
 import com.dinoparty.games.telephone.TelephoneState.Entry;
@@ -28,8 +31,10 @@ import com.dinoparty.words.DifficultyFilter;
 import com.dinoparty.words.WordPoolService;
 import com.dinoparty.words.WordSelection;
 import com.dinoparty.words.WordSource;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -43,12 +48,15 @@ import org.springframework.stereotype.Component;
  * steps inside the shared engine. Rules: docs/game-rules.md [TP-1]..[TP-14]; wire format:
  * api-contracts.md §3.10; state machine: docs/telephone-design.md §4.
  *
- * <p>P6-02 covers the steps. The reveal, album persistence and the album endpoints are P6-03; until
- * then the game finishes when the last step ends (design §13.2).
+ * <p>After the last step the albums are revealed one entry at a time ([TP-6]): the current host
+ * moves a shared cursor with {@code REVEAL_NEXT}/{@code REVEAL_PREV}, an idle auto-advance keeps
+ * the reveal moving, and NEXT on the last entry finishes the game. Every entry is handed to the
+ * engine as a {@link SubmissionRecord} the moment it exists (D44), so albums outlive the session.
  *
  * <p>Every rejection is thrown before any state changes. Entry content only leaves this class in
- * the private {@code TELEPHONE_TASK} of the next holder and in that holder's {@link #view} ([TP-8],
- * built by {@link TelephoneViews}).
+ * the private {@code TELEPHONE_TASK} of the next holder and in that holder's {@link #view}, and
+ * from the reveal on in {@code ALBUM_REVEALED} and reveal snapshots, never past the furthest entry
+ * revealed ([TP-8], built by {@link TelephoneViews}).
  */
 @Component
 public class TelephoneModule implements GameModule {
@@ -56,6 +64,13 @@ public class TelephoneModule implements GameModule {
   public static final String KEY = "telephone";
 
   static final String PHASE_END = "phase-end";
+  static final String REVEAL_AUTO = "reveal-auto";
+  static final String REVEAL = "REVEAL";
+
+  /** Idle auto-advance of the reveal; shorter while the host is away ([TP-6], D42). */
+  static final Duration AUTO_ADVANCE = Duration.ofSeconds(60);
+
+  static final Duration AUTO_ADVANCE_HOST_AWAY = Duration.ofSeconds(15);
 
   static final String SUBMIT_TEXT = "TELEPHONE_SUBMIT_TEXT";
   static final String TEXT_DRAFT = "TELEPHONE_TEXT_DRAFT";
@@ -63,9 +78,12 @@ public class TelephoneModule implements GameModule {
   static final String DRAW_UNDO = "TELEPHONE_DRAW_UNDO";
   static final String DRAW_CLEAR = "TELEPHONE_DRAW_CLEAR";
   static final String SUBMIT_DRAWING = "TELEPHONE_SUBMIT_DRAWING";
+  static final String REVEAL_NEXT = "REVEAL_NEXT";
+  static final String REVEAL_PREV = "REVEAL_PREV";
 
   private static final Set<String> TEXT_PHASES = Set.of(Kind.PROMPT.name(), Kind.DESCRIBE.name());
   private static final Set<String> DRAW_PHASES = Set.of(Kind.DRAW.name());
+  private static final Set<String> REVEAL_PHASES = Set.of(REVEAL);
 
   private static final GameDefinition DEFINITION =
       new GameDefinition(
@@ -80,8 +98,10 @@ public class TelephoneModule implements GameModule {
               new CommandSpec(DRAW_STROKE, 8 * 1024, 30, 40, DRAW_PHASES),
               new CommandSpec(DRAW_UNDO, 128, 5, 5, DRAW_PHASES),
               new CommandSpec(DRAW_CLEAR, 128, 2, 3, DRAW_PHASES),
-              new CommandSpec(SUBMIT_DRAWING, 128, 2, 3, DRAW_PHASES)),
-          Set.of("TELEPHONE_PROGRESS", "TELEPHONE_STEP_ENDED"),
+              new CommandSpec(SUBMIT_DRAWING, 128, 2, 3, DRAW_PHASES),
+              new CommandSpec(REVEAL_NEXT, 256, 5, 5, REVEAL_PHASES),
+              new CommandSpec(REVEAL_PREV, 256, 5, 5, REVEAL_PHASES)),
+          Set.of("TELEPHONE_PROGRESS", "TELEPHONE_STEP_ENDED", "ALBUM_REVEALED"),
           Set.of("TELEPHONE_TASK"));
 
   private final WordPoolService words;
@@ -123,9 +143,11 @@ public class TelephoneModule implements GameModule {
     }
     TelephoneSettings settings = TelephoneSettings.from(ctx.settings());
     int n = ctx.order().size();
+    Map<UUID, String> nicknames = new HashMap<>();
+    ctx.roster().forEach(p -> nicknames.put(p.guestId(), p.nickname()));
     TelephoneState s =
-        new TelephoneState(settings, ctx.order(), settings.entries(n), setup.prompts());
-    return startStep(s, 0, ctx);
+        new TelephoneState(settings, ctx.order(), nicknames, settings.entries(n), setup.prompts());
+    return recorded(s, startStep(s, 0, ctx));
   }
 
   @Override
@@ -134,32 +156,57 @@ public class TelephoneModule implements GameModule {
     if (s.over || !s.index.containsKey(action.guestId())) {
       throw new ActionRejected(ErrorCode.INVALID_PHASE, "That action is not allowed now.");
     }
-    return switch (action.type()) {
-      case SUBMIT_TEXT -> submitText(s, action, ctx);
-      case TEXT_DRAFT -> textDraft(s, action);
-      case DRAW_STROKE -> drawStroke(s, action);
-      case DRAW_UNDO -> undo(s, action);
-      case DRAW_CLEAR -> clear(s, action);
-      case SUBMIT_DRAWING -> submitDrawing(s, action, ctx);
-      default -> throw new ActionRejected(ErrorCode.INVALID_ACTION, "Unknown action.");
-    };
+    Transition t =
+        switch (action.type()) {
+          case SUBMIT_TEXT -> submitText(s, action, ctx);
+          case TEXT_DRAFT -> textDraft(s, action);
+          case DRAW_STROKE -> drawStroke(s, action);
+          case DRAW_UNDO -> undo(s, action);
+          case DRAW_CLEAR -> clear(s, action);
+          case SUBMIT_DRAWING -> submitDrawing(s, action, ctx);
+          case REVEAL_NEXT -> revealMove(s, action, ctx, true);
+          case REVEAL_PREV -> revealMove(s, action, ctx, false);
+          default -> throw new ActionRejected(ErrorCode.INVALID_ACTION, "Unknown action.");
+        };
+    return recorded(s, t);
   }
 
   @Override
   public Transition onDeadline(GameState state, DeadlineFired deadline, GameContext ctx) {
     TelephoneState s = (TelephoneState) state;
-    if (s.over || !PHASE_END.equals(deadline.id())) {
+    if (s.over) {
       return Transition.stay(s);
     }
-    return endStep(s, "TIME", ctx); // T2/T3 by time
+    if (s.revealing) {
+      return REVEAL_AUTO.equals(deadline.id())
+          ? revealForward(s, ctx, true) // T4/T5 by the idle auto-advance
+          : Transition.stay(s);
+    }
+    if (!PHASE_END.equals(deadline.id())) {
+      return Transition.stay(s);
+    }
+    return recorded(s, endStep(s, "TIME", ctx)); // T2/T3 by time
   }
 
   @Override
   public Transition onPlayerStatus(GameState state, PlayerStatusChange change, GameContext ctx) {
     TelephoneState s = (TelephoneState) state;
-    if (change.status() != PlayerStatus.LEFT
-        || !s.index.containsKey(change.guestId())
-        || !s.left.add(change.guestId())) {
+    UUID changed = change.guestId();
+    if (!s.index.containsKey(changed)) {
+      return Transition.stay(s);
+    }
+    if (change.status() == PlayerStatus.DISCONNECTED) {
+      s.disconnected.add(changed);
+    } else {
+      s.disconnected.remove(changed);
+    }
+    if (s.revealing) {
+      if (change.status() == PlayerStatus.LEFT) {
+        s.left.add(changed);
+      }
+      return hostAway(s, ctx);
+    }
+    if (change.status() != PlayerStatus.LEFT || !s.left.add(changed)) {
       return Transition.stay(s); // DISCONNECTED/ACTIVE change nothing; the snapshot restores
     }
     if (s.over) {
@@ -174,9 +221,9 @@ public class TelephoneModule implements GameModule {
       fillCell(s, chain, ctx);
     }
     if (s.allSubmitted()) {
-      return endStep(s, "ALL_SUBMITTED", ctx);
+      return recorded(s, endStep(s, "ALL_SUBMITTED", ctx));
     }
-    return Transition.stay(s).withEvents(TelephoneViews.progress(s));
+    return recorded(s, Transition.stay(s).withEvents(TelephoneViews.progress(s)));
   }
 
   @Override
@@ -200,7 +247,7 @@ public class TelephoneModule implements GameModule {
     }
     UUID guest = action.guestId();
     s.drafts.remove(guest);
-    s.chains.get(s.chainOf(guest)).add(new Entry(guest, text, null, Fill.NONE, false, false));
+    addEntry(s, s.chainOf(guest), new Entry(guest, text, null, Fill.NONE, false, false), ctx);
     return afterSubmit(s, guest, ctx);
   }
 
@@ -232,9 +279,11 @@ public class TelephoneModule implements GameModule {
     Draft draft = openDrawDraft(s, action);
     UUID guest = action.guestId();
     s.drafts.remove(guest);
-    s.chains
-        .get(s.chainOf(guest))
-        .add(new Entry(guest, null, draft.canvas.snapshot(), Fill.NONE, false, false));
+    addEntry(
+        s,
+        s.chainOf(guest),
+        new Entry(guest, null, draft.canvas.snapshot(), Fill.NONE, false, false),
+        ctx);
     return afterSubmit(s, guest, ctx);
   }
 
@@ -317,9 +366,102 @@ public class TelephoneModule implements GameModule {
     if (s.step + 1 < s.totalSteps) {
       return startStep(s, s.step + 1, ctx).withClosing(stepEnded).withRounds(record);
     }
-    s.over = true;
+    return startReveal(s, ctx).withClosing(stepEnded).withRounds(record); // T3
+  }
+
+  // ------------------------------------------------------------------ reveal ([TP-6])
+
+  /** T3: one REVEAL phase for every album; entry (0,0) is shown at once. */
+  private Transition startReveal(TelephoneState s, GameContext ctx) {
+    Instant now = ctx.clock().instant();
+    s.revealing = true;
+    s.step = s.totalSteps;
+    s.kind = null;
+    s.phaseId = ctx.nextPhaseId();
+    s.deadline = null;
     s.drafts.clear();
-    return Transition.stay(s).withClosing(stepEnded).withRounds(record).finish();
+    s.submitted.clear();
+    s.cursor = 0;
+    s.highWater = 0;
+    s.autoAdvanceAt = now.plus(autoDelay(s, ctx));
+    Map<String, Object> data = new LinkedHashMap<>();
+    data.put("totalSteps", s.totalSteps);
+    data.put("chains", s.n());
+    data.put("cursor", TelephoneViews.position(s, 0));
+    data.put("autoAdvanceAt", Timestamps.format(s.autoAdvanceAt));
+    return Transition.stay(s)
+        .withPhase(new PhaseChange(REVEAL, null, data))
+        .withEvents(TelephoneViews.albumRevealed(s, true, false))
+        .withDeadlines(new DeadlineRequest(REVEAL_AUTO, s.autoAdvanceAt));
+  }
+
+  /**
+   * T4/T5 from the host. The payload is the cursor the host saw: a mismatch (double click, a race
+   * with the auto-advance) is stale, so no entry is ever skipped.
+   */
+  private Transition revealMove(
+      TelephoneState s, PlayerAction action, GameContext ctx, boolean forward) {
+    if (!s.revealing) {
+      throw new ActionRejected(ErrorCode.INVALID_PHASE, "That action is not allowed now.");
+    }
+    if (!action.guestId().equals(ctx.host())) {
+      throw new ActionRejected(ErrorCode.NOT_HOST, "Only the host can move the reveal.");
+    }
+    int chain = index(action, "chainIndex");
+    int entry = index(action, "entryIndex");
+    if (chain * s.totalSteps + entry != s.cursor || entry >= s.totalSteps) {
+      throw new ActionRejected(ErrorCode.STALE_ACTION, "The reveal has already moved on.");
+    }
+    if (forward) {
+      return revealForward(s, ctx, false);
+    }
+    if (s.cursor == 0) {
+      return Transition.stay(s); // acknowledged no-op at the first entry
+    }
+    s.cursor--;
+    return revealMoved(s, ctx, false, false);
+  }
+
+  /** NEXT: shows the following entry (first time: with content) or finishes after the last. */
+  private Transition revealForward(TelephoneState s, GameContext ctx, boolean auto) {
+    if (s.cursor == s.lastPosition()) {
+      s.revealing = false;
+      s.over = true;
+      return Transition.stay(s).finish(); // T5
+    }
+    s.cursor++;
+    boolean newly = s.cursor > s.highWater;
+    s.highWater = Math.max(s.highWater, s.cursor);
+    return revealMoved(s, ctx, newly, auto);
+  }
+
+  private Transition revealMoved(TelephoneState s, GameContext ctx, boolean newly, boolean auto) {
+    s.autoAdvanceAt = ctx.clock().instant().plus(autoDelay(s, ctx));
+    return Transition.stay(s)
+        .withEvents(TelephoneViews.albumRevealed(s, newly, auto))
+        .withDeadlines(new DeadlineRequest(REVEAL_AUTO, s.autoAdvanceAt));
+  }
+
+  /** While the host is away the pending auto-advance comes at most 15 s from now ([TP-6]). */
+  private Transition hostAway(TelephoneState s, GameContext ctx) {
+    if (!isHostAway(s, ctx)) {
+      return Transition.stay(s);
+    }
+    Instant soon = ctx.clock().instant().plus(AUTO_ADVANCE_HOST_AWAY);
+    if (!soon.isBefore(s.autoAdvanceAt)) {
+      return Transition.stay(s);
+    }
+    s.autoAdvanceAt = soon;
+    return Transition.stay(s).withDeadlines(new DeadlineRequest(REVEAL_AUTO, soon));
+  }
+
+  private static Duration autoDelay(TelephoneState s, GameContext ctx) {
+    return isHostAway(s, ctx) ? AUTO_ADVANCE_HOST_AWAY : AUTO_ADVANCE;
+  }
+
+  private static boolean isHostAway(TelephoneState s, GameContext ctx) {
+    UUID host = ctx.host();
+    return host == null || s.disconnected.contains(host) || s.isLeft(host);
   }
 
   /**
@@ -346,11 +488,47 @@ public class TelephoneModule implements GameModule {
     } else {
       entry = new Entry(holder, TelephoneText.NO_DESCRIPTION, null, fill, true, timedOut);
     }
-    s.chains.get(chain).add(entry);
+    addEntry(s, chain, entry, ctx);
     (left ? s.leftGuests : s.timedOutGuests).add(holder);
   }
 
   // ------------------------------------------------------------------ helpers
+
+  /** Adds the entry of the chain's next cell and queues it for persistence (D44). */
+  private static void addEntry(TelephoneState s, int chain, Entry entry, GameContext ctx) {
+    List<Entry> cells = s.chains.get(chain);
+    cells.add(entry);
+    s.unrecorded.add(
+        new SubmissionRecord(
+            chain,
+            cells.size() - 1,
+            entry.author(),
+            entry.isDrawing() ? SubmissionRecord.Kind.DRAWING : SubmissionRecord.Kind.TEXT,
+            entry.text(),
+            entry.strokes(),
+            entry.fill().name(),
+            entry.placeholder(),
+            entry.timedOut(),
+            s.totalSteps,
+            ctx.clock().instant()));
+  }
+
+  /** Hands the entries created during this call to the engine with the transition. */
+  private static Transition recorded(TelephoneState s, Transition t) {
+    if (s.unrecorded.isEmpty()) {
+      return t;
+    }
+    SubmissionRecord[] records = s.unrecorded.toArray(SubmissionRecord[]::new);
+    s.unrecorded.clear();
+    return t.withSubmissions(records);
+  }
+
+  private static int index(PlayerAction action, String field) {
+    if (!(action.payload().get(field) instanceof Integer value) || value < 0) {
+      throw invalid("payload." + field, "must be a non-negative integer");
+    }
+    return value;
+  }
 
   /** [TP-7]: any input after the holder's submission is rejected, state unchanged. */
   private static void requireOpen(TelephoneState s, PlayerAction action) {

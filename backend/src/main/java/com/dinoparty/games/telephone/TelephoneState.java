@@ -3,6 +3,7 @@ package com.dinoparty.games.telephone;
 import com.dinoparty.drawing.CanvasBuffer;
 import com.dinoparty.drawing.CanvasLimits;
 import com.dinoparty.engine.GameState;
+import com.dinoparty.engine.SubmissionRecord;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -74,6 +75,10 @@ final class TelephoneState implements GameState {
   // ---- session (fixed at start)
   final TelephoneSettings settings;
   final List<UUID> order;
+
+  /** Roster nicknames at start, so entries of players who left stay attributed ([TP-6]). */
+  final Map<UUID, String> nicknames;
+
   final Map<UUID, Integer> index = new HashMap<>();
   final int totalSteps;
   final List<String> prompts;
@@ -83,6 +88,12 @@ final class TelephoneState implements GameState {
   final List<List<Entry>> chains = new ArrayList<>();
 
   final Set<UUID> left = new HashSet<>();
+
+  /** Roster members whose connection is currently down (within the grace). */
+  final Set<UUID> disconnected = new HashSet<>();
+
+  /** Entries created by the running engine call; handed to the engine as submission records. */
+  final List<SubmissionRecord> unrecorded = new ArrayList<>();
 
   // ---- current step
   int step = -1;
@@ -98,13 +109,24 @@ final class TelephoneState implements GameState {
   final List<UUID> timedOutGuests = new ArrayList<>();
   final List<UUID> leftGuests = new ArrayList<>();
 
-  /** True once the last step ended; there is no reveal yet (P6-03). */
+  // ---- reveal ([TP-6]); positions are linear in reveal order: chain * totalSteps + entry
+  boolean revealing;
+  int cursor;
+  int highWater;
+  Instant autoAdvanceAt;
+
+  /** True once the game finished (the last reveal step, or the engine ended it). */
   boolean over;
 
   TelephoneState(
-      TelephoneSettings settings, List<UUID> order, int totalSteps, List<String> prompts) {
+      TelephoneSettings settings,
+      List<UUID> order,
+      Map<UUID, String> nicknames,
+      int totalSteps,
+      List<String> prompts) {
     this.settings = settings;
     this.order = List.copyOf(order);
+    this.nicknames = Map.copyOf(nicknames);
     this.totalSteps = totalSteps;
     this.prompts = prompts;
     for (int i = 0; i < order.size(); i++) {
@@ -140,8 +162,16 @@ final class TelephoneState implements GameState {
     return submitted.containsAll(eligible());
   }
 
+  int lastPosition() {
+    return n() * totalSteps - 1;
+  }
+
+  Entry entryAt(int position) {
+    return chains.get(position / totalSteps).get(position % totalSteps);
+  }
+
   @Override
   public String toString() {
-    return "TelephoneState[step=" + step + "/" + totalSteps + "]";
+    return "TelephoneState[step=" + step + "/" + totalSteps + ", reveal=" + revealing + "]";
   }
 }

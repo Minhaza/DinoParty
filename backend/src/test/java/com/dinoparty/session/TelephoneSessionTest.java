@@ -5,9 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.dinoparty.common.DomainException;
 import com.dinoparty.common.ErrorCode;
+import com.dinoparty.common.Timestamps;
 import com.dinoparty.engine.GameDefinition;
 import com.dinoparty.engine.RoundRecord;
+import com.dinoparty.engine.SubmissionRecord;
 import com.dinoparty.games.telephone.TelephoneModule;
+import com.dinoparty.room.RoomStatus;
 import com.dinoparty.session.SessionFixture.Published;
 import com.dinoparty.words.TestWords;
 import java.time.Duration;
@@ -24,8 +27,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Dino Telephone steps running inside the real engine with a manual clock and in-memory
- * collaborators: transitions T1, T2, T6 of docs/telephone-design.md §4 (T3..T5 are P6-03), the
- * rejection cells and the rules [TP-1]..[TP-14]. The WebSocket path is covered by {@code
+ * collaborators: transitions T1..T6 of docs/telephone-design.md §4 (the reveal T3..T5 since P6-03),
+ * the rejection cells and the rules [TP-1]..[TP-14]. The WebSocket path is covered by {@code
  * TelephoneIT}.
  */
 class TelephoneSessionTest {
@@ -149,12 +152,50 @@ class TelephoneSessionTest {
     }
   }
 
-  private void playToTheEnd(List<UUID> players) {
+  /** Plays every step; the session is then in REVEAL. */
+  private void playSteps(List<UUID> players) {
     int guard = 0;
-    while (f.sessions.gameSnapshot(CODE, players.getFirst()).get("status").equals("RUNNING")
-        && guard++ < 20) {
+    while (!"REVEAL".equals(phase()) && guard++ < 20) {
       everybodySubmits(players, "s" + guard);
     }
+  }
+
+  private void playToTheEnd(List<UUID> players) {
+    playSteps(players);
+    revealAll();
+  }
+
+  /** The cursor of the latest ALBUM_REVEALED, as the host's client would send it back. */
+  private Map<String, Object> cursor() {
+    Map<String, Object> r = last("ALBUM_REVEALED");
+    return Map.of("chainIndex", r.get("chainIndex"), "entryIndex", r.get("entryIndex"));
+  }
+
+  private void revealNext(UUID who) {
+    submit(who, "REVEAL_NEXT", cursor());
+  }
+
+  private void revealPrev(UUID who) {
+    submit(who, "REVEAL_PREV", cursor());
+  }
+
+  /** The host steps through every remaining entry; the last NEXT finishes the game. */
+  private void revealAll() {
+    int guard = 0;
+    while ("RUNNING".equals(f.sessions.gameSnapshot(CODE, f.host()).get("status"))
+        && guard++ < 100) {
+      revealNext(f.host());
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> map(Object value) {
+    return (Map<String, Object>) value;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<Map<String, Object>> list(Object value) {
+    return (List<Map<String, Object>>) value;
   }
 
   private static boolean containsValue(Object value, String needle) {
@@ -186,7 +227,12 @@ class TelephoneSessionTest {
             "TELEPHONE_DRAW_STROKE",
             "TELEPHONE_DRAW_UNDO",
             "TELEPHONE_DRAW_CLEAR",
-            "TELEPHONE_SUBMIT_DRAWING");
+            "TELEPHONE_SUBMIT_DRAWING",
+            "REVEAL_NEXT",
+            "REVEAL_PREV");
+    assertThat(d.commandsByType().get("REVEAL_NEXT").phases()).containsExactly("REVEAL");
+    assertThat(d.commandsByType().get("REVEAL_NEXT").ratePerSecond()).isEqualTo(5.0);
+    assertThat(d.commandsByType().get("REVEAL_NEXT").maxPayloadBytes()).isEqualTo(256);
     var strokeSpec = d.commandsByType().get("TELEPHONE_DRAW_STROKE");
     assertThat(strokeSpec.maxPayloadBytes()).isEqualTo(8 * 1024);
     assertThat(strokeSpec.ratePerSecond()).isEqualTo(30.0);
@@ -196,7 +242,7 @@ class TelephoneSessionTest {
         .containsExactlyInAnyOrder("PROMPT", "DESCRIBE");
     assertThat(d.commandsByType().get("TELEPHONE_TEXT_DRAFT").ratePerSecond()).isEqualTo(2.0);
     assertThat(d.publicEvents())
-        .containsExactlyInAnyOrder("TELEPHONE_PROGRESS", "TELEPHONE_STEP_ENDED");
+        .containsExactlyInAnyOrder("TELEPHONE_PROGRESS", "TELEPHONE_STEP_ENDED", "ALBUM_REVEALED");
     assertThat(d.privateEvents()).containsExactly("TELEPHONE_TASK");
   }
 
@@ -270,6 +316,8 @@ class TelephoneSessionTest {
     }
 
     assertThat(kinds).containsExactly("PROMPT", "DRAW", "DESCRIBE", "DRAW");
+    assertThat(phase()).isEqualTo("REVEAL");
+    revealAll();
     assertThat(f.sink.publicTypes()).contains("GAME_FINISHED");
     assertThat(f.recorder.rounds).hasSize(4);
     assertThat(f.recorder.rounds.stream().map(RoundRecord::roundNo).toList())
@@ -312,7 +360,7 @@ class TelephoneSessionTest {
     List<UUID> p = start(6);
     Map<String, UUID> authorOf = new HashMap<>();
     int step = 0;
-    while (f.sessions.gameSnapshot(CODE, p.getFirst()).get("status").equals("RUNNING")) {
+    while (!phase().equals("REVEAL")) {
       for (Map.Entry<UUID, Map<String, Object>> t : tasks().entrySet()) {
         Map<String, Object> src = source(t.getValue());
         if (src != null && src.get("text") != null) {
@@ -728,7 +776,7 @@ class TelephoneSessionTest {
         assertThat(containsValue(snap, needle)).isEqualTo(viewer.equals(next));
       }
     }
-    // nothing is revealed in P6-02: the unrelated viewer of a later step still sees one source
+    // an outsider has no game view at all
     assertThat(f.sessions.gameSnapshot(CODE, UUID.randomUUID())).isNull();
   }
 
@@ -738,9 +786,11 @@ class TelephoneSessionTest {
     for (int i = 0; i < 4; i++) {
       everybodySubmits(p, "k" + i);
     }
+    revealAll();
 
     Map<String, Object> snap = f.sessions.gameSnapshot(CODE, p.get(0));
     assertThat(snap).containsEntry("status", "FINISHED");
+    assertThat(snap.get("reveal")).isNull();
     assertThat(snap.get("task")).isNull();
     assertThat(snap.get("draft")).isNull();
     assertThat(snap.get("kind")).isNull();
@@ -813,9 +863,14 @@ class TelephoneSessionTest {
       int counter = 0;
       int guard = 0;
       while ("RUNNING".equals(g.sessions.gameSnapshot(CODE, firstActive(order, left)).get("status"))
-          && guard++ < 400) {
+          && guard++ < 600) {
         String phaseId = g.phaseId();
         String phase = (String) g.sink.ofType("PHASE_STARTED").getLast().payload().get("phase");
+        if (phase.equals("REVEAL")) { // nobody steps: the idle auto-advance ends the reveal
+          g.clock.advance(Duration.ofSeconds(60));
+          g.scheduler.fireDue(g.clock, false);
+          continue;
+        }
         // every non-left holder got exactly one task this step, none went to a left player
         Map<UUID, Map<String, Object>> tasks = new HashMap<>();
         for (Published e : g.sink.ofType("TELEPHONE_TASK")) {
@@ -861,6 +916,319 @@ class TelephoneSessionTest {
       }
       assertThat(g.sink.publicTypes()).as("seed %d finishes", seed).contains("GAME_FINISHED");
     }
+  }
+
+  // ------------------------------------------------------------------ reveal (P6-03)
+
+  @Test
+  void T3_afterTheLastStepTheRevealStartsWithThePromptOfTheFirstAlbum() {
+    List<UUID> p = start(4);
+    for (int i = 0; i < 4; i++) {
+      text(p.get(i), "first-" + i);
+    }
+    playSteps(p);
+
+    Map<String, Object> started = last("PHASE_STARTED");
+    assertThat(started)
+        .containsEntry("phase", "REVEAL")
+        .containsEntry("deadlineAt", null)
+        .containsEntry("totalSteps", 4)
+        .containsEntry("chains", 4)
+        .containsEntry("cursor", Map.of("chainIndex", 0, "entryIndex", 0))
+        .containsEntry("autoAdvanceAt", Timestamps.format(f.clock.instant().plusSeconds(60)));
+    Map<String, Object> revealed = last("ALBUM_REVEALED");
+    assertThat(revealed)
+        .containsEntry("chainIndex", 0)
+        .containsEntry("entryIndex", 0)
+        .containsEntry("newlyRevealed", true)
+        .containsEntry("autoAdvanced", false);
+    assertThat(map(revealed.get("entry")))
+        .containsEntry("entryIndex", 0)
+        .containsEntry("kind", "TEXT")
+        .containsEntry("text", "first-0")
+        .containsEntry("authorGuestId", p.getFirst())
+        .containsEntry("authorNickname", nickname(p.getFirst()))
+        .containsEntry("omitted", false)
+        .containsEntry("fill", "NONE")
+        .containsEntry("placeholder", false)
+        .containsEntry("timedOut", false)
+        .doesNotContainKey("strokes");
+    // the reveal is part of the running game: no results yet
+    assertThat(f.sink.publicTypes()).doesNotContain("GAME_FINISHED");
+    assertThat(f.recorder.results).isEmpty();
+    // only (0,0) is public: no other album's prompt left the server
+    for (int c = 1; c < 4; c++) {
+      String needle = "first-" + c;
+      assertThat(f.sink.events)
+          .filteredOn(Published::isPublic)
+          .noneMatch(e -> containsValue(e.payload(), needle));
+    }
+  }
+
+  private String nickname(UUID guest) {
+    return f.room.members.stream()
+        .filter(m -> m.guestId().equals(guest))
+        .findFirst()
+        .orElseThrow()
+        .nickname();
+  }
+
+  @Test
+  void TP6_onlyTheCurrentHostMovesTheCursorAndAStaleOrMalformedCursorIsRejected() {
+    List<UUID> p = start(4);
+    playSteps(p);
+    UUID host = f.host();
+    UUID other = p.stream().filter(g -> !g.equals(host)).findFirst().orElseThrow();
+
+    assertThat(rejected(() -> revealNext(other))).isEqualTo(ErrorCode.NOT_HOST);
+    assertThat(rejected(() -> submit(host, "REVEAL_NEXT", Map.of("chainIndex", 0))))
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    assertThat(
+            rejected(() -> submit(host, "REVEAL_NEXT", Map.of("chainIndex", "0", "entryIndex", 0))))
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    Map<String, Object> seen = cursor();
+
+    revealNext(host);
+    assertThat(last("ALBUM_REVEALED"))
+        .containsEntry("chainIndex", 0)
+        .containsEntry("entryIndex", 1)
+        .containsEntry("newlyRevealed", true);
+    assertThat(map(last("ALBUM_REVEALED").get("entry"))).containsEntry("kind", "DRAWING");
+
+    // a double click carries the cursor it saw: nothing is skipped
+    assertThat(rejected(() -> submit(host, "REVEAL_NEXT", seen))).isEqualTo(ErrorCode.STALE_ACTION);
+    assertThat(f.sink.ofType("ALBUM_REVEALED")).hasSize(2);
+    // step commands are refused in the reveal
+    assertThat(rejected(() -> text(host, "late"))).isEqualTo(ErrorCode.INVALID_PHASE);
+  }
+
+  @Test
+  void TP6_prevWalksBackOverRevealedEntriesAcrossAlbumsAndIsANoOpAtTheStart() {
+    List<UUID> p = start(4);
+    playSteps(p);
+    UUID host = f.host();
+
+    revealPrev(host); // (0,0): acknowledged, nothing published
+    assertThat(f.sink.ofType("ALBUM_REVEALED")).hasSize(1);
+
+    for (int i = 0; i < 4; i++) {
+      revealNext(host); // up to (1,0)
+    }
+    assertThat(cursor()).isEqualTo(Map.of("chainIndex", 1, "entryIndex", 0));
+    revealPrev(host);
+    assertThat(last("ALBUM_REVEALED"))
+        .containsEntry("chainIndex", 0)
+        .containsEntry("entryIndex", 3)
+        .containsEntry("newlyRevealed", false)
+        .containsEntry("entry", null);
+    revealNext(host); // back to (1,0): already revealed, so no content again
+    assertThat(last("ALBUM_REVEALED"))
+        .containsEntry("chainIndex", 1)
+        .containsEntry("entryIndex", 0)
+        .containsEntry("newlyRevealed", false)
+        .containsEntry("entry", null);
+    revealNext(host);
+    assertThat(last("ALBUM_REVEALED")).containsEntry("newlyRevealed", true);
+  }
+
+  @Test
+  void T5_nextOnTheLastEntryOfTheLastAlbumFinishesTheGameWithoutStandings() {
+    List<UUID> p = start(4);
+    playSteps(p);
+
+    revealAll();
+
+    assertThat(f.sink.ofType("ALBUM_REVEALED")).hasSize(16);
+    assertThat(f.sink.ofType("ALBUM_REVEALED"))
+        .allSatisfy(e -> assertThat(e.payload()).containsEntry("newlyRevealed", true));
+    assertThat(last("GAME_FINISHED")).containsEntry("endReason", "COMPLETED");
+    assertThat(f.recorder.results.getFirst().standings()).isEmpty();
+    assertThat(f.room.status).isEqualTo(RoomStatus.RESULTS);
+  }
+
+  @Test
+  void TP6_theIdleAutoAdvanceMovesAfter60sAndAfter15sWhileTheHostIsDisconnected() {
+    List<UUID> p = start(4);
+    playSteps(p);
+    UUID host = f.host();
+    Map<String, Object> seen = cursor();
+
+    advance(Duration.ofSeconds(59));
+    assertThat(f.sink.ofType("ALBUM_REVEALED")).hasSize(1);
+    advance(Duration.ofSeconds(1));
+    assertThat(last("ALBUM_REVEALED"))
+        .containsEntry("entryIndex", 1)
+        .containsEntry("autoAdvanced", true)
+        .containsEntry("newlyRevealed", true);
+    // the host's click that raced the auto-advance carries the old cursor
+    assertThat(rejected(() -> submit(host, "REVEAL_NEXT", seen))).isEqualTo(ErrorCode.STALE_ACTION);
+
+    advance(Duration.ofSeconds(10));
+    f.sessions.onConnection(CODE, host, false);
+    advance(Duration.ofSeconds(14));
+    assertThat(last("ALBUM_REVEALED")).containsEntry("entryIndex", 1);
+    advance(Duration.ofSeconds(1));
+    assertThat(last("ALBUM_REVEALED")).containsEntry("entryIndex", 2);
+    // still away: the next one follows 15 s after that move
+    advance(Duration.ofSeconds(15));
+    assertThat(last("ALBUM_REVEALED")).containsEntry("entryIndex", 3);
+    assertThat(map(f.sessions.gameSnapshot(CODE, p.getFirst()).get("reveal")))
+        .containsEntry("autoAdvanceAt", Timestamps.format(f.clock.instant().plusSeconds(15)));
+  }
+
+  @Test
+  void TP10_aNewHostDrivesTheRevealAndTheOldOneCannot() {
+    List<UUID> p = start(4);
+    playSteps(p);
+    UUID old = f.host();
+    UUID next = p.stream().filter(g -> !g.equals(old)).findFirst().orElseThrow();
+
+    f.room.host = next;
+    f.sessions.onHostChanged(CODE, next);
+
+    assertThat(rejected(() -> revealNext(old))).isEqualTo(ErrorCode.NOT_HOST);
+    revealNext(next);
+    assertThat(last("ALBUM_REVEALED")).containsEntry("entryIndex", 1);
+  }
+
+  @Test
+  void TP11_fewerThanThreeActivePlayersEndARunningReveal() {
+    List<UUID> p = start(4);
+    playSteps(p);
+    revealNext(f.host());
+    List<UUID> others = p.stream().filter(g -> !g.equals(f.host())).toList();
+
+    leave(others.get(0));
+    leave(others.get(1));
+
+    assertThat(last("GAME_FINISHED")).containsEntry("endReason", "INSUFFICIENT_PLAYERS");
+    assertThat(f.recorder.rounds).hasSize(4);
+  }
+
+  @Test
+  void TP6_theRevealSnapshotRestoresCursorHighWaterAndOnlyRevealedEntries() {
+    List<UUID> p = start(4);
+    for (int i = 0; i < 4; i++) {
+      text(p.get(i), "prompt-" + i);
+    }
+    playSteps(p);
+    UUID host = f.host();
+    for (int i = 0; i < 4; i++) {
+      revealNext(host); // up to (1,0)
+    }
+    revealPrev(host); // cursor (0,3), highWater (1,0)
+
+    Map<String, Object> snap = f.sessions.gameSnapshot(CODE, p.get(2));
+    assertThat(snap)
+        .containsEntry("phase", "REVEAL")
+        .containsEntry("deadlineAt", null)
+        .containsEntry("step", 4)
+        .containsEntry("kind", null)
+        .containsEntry("task", null)
+        .containsEntry("draft", null)
+        .containsEntry("waitingOn", 0);
+    Map<String, Object> reveal = map(snap.get("reveal"));
+    assertThat(reveal)
+        .containsEntry("cursor", Map.of("chainIndex", 0, "entryIndex", 3))
+        .containsEntry("highWater", Map.of("chainIndex", 1, "entryIndex", 0))
+        .containsEntry("chains", 4);
+    List<Map<String, Object>> albums = list(reveal.get("albums"));
+    assertThat(albums).hasSize(4);
+    assertThat(albums.get(0))
+        .containsEntry("chainIndex", 0)
+        .containsEntry("ownerGuestId", p.get(0))
+        .containsEntry("entryCount", 4)
+        .containsEntry("revealedCount", 4);
+    assertThat(list(albums.get(0).get("entries")).stream().map(e -> e.get("entryIndex")))
+        .containsExactly(0, 1, 2, 3);
+    assertThat(albums.get(1)).containsEntry("revealedCount", 1);
+    assertThat(list(albums.get(1).get("entries")))
+        .singleElement()
+        .satisfies(e -> assertThat(e).containsEntry("text", "prompt-1"));
+    assertThat(albums.get(2)).containsEntry("revealedCount", 0);
+    assertThat(list(albums.get(2).get("entries"))).isEmpty();
+    // unrevealed albums are nowhere in the snapshot
+    assertThat(containsValue(snap, "prompt-2")).isFalse();
+    assertThat(containsValue(snap, "prompt-3")).isFalse();
+  }
+
+  @Test
+  void TP13_everyEntryIsRecordedOnceWithItsCellAuthorAndFill() {
+    List<UUID> p = start(4);
+    everybodySubmits(p, "a"); // step 0 by hand
+    advance(Duration.ofSeconds(90)); // step 1 (DRAW) times out: empty placeholders
+    playSteps(p);
+
+    assertThat(f.recorder.submissions).hasSize(16);
+    assertThat(
+            f.recorder.submissions.stream()
+                .map(r -> r.chainIndex() + ":" + r.stepNo())
+                .distinct()
+                .count())
+        .isEqualTo(16);
+    assertThat(f.recorder.submissions)
+        .allSatisfy(r -> assertThat(r.entriesPerChain()).isEqualTo(4));
+    for (SubmissionRecord r : f.recorder.submissions) {
+      assertThat(r.authorGuestId()).isEqualTo(holder(p, r.chainIndex(), r.stepNo()));
+      if (r.stepNo() == 1) {
+        assertThat(r.kind()).isEqualTo(SubmissionRecord.Kind.DRAWING);
+        assertThat(r.strokes()).isEmpty();
+        assertThat(r.fill()).isEqualTo("TIMEOUT");
+        assertThat(r.placeholder()).isTrue();
+        assertThat(r.timedOut()).isTrue();
+        assertThat(r.text()).isNull();
+      }
+      if (r.stepNo() == 0) {
+        assertThat(r.kind()).isEqualTo(SubmissionRecord.Kind.TEXT);
+        assertThat(r.fill()).isEqualTo("NONE");
+        assertThat(r.strokes()).isNull();
+      }
+    }
+  }
+
+  @Test
+  void TP9_theMaximalRevealSnapshotStaysBelowTheEngineBoundAndOmitsOlderDrawings() {
+    List<UUID> p = start(8); // E = 8: 32 drawings, 32 texts
+    for (UUID g : p) {
+      text(g, "t".repeat(140));
+    }
+    for (int step = 1; step < 8; step++) {
+      for (UUID g : p) {
+        if (step % 2 == 1) {
+          maximalDrawing(g);
+          submitDrawing(g);
+        } else {
+          text(g, "d".repeat(140));
+        }
+      }
+    }
+    assertThat(phase()).isEqualTo("REVEAL");
+    for (int i = 0; i < 63; i++) {
+      revealNext(f.host()); // cursor on the last entry: everything revealed
+    }
+
+    JsonMapper json = JsonMapper.builder().build();
+    Map<String, Object> snap = f.sessions.gameSnapshot(CODE, p.get(3));
+    byte[] bytes = json.writeValueAsBytes(snap);
+    assertThat(bytes.length).isLessThan(262_144);
+    assertThat(bytes.length).isGreaterThan(200_000); // it really is the large case
+    List<Map<String, Object>> entries =
+        list(map(snap.get("reveal")).get("albums")).stream()
+            .flatMap(a -> list(a.get("entries")).stream())
+            .toList();
+    assertThat(entries).hasSize(64);
+    assertThat(entries)
+        .filteredOn(e -> e.get("kind").equals("TEXT"))
+        .hasSize(32)
+        .allSatisfy(e -> assertThat(e).containsKey("text"));
+    // the cursor entry (7,7) always carries its strokes; most older drawings are withheld
+    Map<String, Object> cursorEntry = entries.getLast();
+    assertThat(cursorEntry).containsEntry("omitted", false);
+    assertThat(list(cursorEntry.get("strokes"))).hasSize(300);
+    List<Map<String, Object>> omitted =
+        entries.stream().filter(e -> Boolean.TRUE.equals(e.get("omitted"))).toList();
+    assertThat(omitted).hasSizeGreaterThan(25);
+    assertThat(omitted).allSatisfy(e -> assertThat(e).containsEntry("strokes", null));
   }
 
   private static UUID firstActive(List<UUID> order, Set<UUID> left) {
