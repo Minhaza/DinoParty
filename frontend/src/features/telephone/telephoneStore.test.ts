@@ -206,6 +206,43 @@ describe('telephoneStore', () => {
       expect(store().syncing).toBe(false)
     })
 
+    it('a reconnect snapshot without the submission ends the pending state', () => {
+      startPhase(promptPhaseStarted)
+      store().trackCommand('a-1', 'TELEPHONE_SUBMIT_TEXT', PHASE_PROMPT)
+      hydrate(promptSnapshotWithDraft)
+      expect(store().submission).toBe('error')
+      expect(store().submitError).toMatch(/not received/i)
+
+      // The command may still have been processed: its late ACK is authoritative.
+      store().applyActionAck('a-1')
+      expect(store().submission).toBe('submitted')
+    })
+
+    it('a submission without any answer stops waiting after the watchdog', () => {
+      startPhase(promptPhaseStarted)
+      store().trackCommand('a-1', 'TELEPHONE_SUBMIT_TEXT', PHASE_PROMPT)
+      expect(store().expireSubmission()).toBe(true)
+      expect(store().submission).toBe('error')
+      expect(store().submitError).toMatch(/no answer/i)
+
+      // Nothing is pending any more, so a second expiry changes nothing.
+      expect(store().expireSubmission()).toBe(false)
+    })
+
+    it.each([
+      ['NOT_IN_ROOM', false, /no longer in this game/i],
+      ['RATE_LIMITED', true, /too fast/i],
+      ['PAYLOAD_TOO_LARGE', false, /too large/i],
+      ['SERVER_ERROR', false, /could not be sent/i],
+    ])('%s on submit shows player-facing copy, never the server message', (code, retry, copy) => {
+      startPhase(promptPhaseStarted)
+      store().trackCommand('a-1', 'TELEPHONE_SUBMIT_TEXT', PHASE_PROMPT)
+      expect(store().applyCommandError(error(code, 'a-1', retry))).toBe('handled')
+      expect(store().submission).toBe('error')
+      expect(store().submitError).toMatch(copy)
+      expect(store().submitError).not.toMatch(/nope/)
+    })
+
     it('leaves errors of commands it did not send to other stores', () => {
       startPhase(promptPhaseStarted)
       expect(store().applyCommandError(error('NOT_DRAWER', 'someone-else'))).toBe('unhandled')

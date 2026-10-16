@@ -6,6 +6,7 @@ import type { DrawStrokePayload } from '@/features/drawing/types'
 import { useConnectionStore } from '@/features/realtime/connectionStore'
 import { useRealtimeClient } from '@/features/realtime/realtimeContext'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
+import { useRoomStore } from '@/stores/roomStore'
 
 import { stepLabel } from './copy'
 import { TelephoneDescriptionEditor } from './components/TelephoneDescriptionEditor'
@@ -19,6 +20,13 @@ import { TELEPHONE_COMMANDS, type TelephoneCommandType } from './types'
 
 /** Debounce for `TELEPHONE_TEXT_DRAFT` (server limit 2/s): keeps half-typed text across a refresh or the deadline. */
 const TEXT_DRAFT_DEBOUNCE_MS = 700
+
+/**
+ * How long a submission may wait for its `ACTION_ACK`/`GAME_ERROR`. Sent is not accepted, so the
+ * button stays locked meanwhile; after this the player may retry and a snapshot settles the truth
+ * (a retry of an accepted entry is answered `ALREADY_SUBMITTED`, which also means "submitted").
+ */
+export const SUBMIT_WATCHDOG_MS = 10_000
 
 export interface TelephoneStageProps {
   players: PlayerDto[]
@@ -85,6 +93,16 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
     },
     [client, phaseId, trackCommand],
   )
+
+  React.useEffect(() => {
+    if (submission !== 'submitting') return
+    const timer = setTimeout(() => {
+      if (useTelephoneStore.getState().expireSubmission()) {
+        useRoomStore.getState().setNeedsResync(true)
+      }
+    }, SUBMIT_WATCHDOG_MS)
+    return () => clearTimeout(timer)
+  }, [submission, workPhaseId])
 
   // Draft sync: the server keeps the latest text so a refresh or the deadline never loses it.
   const lastSentDraftRef = React.useRef<{ phaseId: string | null; text: string }>({

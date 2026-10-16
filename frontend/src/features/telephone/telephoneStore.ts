@@ -4,6 +4,8 @@ import type { GameErrorPayload } from '@/api/types'
 import { isBudgetExhausted, type Stroke, type StrokeRejection } from '@/features/drawing/types'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
 
+import { SUBMIT_NO_ANSWER, SUBMIT_NOT_RECEIVED, submitErrorCopy } from './copy'
+
 import {
   TELEPHONE_COMMANDS,
   type TelephoneCommandType,
@@ -79,6 +81,8 @@ export interface TelephoneState {
   ) => void
   applyActionAck: (actionId: string | null | undefined) => void
   applyCommandError: (payload: GameErrorPayload, actionId?: string | null) => CommandErrorOutcome
+  /** Gives up waiting for an unanswered submission; `true` when one was pending (caller resyncs). */
+  expireSubmission: () => boolean
   setTextDraft: (text: string) => void
   addLocalStroke: (stroke: Stroke) => void
   appendLocalPoints: (strokeId: string, points: [number, number][], isFinal: boolean) => void
@@ -164,12 +168,19 @@ export const useTelephoneStore = create<TelephoneState>((set, get) => ({
       strokes: submitted ? [] : draft?.strokes ? [...draft.strokes] : [],
       canvasFull: !submitted && budget !== undefined && isBudgetExhausted(budget),
       strokeRejection: null,
+      // The snapshot is authoritative: a submission it does not hold was not (yet) accepted, so
+      // the player may send it again; a late ACK of the lost command still confirms it.
       submission: submitted
         ? 'submitted'
-        : sameWork && state.submission === 'submitting'
-          ? 'submitting'
+        : sameWork && (state.submission === 'submitting' || state.submission === 'error')
+          ? 'error'
           : 'editing',
-      submitError: !submitted && sameWork ? state.submitError : null,
+      submitError:
+        submitted || !sameWork
+          ? null
+          : state.submission === 'submitting'
+            ? SUBMIT_NOT_RECEIVED
+            : state.submitError,
       syncing: false,
     })
   },
@@ -260,15 +271,7 @@ export const useTelephoneStore = create<TelephoneState>((set, get) => ({
     }
 
     if (isSubmit(command.type)) {
-      set({
-        submission: 'error',
-        submitError:
-          payload.code === 'VALIDATION_FAILED'
-            ? 'That entry was not accepted. Check it and try again.'
-            : payload.retryable
-              ? 'Too fast! Wait a moment and try again.'
-              : payload.message || 'Your entry could not be sent.',
-      })
+      set({ submission: 'error', submitError: submitErrorCopy(payload.code, payload.retryable) })
       return 'handled'
     }
 
@@ -298,6 +301,12 @@ export const useTelephoneStore = create<TelephoneState>((set, get) => ({
 
     // Text drafts are best effort: the next keystroke or the submission sends the text again.
     return 'handled'
+  },
+
+  expireSubmission: () => {
+    if (get().submission !== 'submitting') return false
+    set({ submission: 'error', submitError: SUBMIT_NO_ANSWER })
+    return true
   },
 
   setTextDraft: (text) => set({ textDraft: text }),
