@@ -94,7 +94,7 @@ export function GameStage({
       ) : gameKey === 'draw-guess' ? (
         <DrawGuessStage players={players} currentGuestId={currentGuestId} />
       ) : gameKey === 'telephone' ? (
-        <TelephoneStage players={players} currentGuestId={currentGuestId} />
+        <TelephoneStage players={players} currentGuestId={currentGuestId} isHost={isHost} />
       ) : (
         /* PLAYING Phase View */
         <Card className="flex-1 flex flex-col border-border/70 shadow-xs overflow-hidden">

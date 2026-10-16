@@ -9,6 +9,7 @@ import { useGameSessionStore } from '@/stores/gameSessionStore'
 import { useRoomStore } from '@/stores/roomStore'
 
 import {
+  albumRevealed,
   describePhaseStarted,
   describeSnapshotSubmitted,
   describeTask,
@@ -20,7 +21,9 @@ import {
   PHASE_PROMPT,
   promptPhaseStarted,
   promptSnapshotWithDraft,
+  revealPhaseStarted,
 } from './fixtures'
+import { useRevealStore } from './revealStore'
 import { SUBMIT_WATCHDOG_MS, TelephoneStage } from './TelephoneStage'
 import { useTelephoneStore } from './telephoneStore'
 import type { TelephonePhaseStartedPayload, TelephoneSnapshot } from './types'
@@ -255,9 +258,17 @@ describe('TelephoneStage', () => {
     })
   })
 
-  it('shows a holding panel during the reveal phase', () => {
+  it('TP6 hands the stage to the album reveal, with no task or editor left', () => {
     renderStage()
-    startPhase({ phase: 'REVEAL', phaseId: 'phase-reveal', deadlineAt: null })
-    expect(screen.getByText(/albums are being revealed/i)).toBeInTheDocument()
+    startPhase(revealPhaseStarted)
+    act(() => {
+      useRevealStore.getState().applyPhaseStarted(revealPhaseStarted, 'session-tp-01')
+      useRevealStore.getState().applyAlbumRevealed(albumRevealed(0, 0))
+    })
+    expect(screen.getByRole('region', { name: /album reveal/i })).toBeInTheDocument()
+    expect(screen.getByText('Prompt 1')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    // a player without the host role gets no reveal controls
+    expect(screen.queryByRole('button', { name: /reveal next/i })).not.toBeInTheDocument()
   })
 })

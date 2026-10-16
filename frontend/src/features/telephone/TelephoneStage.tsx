@@ -14,6 +14,7 @@ import { TelephoneDrawingStage } from './components/TelephoneDrawingStage'
 import { TelephonePhaseHeader } from './components/TelephonePhaseHeader'
 import { TelephonePromptEditor } from './components/TelephonePromptEditor'
 import { TelephoneWaitingScreen } from './components/TelephoneWaitingScreen'
+import { TelephoneRevealView } from './reveal/TelephoneRevealView'
 import { useTelephoneStore } from './telephoneStore'
 import { codePointLength, sanitizeTelephoneText, TELEPHONE_TEXT_MAX } from './textRules'
 import { TELEPHONE_COMMANDS, type TelephoneCommandType } from './types'
@@ -31,9 +32,11 @@ export const SUBMIT_WATCHDOG_MS = 10_000
 export interface TelephoneStageProps {
   players: PlayerDto[]
   currentGuestId: string | null | undefined
+  /** Only the host's reveal controls are offered; the server enforces it ([TP-6]). */
+  isHost?: boolean
 }
 
-export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps) {
+export function TelephoneStage({ players, currentGuestId, isHost = false }: TelephoneStageProps) {
   const client = useRealtimeClient()
   const online = useConnectionStore((s) => s.status === 'CONNECTED')
 
@@ -159,6 +162,10 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
 
   const announcement = inStep && kind ? stepLabel(step, totalSteps, kind) : ''
 
+  if (phase === 'REVEAL') {
+    return <TelephoneRevealView players={players} currentGuestId={currentGuestId} isHost={isHost} />
+  }
+
   return (
     <div
       role="region"
@@ -170,7 +177,7 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
       </p>
 
       {!inStep || !kind ? (
-        <HoldingPanel reveal={phase === 'REVEAL'} />
+        <HoldingPanel />
       ) : (
         <>
           <TelephonePhaseHeader
@@ -239,8 +246,8 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
   )
 }
 
-/** Between steps, before the first task, or during the reveal (whose viewer is a later task). */
-function HoldingPanel({ reveal }: { reveal: boolean }) {
+/** Between steps or before the first task. */
+function HoldingPanel() {
   return (
     <section
       role="status"
@@ -248,7 +255,7 @@ function HoldingPanel({ reveal }: { reveal: boolean }) {
     >
       <Loader2 className="size-6 text-primary motion-safe:animate-spin" aria-hidden="true" />
       <p className="font-fredoka text-xl font-semibold text-foreground">
-        {reveal ? 'The albums are being revealed…' : 'Getting the next step ready…'}
+        Getting the next step ready…
       </p>
     </section>
   )
