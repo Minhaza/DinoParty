@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useGameSessionStore } from '@/stores/gameSessionStore'
 
 import { DrawGuessStage } from '@/features/drawguess/DrawGuessStage'
+import { TelephoneResultsScreen } from '@/features/telephone/reveal/TelephoneResultsScreen'
 import { TelephoneStage } from '@/features/telephone/TelephoneStage'
 import { GameStartingOverlay } from './GameStartingOverlay'
 import { RematchControls } from './RematchControls'
@@ -52,24 +53,26 @@ export function GameStage({
       {/* RESULTS Phase View */}
       {roomStatus === 'RESULTS' ? (
         <div className="flex flex-col gap-4 max-w-2xl mx-auto w-full py-4 animate-in fade-in duration-300">
-          <Card className="border-amber-500/30 shadow-md">
-            <CardHeader className="text-center pb-2">
-              <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500 mb-2 ring-1 ring-amber-500/20">
-                <Trophy className="size-8 animate-bounce" />
-              </div>
-              <CardTitle className="font-fredoka text-3xl">Game Finished!</CardTitle>
-              <CardDescription>
-                {gameKey === 'telephone'
-                  ? session.endReason === 'COMPLETED'
-                    ? 'Every chain is complete. Album browsing arrives with the reveal update.'
-                    : 'The game ended early. Album browsing arrives with the reveal update.'
-                  : session.endReason === 'COMPLETED'
+          {gameKey === 'telephone' ? (
+            /* Telephone is unscored ([TP-11]): its results are the albums, not standings. */
+            <TelephoneResultsScreen
+              sessionId={session.sessionId}
+              endReason={session.endReason}
+              players={players}
+            />
+          ) : (
+            <Card className="border-amber-500/30 shadow-md">
+              <CardHeader className="text-center pb-2">
+                <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500 mb-2 ring-1 ring-amber-500/20">
+                  <Trophy className="size-8 animate-bounce" />
+                </div>
+                <CardTitle className="font-fredoka text-3xl">Game Finished!</CardTitle>
+                <CardDescription>
+                  {session.endReason === 'COMPLETED'
                     ? 'All rounds completed! Here are the final scores.'
                     : `Game finished: ${session.endReason || 'Session ended'}`}
-              </CardDescription>
-            </CardHeader>
-            {/* Telephone is unscored ([TP-11]): its results are the albums, not standings. */}
-            {gameKey !== 'telephone' && (
+                </CardDescription>
+              </CardHeader>
               <CardContent className="pt-2">
                 <Scoreboard
                   standings={session.results?.standings}
@@ -78,8 +81,8 @@ export function GameStage({
                   title="Final Standings"
                 />
               </CardContent>
-            )}
-          </Card>
+            </Card>
+          )}
 
           {/* Rematch Voting Card */}
           <RematchControls
