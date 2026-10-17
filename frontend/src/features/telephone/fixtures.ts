@@ -4,6 +4,10 @@
 import type { Stroke } from '@/features/drawing/types'
 
 import type {
+  AlbumDto,
+  AlbumRevealedPayload,
+  AlbumsResponse,
+  RevealEntryDto,
   TelephonePhaseStartedPayload,
   TelephoneProgressPayload,
   TelephoneSnapshot,
@@ -165,4 +169,156 @@ export const promptSnapshotWithDraft: TelephoneSnapshot = {
   submittedGuestIds: [],
   waitingOn: 4,
   reveal: null,
+}
+
+// ---------------------------------------------------------------- reveal and albums (P6-03/P6-05)
+
+export const PHASE_REVEAL = 'phase-tp-reveal'
+export const REVEAL_SESSION = header.sessionId
+
+/** Chain c is owned by order[c]; entry e of chain c was made by order[(c + e) % 4]. */
+export const authorOf = (chain: number, entry: number) => header.order[(chain + entry) % 4]
+
+const NICKNAMES: Record<string, string> = {
+  'guest-1': 'Rex',
+  'guest-2': 'Trixie',
+  'guest-3': 'Ptera',
+  'guest-4': 'Steggy',
+}
+
+/** The text of a text entry: "Prompt 2" for chain 1 entry 0, "Description 1.3" otherwise. */
+export const entryText = (chain: number, entry: number) =>
+  entry === 0 ? `Prompt ${chain + 1}` : `Description ${chain + 1}.${entry + 1}`
+
+/** A revealed entry as the server sends it; even entries are text, odd ones drawings. */
+export function revealEntry(chain: number, entry: number, omitted = false): RevealEntryDto {
+  const author = authorOf(chain, entry)
+  const base = {
+    entryIndex: entry,
+    authorGuestId: author,
+    authorNickname: NICKNAMES[author],
+    fill: 'NONE' as const,
+    timedOut: false,
+    placeholder: false,
+  }
+  return entry % 2 === 0
+    ? { ...base, kind: 'TEXT', text: entryText(chain, entry), omitted: false }
+    : { ...base, kind: 'DRAWING', strokes: omitted ? null : [sampleTelephoneStroke], omitted }
+}
+
+export const revealPhaseStarted: TelephonePhaseStartedPayload = {
+  phase: 'REVEAL',
+  phaseId: PHASE_REVEAL,
+  deadlineAt: null,
+  totalSteps: 4,
+  chains: 4,
+  cursor: { chainIndex: 0, entryIndex: 0 },
+  autoAdvanceAt: '2099-01-01T00:20:00.000Z',
+}
+
+/** `ALBUM_REVEALED` for (chain, entry); `newly=false` carries no entry. */
+export function albumRevealed(
+  chain: number,
+  entry: number,
+  newly = true,
+  autoAdvanced = false,
+): AlbumRevealedPayload {
+  return {
+    chainIndex: chain,
+    entryIndex: entry,
+    newlyRevealed: newly,
+    entry: newly ? revealEntry(chain, entry) : null,
+    autoAdvanced,
+    autoAdvanceAt: '2099-01-01T00:21:00.000Z',
+  }
+}
+
+/**
+ * A reconnect during the reveal: album 1 fully revealed with its first drawing withheld by the
+ * byte budget, album 2's prompt shown, cursor back on album 1's last entry.
+ */
+export const revealSnapshot: TelephoneSnapshot = {
+  ...header,
+  phase: 'REVEAL',
+  phaseId: PHASE_REVEAL,
+  deadlineAt: null,
+  step: 4,
+  totalSteps: 4,
+  entriesPerChain: 4,
+  kind: null,
+  task: null,
+  draft: null,
+  submitted: false,
+  submittedGuestIds: [],
+  waitingOn: 0,
+  reveal: {
+    cursor: { chainIndex: 0, entryIndex: 3 },
+    highWater: { chainIndex: 1, entryIndex: 0 },
+    autoAdvanceAt: '2099-01-01T00:22:00.000Z',
+    chains: 4,
+    albums: [
+      {
+        chainIndex: 0,
+        ownerGuestId: 'guest-1',
+        entryCount: 4,
+        revealedCount: 4,
+        entries: [revealEntry(0, 0), revealEntry(0, 1, true), revealEntry(0, 2), revealEntry(0, 3)],
+      },
+      {
+        chainIndex: 1,
+        ownerGuestId: 'guest-2',
+        entryCount: 4,
+        revealedCount: 1,
+        entries: [revealEntry(1, 0)],
+      },
+      { chainIndex: 2, ownerGuestId: 'guest-3', entryCount: 4, revealedCount: 0, entries: [] },
+      { chainIndex: 3, ownerGuestId: 'guest-4', entryCount: 4, revealedCount: 0, entries: [] },
+    ],
+  },
+}
+
+export const albumsResponse: AlbumsResponse = {
+  sessionId: REVEAL_SESSION,
+  complete: true,
+  albums: [0, 1, 2, 3].map((chain) => ({
+    chainIndex: chain,
+    ownerGuestId: header.order[chain],
+    entryCount: 4,
+    entriesPerChain: 4,
+    complete: true,
+    hasPlaceholders: chain === 2,
+  })),
+}
+
+/** `GET /sessions/{id}/albums/{chain}`: chain 2 has a placeholder drawing by a player who left. */
+export function albumDto(chain: number): AlbumDto {
+  return {
+    sessionId: REVEAL_SESSION,
+    chainIndex: chain,
+    ownerGuestId: header.order[chain],
+    entriesPerChain: 4,
+    complete: true,
+    entries: [0, 1, 2, 3].map((step) => {
+      const author = authorOf(chain, step)
+      const base = {
+        step,
+        authorGuestId: author,
+        authorNickname: NICKNAMES[author],
+        fill: 'NONE' as const,
+        timedOut: false,
+        placeholder: false,
+      }
+      if (step % 2 === 0) return { ...base, kind: 'TEXT' as const, text: entryText(chain, step) }
+      if (chain === 2 && step === 1) {
+        return {
+          ...base,
+          kind: 'DRAWING' as const,
+          strokes: [],
+          fill: 'LEFT_PLAYER' as const,
+          placeholder: true,
+        }
+      }
+      return { ...base, kind: 'DRAWING' as const, strokes: [sampleTelephoneStroke] }
+    }),
+  }
 }

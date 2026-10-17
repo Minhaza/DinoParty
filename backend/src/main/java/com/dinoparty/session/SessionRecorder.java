@@ -1,6 +1,7 @@
 package com.dinoparty.session;
 
 import com.dinoparty.engine.RoundRecord;
+import com.dinoparty.engine.SubmissionRecord;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -15,6 +16,12 @@ public interface SessionRecorder {
   void sessionStarted(SessionStart start);
 
   void roundCompleted(UUID sessionId, RoundRecord round);
+
+  /**
+   * Stores one accepted entry. Never dropped (retried like results) and written before any later
+   * {@link #sessionFinished} of the same session, so a FINISHED session always has its entries.
+   */
+  void submissionAccepted(UUID sessionId, SubmissionRecord submission);
 
   void sessionFinished(SessionResult result);
 

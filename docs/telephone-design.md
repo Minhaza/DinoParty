@@ -1,6 +1,6 @@
 # DinoParty — Dino Telephone Design (Phase 6)
 
-Status: **P6-01 design; P6-02 (the step phases `PROMPT`/`DRAW`/`DESCRIBE`) is implemented in `games.telephone`, the step gameplay UI in `frontend/src/features/telephone`, and the multiplayer integration of both is verified end to end (P6-04, §15); the reveal, album persistence and album endpoints (P6-03) are not.** The `entriesPerChain` default shipped as migration `V9__telephone_settings.sql`, so `game_submission` (§12.2) becomes `V10`. Decisions D35–D48 are **PROPOSED** and listed in §14 (mirrored in `docs/decisions-and-risks.md` §7); the rules (`game-rules.md` Game 2) and the contract (`api-contracts.md` §3.10) already apply the recommended option, marked *(proposed, Dn)*. If one is rejected, rules and contract change in a `docs(contract)` commit before the task that depends on it (§13) starts.
+Status: **P6-01 design; P6-02 (the step phases `PROMPT`/`DRAW`/`DESCRIBE`) is implemented in `games.telephone`, the step gameplay UI in `frontend/src/features/telephone`, and the multiplayer integration of both is verified end to end (P6-04, §15); the reveal, album persistence and album endpoints (P6-03) and the reveal viewer and album browser (P6-05) are implemented and verified end to end (§15.7).** The `entriesPerChain` default shipped as migration `V9__telephone_settings.sql`, so `game_submission` (§12.2) becomes `V10`. Decisions D35–D40 and D46–D48 are **PROPOSED**, D41–D45 are **APPROVED** (2026-10-16); all are listed in §14 (mirrored in `docs/decisions-and-risks.md` §7); the rules (`game-rules.md` Game 2) and the contract (`api-contracts.md` §3.10) already apply the recommended option, marked *(proposed, Dn)*. If one is rejected, rules and contract change in a `docs(contract)` commit before the task that depends on it (§13) starts.
 
 Written against the Phase 4 engine and the Phase 5 drawing library as merged (`docs/game-engine.md`, `docs/draw-guess-design.md`; code read: `engine.GameModule`, `Transition`, `GameDefinition`, `GameRegistry`, `drawing.CanvasBuffer`/`CanvasLimits`, `room.SettingsSchema`, `realtime.CommandRouter`, migrations `V2`–`V8`). Normative sources: rules `game-rules.md` `[TP-*]`, wire formats `api-contracts.md` §2.1/§3.10. Where this document and those differ, they win; fix this document. **No separate engine, no new messaging infrastructure and no new transport**: Telephone is a `GameModule` (`telephone`) behind the same registry, mailbox, STOMP streams, snapshots and recorder as Draw & Guess. One small SPI addition is proposed (§12.1, R21).
 
@@ -19,7 +19,7 @@ The earlier text (rules, contract, engine doc) disagrees with itself or with the
 | TC7 | `[TP-6]`/`ALBUM_REVEALED` put reveal entries (possibly ~200 KB of strokes) on the public stream, while a reconnect snapshot must stay < 256 KiB. `GET /sessions/{id}/albums/{chainIndex}` says "after reveal" without saying whether during or after the REVEAL phase. | Reveal entries travel in `ALBUM_REVEALED`; the snapshot carries the cursor, the revealed texts and drawings within a byte budget (the rest `omitted`); the REST album endpoints answer only once the session is `FINISHED`. | D43, D45 |
 | TC8 | Rules: "if active players < 3, the game ends early **and reveals what exists**". The engine ends the session through `[C-1]` and the module cannot start a `REVEAL` after that. | No reveal phase after an early end; the albums of what exists are available through REST from `RESULTS`. During a running `REVEAL` the same rule ends the reveal. | D41 |
 | TC9 | Rules: `entriesPerChain` "even or `n`" vs decision A12 "any value 4 ≤ E ≤ n"; the key is missing from contract §2.2, `SettingsSchema` and the `V2` defaults. | `entriesPerChain` 0 (auto) or 4–8, any integer, clamped to `n` when the roster freezes; odd values get a lobby hint. | D38 |
-| TC10 | Engine doc §8.2: submissions go through the droppable recorder queue, but a dropped submission is a hole in an album, i.e. in the product. `game_submission` was deferred to Phase 6 and `GameOutcome`/`Transition` have no way to carry one. | `SubmissionRecord` on `Transition`, written never-drop (retry until success, like results); table in `V9`. | D44 |
+| TC10 | Engine doc §8.2: submissions go through the droppable recorder queue, but a dropped submission is a hole in an album, i.e. in the product. `game_submission` was deferred to Phase 6 and `GameOutcome`/`Transition` have no way to carry one. | `SubmissionRecord` on `Transition`, written never-drop (retry until success, like results); table in `V10`. | D44 |
 | TC11 | `[TP-6]` says a host steps through albums, "15 s auto-advance if host absent", with no deadline, so a connected but idle host could hold the room in `REVEAL` forever (every other phase has a deadline). | Host-driven, plus an idle auto-advance (60 s; 15 s while the host is disconnected). | D42 |
 | TC12 | `[C-1]`/D23 give Telephone `minActivePlayers = 3` while `minPlayers = 4`. Consistent (a start needs 4 connected; the game survives down to 3 active), stated here so nobody "fixes" it. | Unchanged. | — |
 
@@ -229,16 +229,16 @@ Persistence: each accepted entry is one `game_submission` row at accept time (§
 
 `Transition` gains `submissions: List<SubmissionRecord>` (`SubmissionRecord(chainIndex, stepNo, authorGuestId, kind, text, payload, fill, timedOut, submittedAt)`), handed to `SessionRecorder` as a never-drop record. Alternatives rejected: stuffing entries into `RoundRecord.meta` (it is returned verbatim by `GET /sessions/{id}/results`, which would leak every entry to any member during `RESULTS`-less reads and bloat `game_round`), and writing everything in `GameOutcome` at finish (a crash loses the game; one huge transaction). No other SPI change is expected (`phase.deadlineAt = null`, INTERNAL deadlines, `nextPhaseId`, per-recipient `PRIVATE` events already exist).
 
-### 12.2 Schema (`V9`, owned by `history`)
+### 12.2 Schema (`V10`, owned by `history`)
 
 ```
 game_submission (id uuid PK, session_id FK, round_id FK NULL, author_guest_id uuid, kind varchar(8) CHECK in ('TEXT','DRAWING'),
                  chain_index int, step_no int, text varchar(560) NULL, payload jsonb NULL,
                  fill varchar(12) CHECK in ('NONE','TIMEOUT','LEFT_PLAYER','AUTO_PROMPT'), placeholder boolean, timed_out boolean,
-                 submitted_at, UNIQUE(session_id, chain_index, step_no))
+                 entries_per_chain smallint, submitted_at, UNIQUE(session_id, chain_index, step_no))
 ```
 
-The engine doc's key `(session_id, author_guest_id, chain_index, step_no)` is replaced by `(session_id, chain_index, step_no)`: the cell is the identity, and two cells can never share a holder but the author may be a left player. No FK to `guest_identity` (D21). Upserts are idempotent; the nickname comes from `game_session.roster`.
+The engine doc's key `(session_id, author_guest_id, chain_index, step_no)` is replaced by `(session_id, chain_index, step_no)`: the cell is the identity, and two cells can never share a holder but the author may be a left player. No FK to `guest_identity` (D21). Upserts are idempotent; the nickname comes from `game_session.roster`. `entries_per_chain` repeats the session's effective `E` on every row so the album read side can tell complete albums from an early end without knowing Telephone's settings rules.
 
 ## 13. Testing strategy and task breakdown
 
@@ -260,7 +260,7 @@ The engine doc's key `(session_id, author_guest_id, chain_index, step_no)` is re
 |---|---|---|---|---|
 | P6-01 | Rules, contract, design, plan (this task) | CC | P5 | Docs merged; decisions D35–D48 answered or amended |
 | P6-02 | **Backend core.** `ChainAllocator`, `TelephoneSettings`, schema change (`entriesPerChain`, `allowSkipTimeout`), `V9` defaults, `PromptPool` via `prepare`, `TelephoneModule` for `PROMPT`/`DRAW`/`DESCRIBE`: tasks, drafts, submit, early advance, timeout fills, leave handling, snapshot `view`, `CommandSpec`s, events (public/private declared), `RoundRecord` per step, ArchUnit | CC | P6-01 (D35–D40, D46–D48) | Unit and session tests of §13.1 for steps; property test `[TP-1]`; secrecy harness; no engine change |
-| P6-03 | **Backend reveal, persistence, REST.** `REVEAL` phase (cursor, auto-advance, finish), SPI `Transition.submissions` + never-drop recorder + `V9 game_submission`, `GET /sessions/{id}/albums[/{chainIndex}]`, results `rounds` meta, early-end paths, maximal-snapshot tests, full WS ITs | CC | P6-02, D41–D45 | ITs of §13.1 green; `game-engine.md` and test game updated with the SPI change; `./mvnw -f backend verify` |
+| P6-03 | **Backend reveal, persistence, REST.** `REVEAL` phase (cursor, auto-advance, finish), SPI `Transition.submissions` + never-drop recorder + `V10 game_submission`, `GET /sessions/{id}/albums[/{chainIndex}]`, results `rounds` meta, early-end paths, maximal-snapshot tests, full WS ITs | CC | P6-02, D41–D45 | ITs of §13.1 green; `game-engine.md` and test game updated with the SPI change; `./mvnw -f backend verify` |
 | P6-04 | **Contract fixtures + frontend foundation.** JSON fixtures for every §3.10 payload consumed by backend and frontend tests; TS types; event reducers and snapshot replacement in the game store; canvas command-type adapter (`DRAW_*` ↔ `TELEPHONE_DRAW_*`); lobby settings controls (`entriesPerChain`, parity hint) | CC (fixtures) + AG | P6-01 (contract); fixtures first, backend not required | Vitest for every event/snapshot shape; no secret field typed public; fixtures validated in both suites in CI |
 | P6-05 | **Telephone UI.** Plugin: prompt / describe / draw screens with draft sync, waiting screen with progress names, reveal viewer (host controls, local browsing, replay animation, reduced motion), results album browser, early-end and interrupted banners | AG | P6-04, backend slice of P6-02 (P6-03 for reveal) | Component tests; keyboard-operable; `aria-live`; real-browser check |
 | P6-06 | **Integration, hardening, verification.** Playwright 4-context album + refresh/disconnect/unauthorized; axe smoke; limits/abuse review; load check (8 players × `DESCRIBE` fan-out, mailbox hold time); security checklist (`AGENTS.md` §9); `testing.md` Phase 6 record; `implementation-plan.md` status | CC + AG | P6-03, P6-05 | Playwright green on the committed backend; every `[TP-n]` has a test; honest limitations list |
@@ -280,7 +280,7 @@ P6-02 and P6-04 run in parallel; P6-03 follows P6-02; P6-05 starts on fixtures a
 | D41 | Early end (< 3 active) and the reveal. | **No reveal after an early finish**; albums via REST from `RESULTS`; a running reveal ends the same way. | Add a module-driven "wind-down" (needs an engine hook to delay `[C-1]`). |
 | D42 | Reveal pacing and the "no deadline" problem. | **Host-driven, cursor-guarded, idle auto-advance 60 s (15 s if host disconnected), last `NEXT` finishes.** | Host-only with no timeout (can strand the room); fixed auto-play only (no control). |
 | D43 | How are reveal entries delivered? | **Public `ALBUM_REVEALED` with the entry; snapshot within a byte budget, rest `omitted`; REST only after `FINISHED`.** | Cursor-only events + REST fetch during the reveal (needs per-entry authorization against live cursor state). |
-| D44 | Submission persistence. | **Never-drop `SubmissionRecord` on `Transition` (small SPI change, R21) + `V9 game_submission`.** | Droppable like rounds (holes in albums) or all at finish (lost on crash). |
+| D44 | Submission persistence. | **Never-drop `SubmissionRecord` on `Transition` (small SPI change, R21) + `V10 game_submission`.** | Droppable like rounds (holes in albums) or all at finish (lost on crash). |
 | D45 | Who may read albums afterwards? | **Any current member of the session's room**, as for results; no retention job in the MVP. | Only that session's roster (needs the stored roster check); time-limited links (accounts). |
 | D46 | Source of auto prompts. | **Built-in catalog words (`EASY`∪`MEDIUM`).** | A new curated prompt-phrase list (content work, more fun, more review). |
 | D47 | Rotation formula. | **Keep `+k`** (documented weakness: constant predecessor). | Latin-square offsets (hides the neighbour; new proof and tests). |
@@ -309,7 +309,12 @@ sequenceDiagram
   S-->>P: TELEPHONE_STEP_ENDED, PHASE_STARTED{DRAW, step 1}, TELEPHONE_TASK{source: previous text}
   P->>S: TELEPHONE_DRAW_STROKE* (ACK only, never broadcast), TELEPHONE_SUBMIT_DRAWING{}
   Note over S: … DESCRIBE / DRAW … last step
+  S-->>P: TELEPHONE_STEP_ENDED, PHASE_STARTED{REVEAL, chains, cursor{0,0}, autoAdvanceAt}, ALBUM_REVEALED{0,0,entry}
+  H->>S: REVEAL_NEXT{chainIndex, entryIndex} (the cursor it saw; host only)
+  S-->>P: ALBUM_REVEALED{cursor, newlyRevealed, entry|null} (or by the idle auto-advance)
+  Note over S: NEXT on the last entry of the last album
   S-->>P: GAME_FINISHED{standings: []}, ROOM_STATUS_CHANGED{RESULTS}
+  P->>S: GET /sessions/{id}/albums, …/albums/{chainIndex} (REST, results screen)
   H->>S: REMATCH_VOTE … START_GAME → new GAME_STARTED (new sessionId, new shuffle)
 ```
 
@@ -337,6 +342,7 @@ The next step starts only on `PHASE_STARTED` or a snapshot; the local countdown 
 - `phaseId`s are server UUIDs, unique across sessions, so a late `TELEPHONE_*` event of a previous session (rematch) can never match the current step; `GAME_STARTED` resets the Telephone store.
 - `GAME_FINISHED` drops the step's task and draft; `ROOM_STATUS_CHANGED{WAITING}` and `GAME_ABORTED` reset the store.
 - Entering a different room (`roomStore.enterRoom`) resets every game store and stream position, so drafts never cross rooms or guests; leaving/closing resets them as before.
+- The reveal store (`revealStore.ts`) is replaced wholesale by a reveal snapshot and reset by `GAME_STARTED`, `GAME_FINISHED`, `GAME_ABORTED`, `ROOM_STATUS_CHANGED{WAITING}`, a non-`REVEAL` `PHASE_STARTED` and a room change; a reveal event without a running reveal is ignored. Results read the album endpoints through TanStack Query keyed by `sessionId`, so no album of one session can appear in another.
 
 ### 15.4 Reconnect recovery
 
@@ -346,14 +352,46 @@ The next step starts only on `PHASE_STARTED` or a snapshot; the local countdown 
 | Drawing, not submitted | task, server stroke draft, canvas budget | strokes the server did not take are dropped (server draft wins) |
 | After submitting | `submitted:true` → waiting screen; resubmit refused (`ALREADY_SUBMITTED`) | drafts cleared |
 | Phase changed while away | the new task, empty draft | stale drafts discarded (`workPhaseId` differs) |
-| Game finished | `RESULTS` status, no task, no entry content | store reset |
+| Reveal | `reveal`: cursor, `highWater`, `autoAdvanceAt`, every revealed entry (drawings beyond the byte budget `omitted`) | local browsing kept if still revealed; a drawing already held from an event of the same reveal is kept even if the snapshot omits it |
+| Game finished | `RESULTS` status, no task, no entry content | stores reset; albums from REST |
 
 ### 15.5 Private assignment isolation
 
-Verified on the wire (`TelephoneIT`) and in the browser (`telephone.e2e.ts`): a task travels only on the holder's private queue, never on the room topic; each entry reaches exactly its next holder; snapshots carry only the viewer's task and draft; neither results nor a finished snapshot carry entry content; a reconnect snapshot during `DESCRIBE` does not contain the chain's original prompt. In the browser, every page shows exactly one entry per step, never its own, and no prompt during `DESCRIBE`.
+Verified on the wire (`TelephoneIT`) and in the browser (`telephone.e2e.ts`): a task travels only on the holder's private queue, never on the room topic; each entry reaches exactly its next holder; snapshots carry only the viewer's task and draft; neither results nor a finished snapshot carry entry content; a reconnect snapshot during `DESCRIBE` does not contain the chain's original prompt. In the browser, every page shows exactly one entry per step, never its own, and no prompt during `DESCRIBE`. From the reveal on, entries become public one at a time: `ALBUM_REVEALED` carries an entry only the first time it is shown, a reveal snapshot never contains anything past `highWater` (`TelephoneSessionTest`, `TelephoneIT` reconnect), the album endpoints answer `RESULTS_NOT_READY` while the session runs, so the reveal cannot be bypassed, and `NOT_IN_ROOM` to anyone not a current member of the room (`TelephoneAlbumsIT`). The UI holds only what the server sent: unrevealed entries do not exist client-side, so they cannot leak through the DOM.
 
 ### 15.6 Known limitations
 
-- No `REVEAL` phase or album browsing yet (§13.2 P6-03): the last step finishes the game and results show no albums; entries live only in memory until then.
+- A drawing withheld by the reveal snapshot budget (a reconnect late in a large reveal) shows "available in the results" until the game finishes (D43, by design).
+- When the host disconnects the server brings the auto-advance forward without an event; clients show the old countdown until the next move or snapshot (display only).
+- A host clicking faster than 5 moves per second gets `RATE_LIMITED` ("Easy there!") and must click again.
+- After a rematch the previous session's albums are still readable over REST (D45) but no screen links to them.
+- No album export, sharing or reactions (post-MVP).
 - The submit watchdog is a client fallback; while connected the server answers every `actionId`.
 - Every player always receives work from the same predecessor (D47, by design).
+
+### 15.7 Album reveal and results (P6-03 backend, P6-05 frontend)
+
+**Reveal mode.** Shared and host-driven (`[TP-6]`, D42/D43): one `REVEAL` phase, a server cursor in reveal order (album by album, entry by entry) and a `highWater` mark. `REVEAL_NEXT`/`REVEAL_PREV` carry the cursor the host saw; a mismatch is `STALE_ACTION`, so a double click or a race with the auto-advance never skips an entry. The idle auto-advance is the INTERNAL deadline `reveal-auto` (60 s after each move, at most 15 s while the host is disconnected or gone). NEXT on the last entry finishes the game. The host is `GameContext.host`, kept in step with the room's `HostChanged` events (engine SPI change, `game-engine.md`), so a new host drives the reveal at once.
+
+**Persistence.** Every entry, typed or filled by the server, is a `SubmissionRecord` on the transition that created it, written never-drop to `game_submission` (`V10`) before any later finish of the session. A `FINISHED` session therefore always has its albums.
+
+**Frontend structure.** `revealStore.ts` mirrors the server cursor and holds the one client copy of revealed entries. `revealSelectors.ts` holds the pure reads (position label, visible entries, album completeness, bounds). Components live in `features/telephone/reveal/`:
+- `TelephoneRevealView`: stage, keyboard, announcements, host move with a 5 s watchdog
+- `TelephoneRevealProgress`: "Album 2 of 5 — Step 3 of 6", one segment per album, the auto-advance hint
+- `TelephoneAlbumViewer` and `TelephoneAlbumStep`: an album as a vertical story; text as text nodes with `dir="auto"` and wrapping, badges per `[TP-5]`
+- `TelephoneDrawingView`: read-only canvas through the shared `render.ts`, a skippable stroke replay, the final image at once under reduced motion
+- `TelephoneContributorBadge`: avatar and nickname from the room roster, else the roster snapshot (`authorNickname`), never a guest id
+- `TelephoneAlbumTimeline`, `TelephoneRevealControls`, `TelephoneAlbumOverview`, `TelephoneResultsScreen`
+
+**Navigation.**
+
+| Who | Control | Effect |
+|---|---|---|
+| Host | Previous / Reveal next / Finish & see albums | `REVEAL_PREV`/`REVEAL_NEXT` with the store's server cursor (never the locally browsed one); locked until the ACK, an error or the next `ALBUM_REVEALED` |
+| Everyone | Back / Forward / ← → | local browsing over revealed entries; reaching the live position follows it again |
+| Everyone | Previous album / Next album, timeline of a completed album | jump to any revealed entry; nothing past `highWater` is reachable |
+| Everyone | Back to live | drop local browsing |
+
+**Errors.** `STALE_ACTION`/`INVALID_PHASE` on a move: unlock and resync (someone moved first). `NOT_HOST`: unlock, resync, and the notice "Only the host can turn the pages now". Other codes: player copy (`revealNavErrorCopy`); the server message is never shown.
+
+**Results lifecycle.** `GAME_FINISHED` resets the reveal store; `RESULTS` shows `TelephoneResultsScreen` in the shared results branch of `GameStage`, with no scoreboard and the shared `RematchControls` below. It reads `GET …/albums` (retried while `RESULTS_NOT_READY`) and, on demand, `GET …/albums/{chainIndex}`. An open album shows every page with its timeline, and a local page-by-page replay (a visual effect only). Early ends flag unfinished albums. Aborted or interrupted games show an empty state; a refused read shows nothing of the albums. A rematch resets the room and its `sessionId`, which unmounts the results.

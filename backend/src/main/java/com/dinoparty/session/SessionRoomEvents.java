@@ -31,7 +31,7 @@ class SessionRoomEvents {
     try {
       switch (event) {
         case RoomEvent.MemberLeft e -> sessions.onMemberLeft(e.roomCode(), e.guestId());
-        case RoomEvent.HostChanged e -> sessions.onHostChanged(e.roomCode());
+        case RoomEvent.HostChanged e -> sessions.onHostChanged(e.roomCode(), e.hostGuestId());
         case RoomEvent.Closed e -> sessions.onRoomClosed(e.roomCode());
         default -> {}
       }

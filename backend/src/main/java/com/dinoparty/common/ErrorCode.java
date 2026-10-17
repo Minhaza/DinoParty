@@ -19,6 +19,7 @@ public enum ErrorCode {
   GAME_NOT_FOUND(HttpStatus.NOT_FOUND, "Game not found"),
   SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Session not found"),
   RESULTS_NOT_READY(HttpStatus.CONFLICT, "Results are not ready"),
+  ALBUM_NOT_FOUND(HttpStatus.NOT_FOUND, "Album not found"),
   STALE_ACTION(HttpStatus.CONFLICT, "Stale action"),
   INVALID_PHASE(HttpStatus.CONFLICT, "Not allowed in the current phase"),
   INVALID_ACTION(HttpStatus.BAD_REQUEST, "Action not supported"),

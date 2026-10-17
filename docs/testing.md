@@ -462,3 +462,44 @@ Scope: the P6-02 backend steps and the step UI played together over the real STO
 - `e2e/drawguess.e2e.ts` had been failing on `main` since the layout redesign (#23); it was updated in this task to the new layout, without changing what it asserts: the roster is the `Game session players` list and a disconnected player carries the `Player disconnected` icon (no `Offline` label); below `lg` the spec switches to the `Players (n)` tab for roster, feed and guess input and back to `Game Area` for the stage, dispatching the tab click directly because the round-end and word-choice overlays cover the tab bar. Full E2E suite (`drawguess` + `telephone`) `--repeat-each=2`: 4/4 passed.
 - 3-browser verification was replaced by 4 (Telephone's minimum, `[C-1]`); network loss during a submission is covered in the browser by `telephone-submit-recovery.e2e.ts` (dropped frames on one page), not by a real network outage.
 - No reveal, albums, axe smoke or load check (P6-03, P6-06).
+
+## P6-03 + P6-05 verification record (Dino Telephone reveal, albums and results)
+
+Scope: the backend reveal, submission persistence and album endpoints (P6-03) and the reveal viewer and results screen (P6-05), done in one branch after D41–D45 were approved. Design: `telephone-design.md` §15.7.
+
+- Backend unit and session (`TelephoneSessionTest`, 39 tests; `SessionServiceTest` +3):
+  - T3: the reveal starts with entry (0,0) only, and no other album's prompt is public.
+  - Host-only moves (`NOT_HOST`); malformed cursor `VALIDATION_FAILED`; a stale cursor or double click `STALE_ACTION`.
+  - PREV across albums, without content, and a no-op at the start; T5: the last NEXT finishes with empty standings.
+  - Idle auto-advance at 60 s, and 15 s while the host is disconnected (a host click racing it is stale).
+  - A new host drives the reveal; an early end during the reveal.
+  - The reveal snapshot holds cursor, `highWater` and only revealed entries.
+  - The maximal reveal snapshot (8 players, 32 drawings of 12 000 points) stays < 262 144 B and omits older drawings.
+  - Every cell is recorded once with author and fill.
+  - SPI: `GameContext.host` follows `onHostChanged`; submissions reach the recorder before the finish.
+- Persistence (`TelephoneAlbumsIT`, PostgreSQL, 5 tests): albums answer `RESULTS_NOT_READY` while running, 403 `NOT_IN_ROOM` for other rooms' members, 401 without auth, and 404 `SESSION_NOT_FOUND` for unknown or non-Telephone sessions. A finished session serves albums in step order with roster nicknames, placeholders and fills, and untrusted text verbatim. Missing albums are `ALBUM_NOT_FOUND`; members who joined later may read (D45). An early end gives `complete:false`; aborted sessions have no albums. A submission waits out a database outage, and the finish waits behind it.
+- Real STOMP (`TelephoneIT`, 11 tests):
+  - A four-player game keeps every entry with its next holder until `ALBUM_REVEALED`, then all 16 entries arrive in reveal order.
+  - Host-only control and a stale double click.
+  - Albums over REST are locked during the reveal.
+  - A reconnect restores cursor and `highWater` without unrevealed albums.
+  - Albums are readable after finishing and after the rematch reset.
+  - `RealtimeCommandIT` treats `REVEAL_*` as registered.
+- `./mvnw verify` (2026-10-16): unit 363, integration 240, 0 failures/errors/skips, Spotless clean.
+- Frontend (Vitest, 345 tests in 50 files):
+  - `revealStore.test.ts` (20): the store, local browsing, host move lock, stale and `NOT_HOST` handling, snapshot merge and reset rules.
+  - `roomStore.telephone.test.ts` (+5): dispatch and resets across finish, rematch, new game and room change.
+  - `TelephoneAlbum.test.tsx` (10): text, Unicode, RTL and HTML-like text rendered literally; drawings, eraser included, through the shared renderer; every badge; attribution of players who left with no guest id shown; step order; the timeline; replay skip and reduced motion.
+  - `TelephoneRevealView.test.tsx` (13): position label; no unrevealed content; the host sends the server cursor once; finish; non-host restrictions; arrow-key browsing; previous album navigation; `aria-live`; reconnect with an omitted drawing; former-host notice; auto reveal and speed controls; auto reveal pause on previous.
+  - `TelephoneResultsScreen.test.tsx` (8): shelf without scores; open, back and replay; retry while not ready; early end; empty; 403; session isolation.
+  - `api/telephone.test.ts` (6); `strokeReplay.test.ts` (4); updated `TelephoneStage` and `GameStage` tests.
+  - `format:check`, `lint`, `typecheck` and `build` are clean.
+- Browser (Playwright, dev backend on :8080): `telephone.e2e.ts`, four players including a Pixel 7.
+  - The steps as before, then the reveal opens on album 1's prompt only, and only the host has page controls.
+  - A drawing is inked; a reload mid-reveal rejoins the same page; the phone has no horizontal overflow.
+  - The host turns all 16 pages to the results; every player sees four albums and no standings, and an album opens with its 4 entries.
+  - The rematch starts fresh.
+  - 4 green runs after one fix: the test now paces host clicks under the 5/s reveal limit (an unpaced test hit `RATE_LIMITED`). `telephone-submit-recovery.e2e.ts` and `drawguess.e2e.ts` are green.
+  - Screenshots were reviewed on desktop and phone; that review made the reveal controls non-sticky, because they covered the newest entry on phones.
+
+Not verified: the axe accessibility smoke and the load check (P6-06), a non-host `REVEAL_NEXT` forged from the browser (covered by STOMP ITs instead), the auto-advance in a real browser (covered by session tests), a real network outage during the reveal, and Linux/CI.

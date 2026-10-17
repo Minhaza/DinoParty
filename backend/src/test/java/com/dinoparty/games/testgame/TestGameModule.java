@@ -18,6 +18,7 @@ import com.dinoparty.engine.PlayerAction;
 import com.dinoparty.engine.PlayerStatusChange;
 import com.dinoparty.engine.RoundRecord;
 import com.dinoparty.engine.ScoreDelta;
+import com.dinoparty.engine.SubmissionRecord;
 import com.dinoparty.engine.Transition;
 import java.time.Duration;
 import java.time.Instant;
@@ -35,8 +36,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>A fixed number of rounds. In round r the player at position (r-1) of the play order is the
  * "turn" player and privately learns a secret. Anyone may score points with {@code TEST_SCORE};
- * only the turn player may end the round early with {@code TEST_NEXT}. When the round ends (by time
- * or by {@code TEST_NEXT}) the secret becomes public in {@code TEST_ROUND_ENDED}.
+ * only the turn player may end the round early with {@code TEST_NEXT}. {@code TEST_HOST_ONLY} is
+ * accepted from the current host only and {@code TEST_SUBMIT} hands one submission record to the
+ * recorder (optionally finishing the game in the same transition). When the round ends (by time or
+ * by {@code TEST_NEXT}) the secret becomes public in {@code TEST_ROUND_ENDED}.
  *
  * <p>Start preparation: setting {@code secretPrefix} (default {@code secret}) is frozen into the
  * setup and prefixes every secret; {@code rejectStart: true} rejects the start, {@code crashStart:
@@ -78,7 +81,9 @@ public class TestGameModule implements GameModule {
         true,
         List.of(
             new CommandSpec("TEST_SCORE", 256, 20, 40, Set.of("ROUND")),
-            new CommandSpec("TEST_NEXT", 256, 5, 5, Set.of("ROUND"))),
+            new CommandSpec("TEST_NEXT", 256, 5, 5, Set.of("ROUND")),
+            new CommandSpec("TEST_HOST_ONLY", 256, 5, 5, Set.of("ROUND")),
+            new CommandSpec("TEST_SUBMIT", 256, 5, 5, Set.of("ROUND"))),
         Set.of("TEST_SCORED", "TEST_ROUND_ENDED"),
         Set.of("TEST_SECRET"));
   }
@@ -121,6 +126,29 @@ public class TestGameModule implements GameModule {
           throw new ActionRejected(ErrorCode.FORBIDDEN, "Only the turn player can do that.");
         }
         yield endRound(state, ctx, "NEXT");
+      }
+      case "TEST_HOST_ONLY" -> {
+        if (!action.guestId().equals(ctx.host())) {
+          throw new ActionRejected(ErrorCode.NOT_HOST, "Only the host can do that.");
+        }
+        yield Transition.stay(state);
+      }
+      case "TEST_SUBMIT" -> {
+        SubmissionRecord record =
+            new SubmissionRecord(
+                0,
+                state.round,
+                action.guestId(),
+                SubmissionRecord.Kind.TEXT,
+                String.valueOf(action.payload().get("text")),
+                null,
+                "NONE",
+                false,
+                false,
+                rounds,
+                ctx.clock().instant());
+        Transition t = Transition.stay(state).withSubmissions(record);
+        yield Boolean.TRUE.equals(action.payload().get("finish")) ? t.finish() : t;
       }
       default -> throw new ActionRejected(ErrorCode.INVALID_ACTION, "Unknown action.");
     };

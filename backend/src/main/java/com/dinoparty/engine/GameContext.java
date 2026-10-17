@@ -14,6 +14,8 @@ import java.util.UUID;
  *     starts one; lets a module put the {@code phaseId} into the private events of that phase (e.g.
  *     {@code WORD_CHOICES}). Unused when the call does not change the phase.
  * @param setup what {@link GameModule#prepare} returned for this session (never null)
+ * @param host the room's host at the time of the call; it may change during a game ([C-2]), so a
+ *     host-only command checks it per call
  */
 public record GameContext(
     UUID sessionId,
@@ -23,4 +25,5 @@ public record GameContext(
     List<UUID> order,
     Map<String, Object> settings,
     GameSetup setup,
-    UUID nextPhaseId) {}
+    UUID nextPhaseId,
+    UUID host) {}

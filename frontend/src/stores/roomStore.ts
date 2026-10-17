@@ -34,8 +34,10 @@ import type {
   WordChoicesPayload,
 } from '@/features/drawguess/types'
 import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
+import { useRevealStore } from '@/features/telephone/revealStore'
 import { useTelephoneStore, type CommandErrorOutcome } from '@/features/telephone/telephoneStore'
 import type {
+  AlbumRevealedPayload,
   TelephonePhaseStartedPayload,
   TelephoneProgressPayload,
   TelephoneSnapshot,
@@ -86,6 +88,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     }
     if (snapshot.room.gameKey === 'telephone' || snapshot.game?.gameKey === 'telephone') {
       useTelephoneStore.getState().applySnapshot(snapshot.game as unknown as TelephoneSnapshot)
+      useRevealStore.getState().applySnapshot(snapshot.game as unknown as TelephoneSnapshot)
     }
 
     set({
@@ -195,6 +198,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     useGameSessionStore.getState().reset()
     useDrawGuessStore.getState().reset()
     useTelephoneStore.getState().reset()
+    useRevealStore.getState().reset()
     set({
       room: null,
       serverNow: null,
@@ -212,6 +216,8 @@ function routeCommandError(
   payload: GameErrorPayload,
   actionId: string | null | undefined,
 ): CommandErrorOutcome {
+  const reveal = useRevealStore.getState().applyCommandError(payload, actionId)
+  if (reveal !== 'unhandled') return reveal
   const outcome = useTelephoneStore.getState().applyCommandError(payload, actionId)
   if (outcome !== 'unhandled') return outcome
   return useDrawGuessStore.getState().applyCommandError(payload, actionId)
@@ -221,18 +227,22 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
   const sessionStore = useGameSessionStore.getState()
   const drawGuessStore = useDrawGuessStore.getState()
   const telephoneStore = useTelephoneStore.getState()
+  const revealStore = useRevealStore.getState()
 
   switch (envelope.type) {
     case 'GAME_STARTED':
       sessionStore.applyGameStarted(envelope.payload as GameStartedPayload)
       drawGuessStore.reset()
       telephoneStore.reset()
+      revealStore.reset()
       break
     case 'PHASE_STARTED': {
       const payload = envelope.payload as DrawGuessPhaseStartedPayload
       sessionStore.applyPhaseStarted(payload, envelope.ts)
       if (useGameSessionStore.getState().gameKey === 'telephone') {
-        telephoneStore.applyPhaseStarted(envelope.payload as TelephonePhaseStartedPayload)
+        const telephonePhase = envelope.payload as TelephonePhaseStartedPayload
+        telephoneStore.applyPhaseStarted(telephonePhase)
+        revealStore.applyPhaseStarted(telephonePhase, useGameSessionStore.getState().sessionId)
       } else {
         drawGuessStore.applyPhaseStarted(payload)
       }
@@ -246,6 +256,9 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
       break
     case 'TELEPHONE_STEP_ENDED':
       telephoneStore.applyStepEnded(envelope.payload as TelephoneStepEndedPayload)
+      break
+    case 'ALBUM_REVEALED':
+      revealStore.applyAlbumRevealed(envelope.payload as AlbumRevealedPayload)
       break
     case 'DRAWING_UPDATED':
       drawGuessStore.applyDrawingUpdated(envelope.payload as DrawingUpdatedPayload)
@@ -268,6 +281,7 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
     case 'ACTION_ACK':
       drawGuessStore.applyActionAck(envelope.actionId)
       telephoneStore.applyActionAck(envelope.actionId)
+      revealStore.applyActionAck(envelope.actionId)
       break
     case 'ROUND_ENDED': {
       const payload = envelope.payload as RoundEndedPayload
@@ -289,12 +303,15 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
     case 'GAME_FINISHED':
       sessionStore.applyGameFinished(envelope.payload as GameFinishedPayload)
       // Results never show a step's task or draft ([TP-8]); a reconnect snapshot carries none either.
+      // The albums come from the album endpoints from now on, so the live copy is dropped.
       telephoneStore.reset()
+      revealStore.reset()
       break
     case 'GAME_ABORTED':
       sessionStore.applyGameAborted(envelope.payload as GameAbortedPayload)
       drawGuessStore.reset()
       telephoneStore.reset()
+      revealStore.reset()
       break
     case 'REMATCH_VOTES_UPDATED':
       sessionStore.applyRematchVotesUpdated(envelope.payload as RematchVotesUpdatedPayload)
@@ -305,6 +322,7 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
       if (payload.status === 'WAITING') {
         drawGuessStore.reset()
         telephoneStore.reset()
+        revealStore.reset()
       }
       break
     }
