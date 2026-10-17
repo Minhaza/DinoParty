@@ -202,3 +202,6 @@ export const TELEPHONE_COMMANDS = {
 } as const
 
 export type TelephoneCommandType = (typeof TELEPHONE_COMMANDS)[keyof typeof TELEPHONE_COMMANDS]
+
+export const AUTO_REVEAL_SPEEDS = [3, 5, 8, 12] as const
+export type AutoRevealSpeed = (typeof AUTO_REVEAL_SPEEDS)[number]

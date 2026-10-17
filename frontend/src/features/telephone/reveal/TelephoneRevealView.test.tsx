@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { GameSnapshot, PlayerDto } from '@/api/types'
@@ -152,15 +152,16 @@ describe('TelephoneRevealView', () => {
     expect(sendCommand).not.toHaveBeenCalled()
   })
 
-  it('shows the timeline of a completed album and inspects a single contribution', () => {
+  it('browses to a previous album without rendering a timeline strip', () => {
     renderView(false)
     for (let i = 1; i <= 4; i++) reveal(Math.floor(i / 4), i % 4) // into album 2
 
     expect(screen.queryByRole('navigation', { name: /album timeline/i })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /previous album/i }))
-    const timeline = screen.getByRole('navigation', { name: /album timeline/i })
-    fireEvent.click(within(timeline).getByRole('button', { name: /step 2/i }))
-    expect(screen.getAllByText('Album 1 of 4 — Step 2 of 4').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Album 1 of 4 — Step 4 of 4').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('navigation', { name: /album timeline/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^back$/i }))
+    expect(screen.getAllByText('Album 1 of 4 — Step 3 of 4').length).toBeGreaterThan(0)
   })
 
   it('announces each newly revealed entry politely', () => {
@@ -193,5 +194,50 @@ describe('TelephoneRevealView', () => {
         .applyCommandError({ code: 'NOT_HOST', message: 'no', retryable: false }, 'nav-x')
     })
     expect(screen.getByRole('alert')).toHaveTextContent(/only the host/i)
+  })
+
+  it('allows host to toggle auto reveal and change speed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderView(true)
+
+    expect(screen.getByRole('button', { name: '3s' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '5s' })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: '3s' }))
+    expect(screen.getByRole('button', { name: '3s' })).toHaveAttribute('aria-pressed', 'true')
+
+    const autoBtn = screen.getByRole('button', { name: /auto reveal/i })
+    fireEvent.click(autoBtn)
+
+    expect(screen.getByRole('button', { name: /pause auto reveal/i })).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(3100)
+    })
+
+    expect(sent()).toEqual([
+      { type: 'REVEAL_NEXT', phaseId: PHASE_REVEAL, payload: { chainIndex: 0, entryIndex: 0 } },
+    ])
+
+    reveal(0, 1)
+
+    fireEvent.click(screen.getByRole('button', { name: /pause auto reveal/i }))
+    expect(screen.getByRole('button', { name: /auto reveal/i })).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('pauses auto reveal when host clicks Previous', () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderView(true)
+    reveal(0, 1)
+
+    fireEvent.click(screen.getByRole('button', { name: /auto reveal/i }))
+    expect(screen.getByRole('button', { name: /pause auto reveal/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^previous$/i }))
+    expect(screen.getByRole('button', { name: /auto reveal/i })).toBeInTheDocument()
+
+    vi.useRealTimers()
   })
 })

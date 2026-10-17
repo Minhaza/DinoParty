@@ -490,7 +490,7 @@ Scope: the backend reveal, submission persistence and album endpoints (P6-03) an
   - `revealStore.test.ts` (20): the store, local browsing, host move lock, stale and `NOT_HOST` handling, snapshot merge and reset rules.
   - `roomStore.telephone.test.ts` (+5): dispatch and resets across finish, rematch, new game and room change.
   - `TelephoneAlbum.test.tsx` (10): text, Unicode, RTL and HTML-like text rendered literally; drawings, eraser included, through the shared renderer; every badge; attribution of players who left with no guest id shown; step order; the timeline; replay skip and reduced motion.
-  - `TelephoneRevealView.test.tsx` (11): position label; no unrevealed content; the host sends the server cursor once; finish; non-host restrictions; arrow-key browsing; timeline jump; `aria-live`; reconnect with an omitted drawing; former-host notice.
+  - `TelephoneRevealView.test.tsx` (13): position label; no unrevealed content; the host sends the server cursor once; finish; non-host restrictions; arrow-key browsing; previous album navigation; `aria-live`; reconnect with an omitted drawing; former-host notice; auto reveal and speed controls; auto reveal pause on previous.
   - `TelephoneResultsScreen.test.tsx` (8): shelf without scores; open, back and replay; retry while not ready; early end; empty; 403; session isolation.
   - `api/telephone.test.ts` (6); `strokeReplay.test.ts` (4); updated `TelephoneStage` and `GameStage` tests.
   - `format:check`, `lint`, `typecheck` and `build` are clean.

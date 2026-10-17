@@ -16,7 +16,6 @@ import { DinoAvatar } from '@/components/DinoAvatar'
 import { Button } from '@/components/ui/button'
 
 import { TelephoneAlbumOverview } from './TelephoneAlbumOverview'
-import { TelephoneAlbumTimeline } from './TelephoneAlbumTimeline'
 import { TelephoneAlbumViewer } from './TelephoneAlbumViewer'
 import { usePrefersReducedMotion } from './usePrefersReducedMotion'
 
@@ -169,7 +168,6 @@ function OpenAlbum({ sessionId, chainIndex, players, retryDelayMs, onBack }: Ope
   )
   /** Pages shown during a replay; null shows the whole album. */
   const [replayCount, setReplayCount] = React.useState<number | null>(null)
-  const [selected, setSelected] = React.useState<number | null>(null)
 
   // The replay is over once every page is shown; nothing needs resetting for that.
   const replaying = replayCount !== null && replayCount < entries.length
@@ -184,7 +182,6 @@ function OpenAlbum({ sessionId, chainIndex, players, retryDelayMs, onBack }: Ope
   }, [replaying, replayCount])
 
   const startReplay = () => {
-    setSelected(null)
     setReplayCount(reducedMotion ? null : 1)
   }
 
@@ -228,19 +225,10 @@ function OpenAlbum({ sessionId, chainIndex, players, retryDelayMs, onBack }: Ope
           ownerNickname={entries[0]?.step === 0 ? entries[0].authorNickname : null}
           entries={shown}
           players={players}
-          highlightStep={arriving ?? selected}
+          highlightStep={arriving}
           arrivingStep={arriving}
           subtitle={album.data.complete ? undefined : 'Unfinished: the game ended early.'}
-        >
-          {!replaying && (
-            <TelephoneAlbumTimeline
-              entries={entries}
-              players={players}
-              selectedStep={selected}
-              onSelect={setSelected}
-            />
-          )}
-        </TelephoneAlbumViewer>
+        />
       )}
     </div>
   )

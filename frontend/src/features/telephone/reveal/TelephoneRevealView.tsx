@@ -7,12 +7,10 @@ import { useGameSessionStore } from '@/stores/gameSessionStore'
 import { useRoomStore } from '@/stores/roomStore'
 
 import {
-  albumEntries,
   canBrowseNext,
   canBrowsePrev,
   canHostPrev,
   entryKey,
-  isAlbumComplete,
   isLastPosition,
   positionLabel,
   shownPosition,
@@ -20,8 +18,7 @@ import {
   visibleEntries,
 } from '../revealSelectors'
 import { useRevealStore } from '../revealStore'
-import { TELEPHONE_COMMANDS } from '../types'
-import { TelephoneAlbumTimeline } from './TelephoneAlbumTimeline'
+import { AUTO_REVEAL_SPEEDS, TELEPHONE_COMMANDS } from '../types'
 import { TelephoneAlbumViewer } from './TelephoneAlbumViewer'
 import { entryVerb, resolveContributor } from './albumCopy'
 import { TelephoneRevealControls } from './TelephoneRevealControls'
@@ -52,23 +49,73 @@ export function TelephoneRevealView({ players, isHost }: TelephoneRevealViewProp
   const label = positionLabel(reveal)
   const perChain = reveal.entriesPerChain
   const highWaterLinear = reveal.highWater ? toLinear(reveal.highWater, perChain) : -1
+  const atLast = isLastPosition(reveal)
 
-  const sendMove = (
-    type: typeof TELEPHONE_COMMANDS.revealNext | typeof TELEPHONE_COMMANDS.revealPrev,
-  ) => {
-    const state = useRevealStore.getState()
-    // Read the store directly: a second click in the same tick must not send a second move.
-    if (state.pendingActionId || !state.phaseId || !state.cursor) return
-    try {
-      const actionId = client.sendCommand({
-        type,
-        phaseId: state.phaseId,
-        payload: { chainIndex: state.cursor.chainIndex, entryIndex: state.cursor.entryIndex },
-      })
-      state.trackNav(actionId)
-    } catch {
-      // Offline: the reconnect snapshot brings the current position back.
+  const [autoReveal, setAutoReveal] = React.useState(false)
+  const [autoSpeed, setAutoSpeed] = React.useState<number>(5)
+  const [autoSecondsLeft, setAutoSecondsLeft] = React.useState<number>(5)
+
+  const autoActive = autoReveal && !atLast
+  const cursorKey = reveal.cursor ? `${reveal.cursor.chainIndex}:${reveal.cursor.entryIndex}` : null
+
+  const sendMove = React.useCallback(
+    (type: typeof TELEPHONE_COMMANDS.revealNext | typeof TELEPHONE_COMMANDS.revealPrev) => {
+      const state = useRevealStore.getState()
+      // Read the store directly: a second click in the same tick must not send a second move.
+      if (state.pendingActionId || !state.phaseId || !state.cursor) return
+      try {
+        const actionId = client.sendCommand({
+          type,
+          phaseId: state.phaseId,
+          payload: { chainIndex: state.cursor.chainIndex, entryIndex: state.cursor.entryIndex },
+        })
+        state.trackNav(actionId)
+      } catch {
+        // Offline: the reconnect snapshot brings the current position back.
+      }
+    },
+    [client],
+  )
+
+  // Timer interval for auto reveal
+  React.useEffect(() => {
+    if (!autoActive || !isHost || !online) return
+
+    let left = autoSpeed
+    const interval = setInterval(() => {
+      left -= 1
+      if (left <= 0) {
+        const state = useRevealStore.getState()
+        if (!state.pendingActionId) {
+          sendMove(TELEPHONE_COMMANDS.revealNext)
+          left = autoSpeed
+          setAutoSecondsLeft(autoSpeed)
+        }
+      } else {
+        setAutoSecondsLeft(left)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [autoActive, isHost, online, autoSpeed, cursorKey, sendMove])
+
+  const handleToggleAutoReveal = () => {
+    if (autoActive) {
+      setAutoReveal(false)
+    } else {
+      setAutoSecondsLeft(autoSpeed)
+      setAutoReveal(true)
     }
+  }
+
+  const handleSpeedChange = (speed: number) => {
+    setAutoSpeed(speed)
+    setAutoSecondsLeft(speed)
+  }
+
+  const handleHostPrev = () => {
+    setAutoReveal(false)
+    sendMove(TELEPHONE_COMMANDS.revealPrev)
   }
 
   React.useEffect(() => {
@@ -101,7 +148,6 @@ export function TelephoneRevealView({ players, isHost }: TelephoneRevealViewProp
   }
 
   const chain = shown.chainIndex
-  const albumComplete = isAlbumComplete(reveal, chain)
   const ownerGuestId = order[chain] ?? reveal.entries[entryKey(chain, 0)]?.authorGuestId ?? null
   const ownerNickname = reveal.entries[entryKey(chain, 0)]?.authorNickname ?? null
   const following = reveal.browse === null
@@ -165,24 +211,15 @@ export function TelephoneRevealView({ players, isHost }: TelephoneRevealViewProp
         highlightStep={shown.entryIndex}
         arrivingStep={following ? shown.entryIndex : null}
         subtitle={following ? undefined : 'You are looking back — the reveal goes on without you.'}
-      >
-        {albumComplete && (
-          <TelephoneAlbumTimeline
-            entries={albumEntries(reveal, chain)}
-            players={players}
-            selectedStep={shown.entryIndex}
-            onSelect={(step) => reveal.browseTo({ chainIndex: chain, entryIndex: step })}
-          />
-        )}
-      </TelephoneAlbumViewer>
+      />
 
       <TelephoneRevealControls
         isHost={isHost}
         canHostPrev={canHostPrev(reveal)}
         hostBusy={reveal.pendingActionId !== null}
         offline={!online}
-        atLastEntry={isLastPosition(reveal)}
-        onHostPrev={() => sendMove(TELEPHONE_COMMANDS.revealPrev)}
+        atLastEntry={atLast}
+        onHostPrev={handleHostPrev}
         onHostNext={() => sendMove(TELEPHONE_COMMANDS.revealNext)}
         canBrowsePrev={canBrowsePrev(reveal)}
         canBrowseNext={canBrowseNext(reveal)}
@@ -194,6 +231,12 @@ export function TelephoneRevealView({ players, isHost }: TelephoneRevealViewProp
         onPrevAlbum={() => browseAlbum(chain - 1)}
         onNextAlbum={() => browseAlbum(chain + 1)}
         onFollowLive={reveal.followLive}
+        autoReveal={autoActive}
+        autoSpeed={autoSpeed}
+        autoSecondsLeft={autoSecondsLeft}
+        speeds={AUTO_REVEAL_SPEEDS}
+        onToggleAutoReveal={handleToggleAutoReveal}
+        onSpeedChange={handleSpeedChange}
       />
     </section>
   )

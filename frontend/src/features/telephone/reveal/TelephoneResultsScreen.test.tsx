@@ -72,7 +72,7 @@ describe('TelephoneResultsScreen', () => {
     expect(await screen.findAllByText('Prompt 3')).not.toHaveLength(0)
     expect(screen.getAllByRole('article')).toHaveLength(4)
     expect(screen.getByText(/left the game/i)).toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: /album timeline/i })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: /album timeline/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /all albums/i }))
     expect(await screen.findByRole('list', { name: /albums/i })).toBeInTheDocument()
