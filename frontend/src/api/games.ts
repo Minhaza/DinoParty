@@ -32,17 +32,27 @@ function parseSummary(value: unknown): GameSummaryDto {
   }
 }
 
-const SETTING_TYPES = new Set(['int', 'bool', 'enum', 'list'])
+const isNumber = (v: unknown): v is number => typeof v === 'number'
+const isString = (v: unknown): v is string => typeof v === 'string'
+const isBool = (v: unknown): v is boolean => typeof v === 'boolean'
 
-/** A field of a type this client does not know is left out, so a newer server cannot crash the form. */
+/** The members each field type needs to be rendered (api-contracts §2.6). */
+const FIELD_SHAPES: Record<SettingField['type'], (f: Record<string, unknown>) => boolean> = {
+  int: (f) => isNumber(f.default) && isNumber(f.min) && isNumber(f.max),
+  bool: (f) => isBool(f.default) && (f.options === undefined || Array.isArray(f.options)),
+  enum: (f) => isString(f.default) && Array.isArray(f.options) && f.options.every(isString),
+  list: (f) => Array.isArray(f.default) && isNumber(f.maxItems),
+}
+
+/**
+ * A field of a type this client does not know, or missing the members its type needs, is left
+ * out, so a newer or misconfigured server cannot crash the form.
+ */
 function isKnownField(value: unknown): value is SettingField {
-  return (
-    isObject(value) &&
-    typeof value.key === 'string' &&
-    typeof value.label === 'string' &&
-    typeof value.type === 'string' &&
-    SETTING_TYPES.has(value.type)
-  )
+  if (!isObject(value) || !isString(value.key) || !isString(value.label)) return false
+  const { type } = value
+  if (!isString(type) || !Object.hasOwn(FIELD_SHAPES, type)) return false
+  return FIELD_SHAPES[type as SettingField['type']](value)
 }
 
 /** `GET /games`: every registered game in key order, disabled ones with `enabled:false`. */

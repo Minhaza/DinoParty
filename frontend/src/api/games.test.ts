@@ -65,6 +65,30 @@ describe('games API (api-contracts §2.6)', () => {
     expect(detail.settingsSchema).toHaveLength(DRAW_GUESS_DETAIL.settingsSchema.length)
   })
 
+  it('drops known-type fields that lack the members their type needs', async () => {
+    mockApi({
+      'GET /games/draw-guess': {
+        status: 200,
+        body: {
+          ...DRAW_GUESS_DETAIL,
+          settingsSchema: [
+            ...DRAW_GUESS_DETAIL.settingsSchema,
+            { key: 'noBounds', label: 'No bounds', type: 'int', default: 3 },
+            { key: 'noOptions', label: 'No options', type: 'enum', default: 'a' },
+            { key: 'badDefault', label: 'Bad default', type: 'bool', default: 'yes' },
+            { key: 'toString', label: 'Prototype key', type: 'toString', default: 1 },
+          ],
+        },
+      },
+    })
+
+    const detail = await getGame('draw-guess')
+
+    expect(detail.settingsSchema.map((f) => f.key)).toEqual(
+      DRAW_GUESS_DETAIL.settingsSchema.map((f) => f.key),
+    )
+  })
+
   it('rejects malformed bodies as a bad gateway', async () => {
     mockApi({
       'GET /games': { status: 200, body: [{ key: 'x' }] },
