@@ -1,7 +1,3 @@
-import type { GameKey } from '@/api/types'
-import { assetUrl } from '@/assets'
-import { cn } from '@/lib/utils'
-
 const INK = '#10213d'
 
 /** Compact palette icon (interface icon, not artwork) for the Draw & Guess card header. */
@@ -60,20 +56,25 @@ export function PencilBadge({ className }: { className?: string }) {
   )
 }
 
-const BANNER_SLOT = { 'draw-guess': 'games/draw-guess', telephone: 'games/telephone' } as const
-
-/** Game-specific paintings use the same character designs as the avatars and homepage. */
-export function GameBanner({ game, className }: { game: GameKey; className?: string }) {
+/** Neutral dino-egg icon for a game this client has no artwork for yet. */
+export function EggBadge({ className }: { className?: string }) {
   return (
-    <img
-      src={assetUrl(BANNER_SLOT[game])}
-      alt=""
-      loading="lazy"
-      decoding="async"
-      className={cn('size-full object-cover', className)}
-    />
+    <svg aria-hidden="true" viewBox="0 0 64 64" className={className} fill="none">
+      <path
+        d="M32 5 C19 5 10 25 10 38 c0 13 10 21 22 21 s22-8 22-21 C54 25 45 5 32 5 Z"
+        fill="#fff3dc"
+        stroke={INK}
+        strokeWidth="3"
+        strokeLinejoin="round"
+      />
+      <circle cx="24" cy="30" r="4.5" fill="#11956b" />
+      <circle cx="39" cy="24" r="3.5" fill="#7565e8" />
+      <circle cx="40" cy="42" r="5" fill="#f36b36" />
+      <circle cx="25" cy="47" r="3" fill="#3aa6d8" />
+    </svg>
   )
 }
+
 /** Small confetti burst for celebration moments. Pure CSS motion, hidden by reduced-motion. */
 export function Confetti({ count = 24 }: { count?: number }) {
   const colors = ['#f36b36', '#11956b', '#7565e8', '#f5b335', '#3aa6d8']

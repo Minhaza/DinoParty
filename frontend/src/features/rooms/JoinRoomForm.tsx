@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/authStore'
 
 import { RequireGuest } from '../guest/RequireGuest'
-import { ROOM_CODE_PATTERN } from './gameConfig'
+import { ROOM_CODE_PATTERN } from './roomCode'
 
 export interface JoinRoomFormProps {
   initialCode?: string

@@ -13,14 +13,11 @@ import { CreateRoomForm } from '@/features/rooms/CreateRoomForm'
 export interface CreateRoomModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Preselected game; without one the form picks the first available game. */
   initialGame?: GameKey
 }
 
-export function CreateRoomModal({
-  open,
-  onOpenChange,
-  initialGame = 'draw-guess',
-}: CreateRoomModalProps) {
+export function CreateRoomModal({ open, onOpenChange, initialGame }: CreateRoomModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -36,7 +33,7 @@ export function CreateRoomModal({
         </DialogHeader>
         {/* Keyed so reopening starts from the requested game with fresh defaults. */}
         <CreateRoomForm
-          key={`${initialGame}-${String(open)}`}
+          key={`${initialGame ?? ''}-${String(open)}`}
           initialGame={initialGame}
           onCreated={() => onOpenChange(false)}
           onCancel={() => onOpenChange(false)}

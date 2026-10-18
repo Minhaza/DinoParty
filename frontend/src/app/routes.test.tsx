@@ -2,6 +2,8 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
+import { gameHandlers, mockApi } from '@/test/mockApi'
+
 import { createQueryClient } from './queryClient'
 import { routes } from './routes'
 
@@ -46,11 +48,12 @@ describe('routes', () => {
     expect(screen.getByText('Coming in Phase 2')).toBeInTheDocument()
   })
 
-  it('renders the games catalog with game titles and rules', () => {
+  it('renders the games catalog with game titles from the server', async () => {
+    mockApi(gameHandlers())
     renderAt('/games')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Our Games' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Draw & Guess' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Draw & Guess' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Dino Telephone' })).toBeInTheDocument()
   })
 
