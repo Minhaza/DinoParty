@@ -215,7 +215,7 @@ Declared by the module, enforced by the engine/router (item 1–2 of §4.1), so 
 
 ```java
 record CommandSpec(String type, Class<?> payload, int maxPayloadBytes,
-                   RateSpec rate,              // token bucket: ratePerSecond, burst
+                   RateSpec rate,              // ratePerSecond, burst: one-second fixed window of max(burst, ceil(rate)) (architecture.md)
                    Set<String> phases,         // phase names where it is legal; empty = any
                    boolean needsPhaseId)       // true for all game commands
 ```
