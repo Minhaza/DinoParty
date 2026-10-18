@@ -2,10 +2,7 @@ package com.dinoparty.session;
 
 import com.dinoparty.engine.GameRegistry;
 import com.dinoparty.room.GameCatalog;
-import com.dinoparty.room.GameInfo;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -45,11 +42,8 @@ class SessionLifecycleCallbacks implements SmartInitializingSingleton, SmartLife
 
   @Override
   public void afterSingletonsInstantiated() {
-    Map<String, int[]> rows = new HashMap<>();
-    for (GameInfo game : catalog.enabled()) {
-      rows.put(game.key(), new int[] {game.minPlayers(), game.maxPlayers()});
-    }
-    List<String> problems = registry.verifyAgainstCatalog(rows, properties.strictRegistry());
+    List<String> problems =
+        registry.verifyAgainstCatalog(catalog.enabledRowBounds(), properties.strictRegistry());
     problems.forEach(p -> log.warn("Game registry: {}", p));
     if (properties.recoveryOnStartup()) {
       recovery.recover();

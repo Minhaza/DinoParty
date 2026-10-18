@@ -104,8 +104,7 @@ public class RoomService {
 
   private RoomDetails doCreate(UUID guestId, CreateRoomCommand command) {
     GameInfo game = games.require(command.gameKey());
-    Map<String, Object> settings =
-        SettingsSchema.resolve(game.key(), game.defaultSettings(), command.settings());
+    Map<String, Object> settings = games.resolveSettings(game.key(), command.settings());
     int maxPlayers = resolveMaxPlayers(game, command.maxPlayers(), 0);
 
     for (int attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
@@ -554,7 +553,7 @@ public class RoomService {
 
     Map<String, Object> settings;
     if (command.settings() != null || gameChanges) {
-      settings = SettingsSchema.resolve(game.key(), game.defaultSettings(), command.settings());
+      settings = games.resolveSettings(game.key(), command.settings());
     } else {
       settings = settingsCodec.read(room.getSettings());
     }

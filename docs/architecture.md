@@ -41,17 +41,17 @@ Single Maven module, strictly layered packages; boundaries enforced by **ArchUni
 | Module | Responsibility | May depend on |
 |---|---|---|
 | `common` | error model, `Clock`/`IdGenerator` beans, validation helpers, rate-limit port | — |
-| `guest` | `GuestIdentity`, `GuestSession`, token issue/hash/verify, profile edit, `AuthenticatedGuest` principal (the Spring Security filter lives in `web`, next to the problem+json entry point) | `common` |
-| `room` | room lifecycle, codes, membership, capacity, ready, host transfer, settings, room mailbox, room status transitions (called by `session`) | `common`, `guest`, `engine` (api) |
+| `guest` | `GuestIdentity`, `GuestSession`, token issue/hash/verify, profile edit, `AuthenticatedGuest` principal (the Spring Security filter lives in `web`, next to the problem+json entry point); defines the port `ProfileEditGuard` (profile lock, §3.8) | `common` |
+| `room` | room lifecycle, codes, membership, capacity, ready, host transfer, settings, room mailbox, room status transitions (called by `session`), game availability (`GameCatalog`), profile lock (`RoomProfileLock` implements `guest.ProfileEditGuard`), idle-room sweep (`OrphanRoomCleanup`); defines the ports `GameDirectory` (game name, bounds, settings) and `MemberPresence` | `common`, `guest` (never `engine`/`session`/`history`, ArchUnit) |
 | `engine` | game SPI (`GameModule`, `GameDefinition`, `CommandSpec`, `GameContext`), registry, phase identity, deadline book + `DeadlineScheduler` port, action gate, score ledger/ranking, turn order, rematch votes — pure, no Spring Web/JPA | `common` |
-| `session` | Phase 4: one room's game lifecycle (start countdown, `ActiveSessions`, finish/abort/rematch/restart recovery); defines ports `SessionEventSink`, `SessionRecorder`, `SessionHistoryQuery` | `common`, `guest`, `room`, `engine` |
+| `session` | Phase 4: one room's game lifecycle (start countdown, `ActiveSessions`, finish/abort/rematch/restart recovery, `lastSession`); defines ports `SessionEventSink`, `SessionRecorder`, `EndedSessionLookup`; bridges the registry to rooms (`RegistryGameDirectory` implements `room.GameDirectory`) and serves game discovery (`GameDiscovery`) | `common`, `guest`, `room`, `engine` |
 | `games.drawguess` | Draw & Guess rules, scoring, stroke model; freezes its word pool at start through `words` (WP-02) | `engine`, `drawing`, `words` (api, never `words.persistence`) |
 | `games.telephone` | chain allocation, phases, album reveal | `engine`, `drawing` |
 | `drawing` | shared stroke model, validation/limits, bounded stroke buffer, (de)serialization | `common` |
 | `words` | WP-01 built-in word catalog: categories, difficulties, locales, counts and filtered word reads (read-only reference data; `words.persistence` is private). WP-02 word pool: `WordPoolService` (selection, filters, de-duplication, start check), frozen `WordPool` (drawing), providers `BuiltInWordProvider` (the catalog) and `CustomWordProvider` (implemented by `wordpacks`) | `common` |
 | `wordpacks` | WP-03 room-scoped custom word packs (D34): pack and entry storage (`wordpacks.persistence` is private), host-only management, TXT/CSV import parser and analyzer (preview/confirm by digest + pack version), `PackWordProvider` implementing `words.CustomWordProvider`; REST in `web.WordPackController` | `common`, `room` (api: `RoomService.accessOf`/`activeAccess`), `words` (api) |
-| `realtime` | STOMP config, auth interceptor, destination conventions, envelope, sequencing, presence tracking, command routing; implements `SessionEventSink` | `room`, `session`, `engine`, `guest` |
-| `history` | persistence of `game_session`, `game_round`, `game_submission`, `game_result`; implements `SessionRecorder`/`SessionHistoryQuery`; restart recovery SQL | `common`, `session`, `engine` |
+| `realtime` | STOMP config, auth interceptor, destination conventions, envelope, sequencing, presence tracking (implements `room.MemberPresence`), command routing, maintenance sweeps; implements `SessionEventSink` | `room`, `session`, `engine`, `guest` |
+| `history` | persistence of `game_session`, `game_round`, `game_submission`, `game_result`; implements `SessionRecorder`/`EndedSessionLookup`; results/album reads; restart recovery SQL | `common`, `session`, `engine` |
 | `web` | REST controllers, DTOs, exception mapper, OpenAPI | all service APIs (never entities) |
 | `health` | `/api/v1/health` + Actuator customizations | `common` |
 
@@ -102,7 +102,7 @@ public interface GameModule {
 - Token: 32 bytes from `SecureRandom`, base64url; server stores SHA-256 (hex) in `guest_session.token_hash` (unique). Sessions have `expires_at`, sliding `last_seen_at`, revocation.
 - Authorization on `SUBSCRIBE`: a guest may subscribe to `/topic/rooms/{code}` only if a member of that room; `/user/queue/**` is implicitly principal-scoped.
 - Authorization on `SEND`: `@MessageMapping` handlers resolve `Principal`→guest→room membership→role (host/drawer/etc.) inside the room mailbox.
-- Rate limits (token bucket via `RateLimiter` port): guest creation per IP, join attempts per guest/IP, strokes, guesses/chat per guest.
+- Rate limits are **fixed windows**, not token buckets: `RateLimiter` port, implemented in memory by `common.InMemoryRateLimiter` (one counter per key and window; single instance). Protected: guest creation per client IP (`POST /guests`), room join per guest, STOMP connects and authentication failures per client, STOMP commands per connection (`commandLimitPer10s`), every game command type per guest (`CommandSpec` rate/burst, a fixed one-second window of `max(burst, ceil(rate))`), word-pack writes and imports. A burst can straddle two windows; accepted for this phase.
 - Validation: Jakarta Bean Validation on DTOs and STOMP payload classes; hard size limits via `WebSocketTransportRegistration` (message size, send buffer) and domain limits (points per batch, strokes per round).
 - CORS and STOMP `allowedOriginPatterns` from environment allowlist. No cookies, so no CSRF surface; CSRF disabled deliberately and documented.
 - Secrets only from environment; `.env.example` has placeholders.
@@ -135,6 +135,26 @@ Old data cleanup: scheduled job purges expired sessions and old closed rooms (re
 ### 3.7 Configuration
 
 `application.yml` + profiles `dev`, `test`, `prod`. All secrets/URLs via env vars (`DB_URL`, `DB_USER`, `DB_PASSWORD`, `CORS_ALLOWED_ORIGINS`, `APP_PUBLIC_URL`, `TOKEN_TTL`, …) documented in `.env.example`. JSON logging in prod; Actuator health/info/metrics (metrics not publicly routed).
+
+### 3.8 Game registry and shared platform services (P7-01)
+
+**Ownership.** A game is described in exactly one place: its `GameModule`'s `GameDefinition`, which carries the key, player bounds, commands and events, the presentation metadata (`GameMetadata`: name, tagline, description, how-to-play steps, `iconKey`) and the host settings (`SettingsSchema` of typed `SettingField`s: `int` with an optional auto value, `bool` with optional restricted options, `enum`, `list` of category keys or UUIDs). `GameRegistry` collects the modules in key order and is the authority for which games exist. The `game_definition` row only decides **availability** (`enabled`) and anchors the foreign keys; its `name`, bounds and `default_settings` columns stay for the Phase 2 schema and are not read (the startup check still fails on differing bounds; `DrawGuessIT`/`TelephoneIT` compare the stored defaults with the module's).
+
+```
+GameModule.definition() -> GameRegistry -> RegistryGameDirectory (session) -> room.GameDirectory -> GameCatalog / RoomService (validation, defaults, bounds)
+                                       -> GameDiscovery (session) + GameCatalog.enabledKeys() -> web.GameController -> GET /api/v1/games[/{key}] -> frontend (P7-02)
+```
+
+- **Settings.** Room create/update validates through `GameDirectory.resolveSettings`, i.e. the module's schema; error texts and `fieldErrors` (`settings.<key>`) are those of the former `room.SettingsSchema`, which no longer exists. A module's `*Settings.from` reads the bounds the schema is built from (drift tests `DrawGuessSettingsSchemaTest`, `TelephoneSettingsSchemaTest`).
+- **Game API** (api-contracts §2.6): public, read-only, mapped from the definitions; disabled games are listed with `enabled:false`; unknown keys are `404 GAME_NOT_FOUND`.
+- **Wiring.** `GameCatalog` resolves `GameDirectory` lazily (`ObjectProvider`): the modules depend on the word pools, which depend on rooms.
+- **Extensibility check.** `GameKeyLiteralTest` fails when platform code outside `com.dinoparty.games` names a game key (one allow-listed exception: the Telephone-only album endpoints in `web.SessionController`). `GameApiIT` shows the test-scope `TestGameModule` being discovered from its module and availability row alone.
+
+**`RoomDto.lastSession`.** `SessionService` keeps, per room and inside the mailbox, the newest session that is no longer running: set when a game finishes (`FINISHED`, finish reason) or is aborted (`ABORTED`, abort reason), cleared when the next session starts running, dropped when the room closes. When it is unknown in memory (after a restart) it is read once through `EndedSessionLookup` (implemented by `history.SessionHistory`: the newest non-`RUNNING` `game_session` row), which is how `INTERRUPTED`/`SERVER_RESTART` reaches clients. A failed read is not cached.
+
+**Profile lock.** `GuestService.updateProfile` validates the fields, then runs the change through the `guest.ProfileEditGuard` port. `room.RoomProfileLock` finds the guest's room, enters its mailbox, refuses with `409 INVALID_PHASE` while the room is `STARTING` or `PLAYING`, and otherwise commits the change inside the mailbox, where every room status change also happens, so a start cannot interleave with a rename. It depends on repositories and the mailbox only (no `RoomService`, no bean cycle).
+
+**Idle-room sweep.** `room.OrphanRoomCleanup` closes `WAITING` rooms in which, for `app.room-orphan-ttl` (default 1 h), nothing showed life: room created, a member joined, or a member's newest `guest_session.last_seen_at`; and no member `isLive` (connected, inside the disconnect grace, or with a closed socket whose presence update is still queued). Members are removed (freed for other rooms) and `ROOM_CLOSED {reason:"IDLE"}` is published. Each room is re-decided inside its mailbox under a row lock, so the sweep is idempotent and loses to a concurrent join or reconnect. Rooms with a game (`STARTING`/`PLAYING`/`RESULTS`) are never candidates. `RealtimeMaintenance` triggers it every `app.realtime.orphan-sweep-interval` (default 5 min) on its single-threaded fixed-delay scheduler; the first pass runs one interval after startup, not at startup, because restart recovery has just returned every room to `WAITING` and no client has reconnected yet. Playing a game is not itself a sign of life: a member of a room older than the TTL who has not called `GET /guests/me` within it must reconnect within that first interval after a restart, or the room is closed.
 
 ## 4. Real-time (WebSocket/STOMP) design
 
@@ -242,7 +262,8 @@ Structured logs with `roomCode`, `guestId`, `sessionId` MDC fields; Micrometer m
 - Active games live in memory; a backend restart ends them: sessions become `INTERRUPTED` and rooms return to `WAITING` with their members (decision D13, `docs/game-engine.md` §9). Single instance only, and the old process must be stopped before a new one starts.
 - Single instance only; no horizontal scaling.
 - No accounts; guest identity is per browser token.
+- `guest_session.last_seen_at` is renewed only by `GET /guests/me` (and at creation). A REST-only member who never opens a socket and never calls `/me` for `app.room-orphan-ttl` can lose an idle `WAITING` room to the sweep.
 
 ## 9. Extensibility: adding a game
 
-Backend: a new `games.<key>` package implementing `GameModule`, a Flyway data migration inserting a `game_definition` row, and settings schema. Frontend: a `features/<key>/` folder and one entry in the game plugin registry. The engine, rooms, realtime layer and persistence stay unchanged. The shared `drawing` and engine `VoteService` modules are reusable by new games. Worked example: `docs/fake-artist-proposal.md`.
+Backend: a new `games.<key>` package implementing `GameModule`, whose `GameDefinition` declares everything about the game (bounds, commands/events, `GameMetadata`, `SettingsSchema`), plus a Flyway data migration inserting its `game_definition` availability row. No platform list needs editing: rooms validate settings and the game API publishes the game from the registry (§3.8; `GameKeyLiteralTest` guards this). Frontend: a `features/<key>/` folder and one entry in the game plugin registry; game metadata and settings forms come from `GET /games` once P7-02 lands. The engine, rooms, realtime layer and persistence stay unchanged. The shared `drawing` and engine `VoteService` modules are reusable by new games. Worked example: `docs/fake-artist-proposal.md`.

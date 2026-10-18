@@ -71,9 +71,9 @@ Run on Windows 11, JDK 21.0.3, Node 22, Docker Desktop, Edge (headless).
 ### Not verified / known limitations (Phase 2)
 
 - **Playwright E2E is not part of the repo yet** (Phase 8); the browser run above was an ad-hoc script. No mobile, cross-browser or axe accessibility run; keyboard flow and focus order were not manually walked.
-- `GET /games` and `GET /games/{gameKey}` are not implemented (game choices are hard-coded in `features/rooms/gameConfig.ts` and seeded in `game_definition`); the frontend game-info page is still a placeholder.
+- `GET /games` and `GET /games/{gameKey}` are not implemented (game choices are hard-coded in `features/rooms/gameConfig.ts` and seeded in `game_definition`); the frontend game-info page is still a placeholder. *(Done in P7-01; see the P7-01 verification record.)*
 - No `Idempotency-Key` handling: join and leave are naturally idempotent instead.
-- `PATCH /guests/me` does not yet return `INVALID_PHASE` while a game is running (no games exist). Add it with the room status check in Phase 4.
+- `PATCH /guests/me` does not yet return `INVALID_PHASE` while a game is running (no games exist). Add it with the room status check in Phase 4. *(Done in P7-01; see the P7-01 verification record.)*
 - Rate limiting is per `remoteAddr` for guest creation and ignores `X-Forwarded-For`; behind Caddy every client would share one bucket until a trusted-proxy setting is added in the deployment phase. Limits are in memory (single instance).
 - No nickname blocklist (A14): only length and a character allow-list.
 - The frontend remembers the last room code in `localStorage` only as a "back to my room" hint. No endpoint returns a guest's current room, so after clearing browser storage a guest who is still in a room can only be freed by leaving from that browser; presence-based expiry arrives in Phase 3.
@@ -155,7 +155,7 @@ Coverage by layer:
 
 - **No frontend work**: task 4.8 is not done. The lobby Start button reaches a real backend start, but no production game module exists, so `draw-guess` and `telephone` answer `GAME_NOT_FOUND`.
 - **Process kill not exercised**: recovery is tested by seeding the rows a dead process leaves; the outage test renames a table rather than stopping the database.
-- **Not implemented**: `GET /games*`, `RoomDto.lastSession`, the `PATCH /guests/me` lock, orphan-room sweep, typed payload binding, the 320 KiB frame cap (D20), the snapshot replay-equivalence property test, `Retry-After` on `RESULTS_NOT_READY`.
+- **Not implemented** (the first four were done in P7-01): `GET /games*`, `RoomDto.lastSession`, the `PATCH /guests/me` lock, orphan-room sweep, typed payload binding, the 320 KiB frame cap (D20), the snapshot replay-equivalence property test, `Retry-After` on `RESULTS_NOT_READY`.
 - **`GAME_FINISHED.resultsReady` is always `false`**; clients poll `GET /sessions/{id}/results`.
 - **Per-type rate limiting** is a fixed one-second window, not a token bucket, so a burst can straddle two windows.
 - **Single instance only**: recovery treats every `RUNNING` row as orphaned.
@@ -503,3 +503,41 @@ Scope: the backend reveal, submission persistence and album endpoints (P6-03) an
   - Screenshots were reviewed on desktop and phone; that review made the reveal controls non-sticky, because they covered the newest entry on phones.
 
 Not verified: the axe accessibility smoke and the load check (P6-06), a non-host `REVEAL_NEXT` forged from the browser (covered by STOMP ITs instead), the auto-advance in a real browser (covered by session tests), a real network outage during the reveal, and Linux/CI.
+
+## P7-01 verification record (shared platform and game registry, backend)
+
+Design: `architecture.md` §3.8; contract: `api-contracts.md` §2.6 and "P7-01 contract changes".
+
+### Automated tests
+
+| Test | Covers |
+|---|---|
+| `engine.SettingsSchemaTest` (11, replaces `room.SettingsSchemaTest`) | defaults in declaration order; merge over defaults; unknown key, wrong type and out-of-range reported together with the former messages; inclusive int bounds, fractions refused; auto value; only-`true` boolean; category and UUID lists (case, duplicates, exclusive `random-mix`, non-list, too many); empty schema; duplicate keys / invalid default rejected at construction |
+| `games.drawguess.DrawGuessSettingsSchemaTest` (5, moved from `room`), `games.telephone.TelephoneSettingsSchemaTest` (5) | module bounds = schema bounds, enum options = values the module reads, defaults complete and valid, `[TP-2]` entries 0/4–8, `[TP-5]` only `true` |
+| `engine.GameRegistryTest` (+1) | key order, `definition(key)` with metadata and schema |
+| `web.GameApiIT` (6) | `GET /games` without auth lists draw-guess, telephone and the test game in key order with metadata and bounds, no schema in summaries; draw-guess and telephone details (schema members per type, omitted members, defaults); unknown key `404 GAME_NOT_FOUND` problem+json; disabled row → `enabled:false` in list and detail, `POST /rooms` `404`; the test-scope `TestGameModule` is discovered from its module alone |
+| `architecture.GameKeyLiteralTest` (1) | no game-key literal outside `com.dinoparty.games` except the allow-listed Telephone album endpoint |
+| `session.LastSessionTest` (8) | none before a game and during the first countdown; `FINISHED`/`COMPLETED` in `RESULTS` and after the reset; previous one kept during the next countdown and cleared once running; cancelled countdown keeps it; abort → `ABORTED`/`NO_COMPLETED_ROUND`; after a restart read once and cached; never shown while a game runs; dropped on close |
+| `session.SessionPersistenceIT` (+1, 1 extended) | after restart recovery, REST room and snapshot show `lastSession {INTERRUPTED, SERVER_RESTART}`; a room without games has `lastSession:null` |
+| `realtime.GameEngineSessionIT` (1 extended) | over real STOMP: `lastSession` null while waiting and playing, the finished session in `RESULTS` and after the rematch reset |
+| `guest.GuestProfileLockIT` (5) | allowed outside a room, in `WAITING`, and in `RESULTS` after a real game; `409 INVALID_PHASE` for every member in `STARTING` and `PLAYING`, profile unchanged; `400` before `409`; a change queued behind a mailbox command that starts the game waits for the mailbox and is refused |
+| `realtime.OrphanRoomCleanupIT` (8) | stale room closed and both members can create new rooms; repeated sweeps change nothing (`closed_at` stable); recent room kept; connected member keeps it; dropped (in grace) and reconnected member keeps it; recent `last_seen_at` keeps it; `STARTING`/`PLAYING`/`RESULTS` never touched; the maintenance scheduler runs it by itself |
+| `realtime.PresenceTrackerTest` (+2) | `isLive`: never connected, connected, in grace, grace over; a closed socket whose reconcile is still queued counts as live |
+
+### Defect found and fixed
+
+`OrphanRoomCleanupIT` exposed a window in presence: a closed socket is removed from the connection table at once, but its grace entry is added later by `reconcile`, which waits for the room mailbox, the same mailbox the sweep holds. A member who had been connected for over an hour in an idle lobby and dropped at that instant would have been treated as gone. `PresenceTracker` now counts unreconciled disconnects as live.
+
+### Commands run (2026-10-18)
+
+- `./mvnw verify` (backend): **BUILD SUCCESS**; unit (surefire) 385 tests, integration (failsafe) 260 tests, 0 failures, 0 errors, 0 skipped; Spotless check and ArchUnit green. This covers the Draw & Guess, Telephone, room, engine, STOMP, word-pack and REST suites.
+- No frontend file changed, so no frontend command was run.
+
+### Not verified / limitations
+
+- No manual `curl` or browser check against a running backend; the API was exercised through MockMvc and real STOMP clients in the ITs only.
+- Rate limiting unchanged (fixed window); only its documentation was corrected (`architecture.md` §3.5). No new rate-limit tests.
+- `GET /games*` has no rate limit (public and read-only, like `/health`).
+- `last_seen_at` is renewed only by `GET /guests/me`; see `architecture.md` §8.
+- The idle-room sweep loads all candidate codes (`WAITING`, older than the TTL) per pass; fine at single-instance scale.
+- The frontend still uses its hard-coded game list (`gameConfig.ts`, `GamesPage.tsx`); moving to `GET /games` is P7-02.

@@ -2,7 +2,9 @@
 
 This file is the **single source of truth** for client/server contracts. Backend DTOs and frontend types must match it. Changes require a contract-change commit (see `AGENTS.md`). Status: REST (Phase 2) and the lobby STOMP layer (Phase 3) are implemented as written; rows marked *Phase 4+* are still design. Fields may be refined, but only via edits to this file. **Phase 6 (Dino Telephone, `docs/telephone-design.md`): the step commands/events of §3.10 (`TELEPHONE_*`, `TELEPHONE_TASK`/`_PROGRESS`/`_STEP_ENDED`) and the step part of `TelephoneSnapshot` are implemented as written (P6-02, integrated with the frontend in P6-04); `REVEAL_*`, `ALBUM_REVEALED`, the snapshot `reveal`, the §2 album rows and `AlbumDto`/`AlbumSummaryDto` are implemented as written too (P6-03, with the reveal UI of P6-05); `Retry-After` on the albums' `RESULTS_NOT_READY` is not sent yet, as for results.** The Phase 4 additions (game lifecycle, generic game events, snapshot `game`, rematch) are **design pending approval** (`docs/decisions-and-risks.md` D13–D23); the engine behind them is specified in `docs/game-engine.md`. Phase 4 changes to existing Phase 2/3 contract text are listed in §4.
 
-**Phase 4 implementation status (backend, verified by the integration tests listed in `docs/testing.md`):** implemented as written: `START_GAME` and `REMATCH_VOTE`, game commands with `phaseId`/`STALE_ACTION`, per-type rate and size limits, `ROOM_STATUS_CHANGED`, `GAME_STARTED`, `PHASE_STARTED`, `GAME_FINISHED`, `GAME_ABORTED`, `REMATCH_VOTES_UPDATED`, snapshot `game`, `RoomDto.sessionId` and `PlayerDto.score`, `POST /rooms/{code}/start|kick|close`, `GET /sessions/{id}/results`, restart recovery. **Not implemented yet (still contract only):** `GET /games`, `GET /games/{key}`, `RoomDto.lastSession`, the `PATCH /guests/me` lock (`INVALID_PHASE` while `STARTING`/`PLAYING`), `Retry-After` on `RESULTS_NOT_READY`, `Idempotency-Key` on start. `GAME_FINISHED.resultsReady` is always `false`, and a client reconnecting during `STARTING` receives no `startsAt` in its snapshot. `maxPayloadBytes` of a `CommandSpec` is checked against the serialized payload object, and the rate is a fixed one-second window of `max(burst, ceil(rate))` commands. The frame cap stays 64 KiB (D20 is decided in Phase 6).
+**Phase 4 implementation status (backend, verified by the integration tests listed in `docs/testing.md`):** implemented as written: `START_GAME` and `REMATCH_VOTE`, game commands with `phaseId`/`STALE_ACTION`, per-type rate and size limits, `ROOM_STATUS_CHANGED`, `GAME_STARTED`, `PHASE_STARTED`, `GAME_FINISHED`, `GAME_ABORTED`, `REMATCH_VOTES_UPDATED`, snapshot `game`, `RoomDto.sessionId` and `PlayerDto.score`, `POST /rooms/{code}/start|kick|close`, `GET /sessions/{id}/results`, restart recovery. **Not implemented yet (still contract only):** `Retry-After` on `RESULTS_NOT_READY`, `Idempotency-Key` on start. `GAME_FINISHED.resultsReady` is always `false`, and a client reconnecting during `STARTING` receives no `startsAt` in its snapshot. `maxPayloadBytes` of a `CommandSpec` is checked against the serialized payload object, and the rate is a fixed one-second window of `max(burst, ceil(rate))` commands. The frame cap stays 64 KiB (D20 is decided in Phase 6).
+
+**P7-01 (platform):** `GET /games`, `GET /games/{gameKey}` (served from the backend game registry, §2.6), `RoomDto.lastSession`, the `PATCH /guests/me` lock and the idle-room sweep (`ROOM_CLOSED {reason:"IDLE"}`) are implemented as written below (verified by the tests in `docs/testing.md` "P7-01 verification record").
 
 ## 1. Conventions
 
@@ -30,8 +32,8 @@ This file is the **single source of truth** for client/server contracts. Backend
 | `POST /guests` | no | `{nickname, avatarKey, avatarColor?}` — nickname 2–20 chars (letters, digits, single spaces, `_ . ' -`; must start with a letter/digit), `avatarKey` from the fixed catalog, `avatarColor` `#RRGGBB` | `201 {guest: GuestDto, token, expiresAt}` | 400, 429 (per client IP) |
 | `GET /guests/me` | yes | — | `200 GuestDto` (also renews sliding expiry) | 401 |
 | `PATCH /guests/me` | yes | `{nickname?, avatarKey?, avatarColor?}` (absent/null = unchanged) | `200 GuestDto` | 400, 401, 409 (`INVALID_PHASE` while the guest's room is `STARTING` or `PLAYING` — enforced from Phase 4; allowed again in `RESULTS`/`WAITING`) |
-| `GET /games` | no | — | `200 GameSummaryDto[]` | |
-| `GET /games/{gameKey}` | no | — | `200 GameDetailDto` (rules text, settings schema, bounds) | 404 |
+| `GET /games` | no | — | `200 GameSummaryDto[]`: every registered game in key order, disabled ones included with `enabled:false` (§2.6) | |
+| `GET /games/{gameKey}` | no | — | `200 GameDetailDto` (rules text, settings schema, defaults, bounds); also for a disabled game (`enabled:false`) | 404 `GAME_NOT_FOUND` (no game with this key) |
 | `POST /rooms` | yes | `{gameKey, settings?, maxPlayers?}` (defaults from the game; see §2.2) | `201 RoomDto` (+ `inviteUrl`) | 400, 404 `GAME_NOT_FOUND`, 409 (`ALREADY_IN_ROOM`) |
 | `GET /rooms/{roomCode}` | yes | — | `200 RoomDto` (members only for details; non-members get `RoomPreviewDto`; a closed room is still returned with `status: "CLOSED"`) | 404 `ROOM_NOT_FOUND` (also for a malformed code) |
 | `POST /rooms/{roomCode}/join` | yes | `{}` | `200 RoomDto`. Idempotent: joining a room you are already in returns it unchanged | 404, 409 (`ROOM_FULL`, `ROOM_IN_PROGRESS`, `ROOM_CLOSED`, `ALREADY_IN_ROOM` when in a *different* room), 429 (per guest) |
@@ -65,14 +67,18 @@ This file is the **single source of truth** for client/server contracts. Backend
 GuestDto        { id, nickname, avatarKey, avatarColor|null, createdAt }
 GameSummaryDto  { key, name, tagline, minPlayers, maxPlayers, iconKey, enabled }
 GameDetailDto   { …GameSummaryDto, description, howToPlay[], settingsSchema: SettingField[], defaultSettings }
-SettingField    { key, label, type:"int|bool|enum", min?, max?, step?, options?, default }
+SettingField    { key, label, type:"int|bool|enum|list", default, min?, max?, autoValue?, options?, maxItems?,
+                  itemFormat?:"category-key|uuid", exclusiveOption? }  /* absent members are omitted, see §2.6 */
 RoomDto         { id, code, inviteUrl, status, gameKey, hostGuestId, minPlayers, maxPlayers,
                   settings, players:PlayerDto[], sessionId|null, createdAt,
                   lastSession: LastSessionDto|null /* Phase 4, additive */ }
 LastSessionDto  { sessionId, status:"FINISHED|ABORTED|INTERRUPTED", endReason, finishedAt }
                   /* newest session of this room that is no longer running; null before the first game and
-                     cleared when the next session starts. INTERRUPTED/SERVER_RESTART is how clients learn that
-                     a restart ended their game (game-engine.md §9) */
+                     cleared when the next session starts running (GAME_STARTED; a STARTING countdown, or one
+                     that is cancelled, keeps the previous value). In RESULTS it is the session that just
+                     finished (same id as sessionId). endReason: the FinishReason for FINISHED, the GAME_ABORTED
+                     reason for ABORTED, SERVER_RESTART for INTERRUPTED. INTERRUPTED/SERVER_RESTART is how
+                     clients learn that a restart ended their game (game-engine.md §9) */
 RoomPreviewDto  { code, gameKey, status, playerCount, maxPlayers, hostNickname }
 PlayerDto       { guestId, nickname, avatarKey, avatarColor, ready, connection:"CONNECTED|DISCONNECTED|LEFT",
                   isHost, score|null }
@@ -207,6 +213,39 @@ ImportResultDto    { imported, skipped /* duplicates + invalid */, duplicates, i
 - **Import workflow.** `preview` parses and validates, returns counts and bounded lists, and persists nothing. `confirm` takes the **same file again** plus the `sha256` and `packVersion` from the preview; the server re-parses the upload (client-supplied rows are never trusted) and applies it in one transaction under the room's lock. `409 IMPORT_STALE` when the bytes do not hash to `sha256` or the pack changed since the preview (`packVersion` is bumped by every add, remove and import); nothing is written. If the accepted rows exceed the remaining capacity the whole import is rejected (`WORD_PACK_LIMIT_REACHED`, `details:{limit, kind:"WORDS", remaining}`); there are no partial imports. Invalid rows are skipped and counted, not fatal. Re-confirming the same preview is `IMPORT_STALE`, so an import cannot insert twice; a unique `(pack, normalized text)` index backs this up.
 - **Logging.** Imported content is never logged; logs carry room code, pack id and counts only.
 
+
+### 2.6 Game discovery (P7-01)
+
+Public, read-only, generated from the backend game registry (each game module declares its own metadata and settings schema; architecture.md §3.8). The `game_definition` row only decides availability (`enabled`).
+
+```
+GameSummaryDto { key, name, tagline, minPlayers, maxPlayers, iconKey, enabled }
+GameDetailDto  { key, name, tagline, minPlayers, maxPlayers, iconKey, enabled,
+                 description, howToPlay:string[], settingsSchema:SettingField[], defaultSettings:{key:value} }
+```
+
+- `enabled:false` games are listed and have a detail, but `POST /rooms` and a game switch answer `404 GAME_NOT_FOUND` for them. A key without a game module answers `404 GAME_NOT_FOUND`.
+- `iconKey` is a stable asset id for the frontend (currently equal to the game key).
+- `settingsSchema` lists every key accepted in `settings` (§2.2) in display order; `defaultSettings` are the values used for omitted keys. Server-side validation of room settings uses the same schema; a client must still expect `400` with `fieldErrors` (e.g. category keys and word-pack ids are checked again at start, §2.4).
+
+| `type` | Members | Accepted values |
+|---|---|---|
+| `int` | `min`, `max`, `autoValue?` | whole numbers `min…max`; with `autoValue`, also exactly that value ("automatic") |
+| `bool` | `options?` | `true`/`false`; with `options`, only the listed values (e.g. `allowSkipTimeout`: `[true]`) |
+| `enum` | `options` | one of the listed strings |
+| `list` | `maxItems`, `itemFormat`, `exclusiveOption?` | a list of at most `maxItems` distinct strings of `itemFormat` (`category-key` = `[a-z][a-z0-9-]{0,39}`, `uuid` = lowercase canonical UUID); `exclusiveOption` may only appear on its own |
+
+Example (`GET /games/telephone`, abridged):
+
+```json
+{ "key": "telephone", "name": "Dino Telephone", "minPlayers": 4, "maxPlayers": 8, "iconKey": "telephone", "enabled": true,
+  "settingsSchema": [
+    { "key": "promptSeconds", "label": "Prompt time", "type": "int", "default": 60, "min": 20, "max": 120 },
+    { "key": "entriesPerChain", "label": "Entries per album", "type": "int", "default": 0, "min": 4, "max": 8, "autoValue": 0 },
+    { "key": "allowSkipTimeout", "label": "Skip on timeout", "type": "bool", "default": true, "options": [true] } ],
+  "defaultSettings": { "promptSeconds": 60, "drawSeconds": 90, "describeSeconds": 45, "entriesPerChain": 0, "allowSkipTimeout": true } }
+```
+
 ## 3. STOMP
 
 ### 3.1 Connection
@@ -289,7 +328,7 @@ Public stream (`/topic/rooms/{code}`):
 | `ROOM_SETTINGS_UPDATED` | `{gameKey, settings, minPlayers, maxPlayers}` | 3 |
 | `PLAYER_DISCONNECTED` | `{guestId, graceEndsAt}` | 3 |
 | `PLAYER_RECONNECTED` | `{guestId}` | 3 |
-| `ROOM_CLOSED` | `{reason:"EMPTY"|"HOST_CLOSED"}`. Phase 3 only closes a room when its last member leaves (`EMPTY`), so nobody is subscribed any more and no client receives it yet; it becomes observable with host-initiated close | 3 |
+| `ROOM_CLOSED` | `{reason:"EMPTY"|"HOST_CLOSED"|"IDLE"}`. `EMPTY`: the last member left, so nobody is subscribed any more. `HOST_CLOSED`: `POST …/close`. `IDLE` (P7-01): the maintenance sweep closed a `WAITING` room in which nobody had a live connection or any activity for `app.room-orphan-ttl` (default 1 h); its members are removed and may join another room | 3 |
 | `ROOM_STATUS_CHANGED` | `{status, reason, startsAt?}` — `reason`: `HOST_STARTED` (→`STARTING`, with `startsAt`), `COUNTDOWN_DONE` (→`PLAYING`), `GAME_FINISHED` (→`RESULTS`), `START_CANCELLED` (→`WAITING`, fewer than `minPlayers` connected), `REMATCH`, `RESULTS_TIMEOUT`, `GAME_ABORTED` (→`WAITING`), `SERVER_RESTART` (→`WAITING`, see §3.8). Its position relative to `GAME_STARTED`/`GAME_FINISHED`/`GAME_ABORTED` is fixed in §3.7 | 4 |
 | `GAME_STARTED` | `{sessionId, gameKey, settings, order:[guestId]}` — `order` is the engine's shuffled play order (roster, fixed for the session) | 4 |
 | `PHASE_STARTED` | `{phase, phaseId, round, deadlineAt, … game-specific public data}` (e.g. `drawerGuestId`, `hint`). Emitted by the engine for **every** phase change of every game, always after the state change and never carrying secrets; `phaseId` is fresh for every phase | 4 (engine), 5 (content) |
@@ -474,3 +513,12 @@ Everything below is additive unless stated.
 | §3.3 | `TELEPHONE_SUBMIT_DRAWING` payload `{strokes}` → `{}` (commit of a private draft); new `TELEPHONE_TEXT_DRAFT`, `TELEPHONE_DRAW_STROKE`/`UNDO`/`CLEAR`; `REVEAL_NEXT`/`PREV` carry the cursor. The earlier 256 KB one-shot drawing and D20's frame-cap increase are no longer needed |
 | §3.4 | `TELEPHONE_PROGRESS` gains `phaseId`, `submittedGuestIds`; new `TELEPHONE_STEP_ENDED`; `ALBUM_REVEALED` payload specified; `TELEPHONE_TASK.source` gains `placeholder` and never carries the author |
 | §3.10 | New: Telephone commands, events, secrecy table, snapshot size budget, results |
+
+### P7-01 contract changes (shared platform)
+
+| Where | Change |
+|---|---|
+| §2, §2.6 | `GET /games` lists every registered game in key order, disabled ones with `enabled:false`; `GET /games/{gameKey}` answers 200 for a disabled game and `404 GAME_NOT_FOUND` for an unknown key. Both are served from the backend game registry |
+| §2.1 | `SettingField` gains `type:"list"`, `autoValue`, `maxItems`, `itemFormat`, `exclusiveOption`; `step` removed (never used); absent members are omitted |
+| §2.1 | `LastSessionDto` semantics spelled out (countdown keeps the previous value, `RESULTS` shows the finished session, `endReason` per status) |
+| §3.4 | `ROOM_CLOSED.reason` gains `IDLE` (idle-room sweep) |

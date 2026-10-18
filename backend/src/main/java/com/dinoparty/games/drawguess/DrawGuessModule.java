@@ -12,6 +12,7 @@ import com.dinoparty.engine.DeadlineRequest;
 import com.dinoparty.engine.FinishReason;
 import com.dinoparty.engine.GameContext;
 import com.dinoparty.engine.GameDefinition;
+import com.dinoparty.engine.GameMetadata;
 import com.dinoparty.engine.GameModule;
 import com.dinoparty.engine.GameOutcome;
 import com.dinoparty.engine.GameSetup;
@@ -79,7 +80,19 @@ public class DrawGuessModule implements GameModule {
               new CommandSpec("DRAW_CLEAR", 128, 2, 3, Set.of(DRAWING)),
               new CommandSpec("SUBMIT_GUESS", 1024, 2, 5, Set.of(DRAWING))),
           Set.of("DRAWING_UPDATED", "HINT_UPDATED", "GUESS_ACCEPTED", "GUESS_CHAT", "ROUND_ENDED"),
-          Set.of("WORD_CHOICES", "DRAWER_WORD", "GUESS_FEEDBACK", "GUESSER_CHAT"));
+          Set.of("WORD_CHOICES", "DRAWER_WORD", "GUESS_FEEDBACK", "GUESSER_CHAT"),
+          new GameMetadata(
+              "Draw & Guess",
+              "Easy to learn • High energy",
+              "Take turns drawing a word while others guess. The more people guess correctly, the"
+                  + " more points you earn!",
+              List.of(
+                  "The drawer picks one of three secret words.",
+                  "Everyone else types guesses while the picture takes shape.",
+                  "Guess fast for more points; the drawer scores when others guess.",
+                  "Everyone draws in turn; the highest score after the last turn wins."),
+              KEY),
+          DrawGuessSettings.SCHEMA);
 
   private final WordPoolService words;
 

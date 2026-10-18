@@ -22,7 +22,18 @@ class GameRegistryTest {
       String key, List<CommandSpec> commands, Set<String> publicEvents) {
     TestGameModule base = new TestGameModule(1000, 1);
     return new GameModuleDelegate(
-        base, new GameDefinition(key, 2, 6, 2, true, commands, publicEvents, Set.of()));
+        base,
+        new GameDefinition(
+            key,
+            2,
+            6,
+            2,
+            true,
+            commands,
+            publicEvents,
+            Set.of(),
+            base.definition().metadata(),
+            SettingsSchema.EMPTY));
   }
 
   private record GameModuleDelegate(GameModule delegate, GameDefinition definition)
@@ -66,6 +77,24 @@ class GameRegistryTest {
     assertThat(registry.find("nope")).isEmpty();
     assertThat(registry.commandSpec("TEST_SCORE")).isPresent();
     assertThat(registry.commandSpec("MAKE_ME_ADMIN")).isEmpty();
+  }
+
+  @Test
+  void definitionsComeInKeyOrderWithTheirMetadataAndSchema() {
+    GameModule zebra = moduleWith("zebra-game", List.of(), Set.of("ZEBRA_EVENT"));
+    GameModule alpha = moduleWith("alpha-game", List.of(), Set.of("ALPHA_EVENT"));
+    GameRegistry registry = new GameRegistry(List.of(zebra, new TestGameModule(1000, 1), alpha));
+
+    assertThat(registry.definitions())
+        .extracting(GameDefinition::key)
+        .containsExactly("alpha-game", "test-game", "zebra-game");
+    assertThat(registry.definition("test-game"))
+        .hasValueSatisfying(
+            d -> {
+              assertThat(d.metadata().name()).isEqualTo("Test Game");
+              assertThat(d.settings()).isEqualTo(SettingsSchema.EMPTY);
+            });
+    assertThat(registry.definition("nope")).isEmpty();
   }
 
   @Test

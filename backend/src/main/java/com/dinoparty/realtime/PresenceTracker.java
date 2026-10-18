@@ -47,6 +47,12 @@ public class PresenceTracker implements MemberPresence {
   private final ConcurrentHashMap<String, ConcurrentHashMap<UUID, Pending>> disconnected =
       new ConcurrentHashMap<>();
 
+  /**
+   * Closed sockets whose reconcile has not run yet, per guest. Between the two the guest is neither
+   * connected nor in a grace period, and must still not look gone (see {@link #isLive}).
+   */
+  private final ConcurrentHashMap<UUID, Integer> unreconciled = new ConcurrentHashMap<>();
+
   PresenceTracker(
       RoomService rooms,
       SessionService sessions,
@@ -73,9 +79,28 @@ public class PresenceTracker implements MemberPresence {
 
   /** Called when a socket closes; ignored when that socket was already replaced by a newer one. */
   void disconnected(UUID guestId, String wsSessionId) {
-    if (connections.unregister(guestId, wsSessionId)) {
-      executor.execute(() -> reconcile(guestId));
+    unreconciled.merge(guestId, 1, Integer::sum);
+    if (!connections.unregister(guestId, wsSessionId)) {
+      settled(guestId);
+      return;
     }
+    try {
+      executor.execute(
+          () -> {
+            try {
+              reconcile(guestId);
+            } finally {
+              settled(guestId);
+            }
+          });
+    } catch (RuntimeException e) {
+      settled(guestId);
+      throw e;
+    }
+  }
+
+  private void settled(UUID guestId) {
+    unreconciled.computeIfPresent(guestId, (g, n) -> n > 1 ? n - 1 : null);
   }
 
   /** Applies the guest's current connection state to their room (idempotent). */
@@ -195,6 +220,13 @@ public class PresenceTracker implements MemberPresence {
   public boolean isDisconnected(String roomCode, UUID guestId) {
     Map<UUID, Pending> pending = disconnected.get(roomCode);
     return pending != null && pending.containsKey(guestId);
+  }
+
+  @Override
+  public boolean isLive(String roomCode, UUID guestId) {
+    return connections.isConnected(guestId)
+        || unreconciled.containsKey(guestId)
+        || isDisconnected(roomCode, guestId);
   }
 
   boolean hasLiveConnection(UUID guestId) {

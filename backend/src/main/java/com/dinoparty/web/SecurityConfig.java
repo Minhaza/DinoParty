@@ -46,6 +46,9 @@ class SecurityConfig {
                     .permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/v1/guests")
                     .permitAll()
+                    // Game discovery is public so the landing page works before a guest exists.
+                    .requestMatchers(HttpMethod.GET, "/api/v1/games", "/api/v1/games/*")
+                    .permitAll()
                     .requestMatchers(HttpMethod.GET, "/actuator/health/**")
                     .permitAll()
                     .requestMatchers(HttpMethod.OPTIONS, "/**")

@@ -1,5 +1,7 @@
 package com.dinoparty.history;
 
+import com.dinoparty.session.EndedSessionLookup;
+import com.dinoparty.session.LastSession;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -16,7 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
  * the games that keep their players' entries (Telephone).
  */
 @Service
-public class SessionHistory {
+public class SessionHistory implements EndedSessionLookup {
 
   public record Standing(
       int rank, UUID guestId, String nickname, int score, Map<String, Object> detail) {}
@@ -97,6 +99,28 @@ public class SessionHistory {
                     List.of()))
         .optional()
         .map(this::withDetails);
+  }
+
+  /** The room's newest session that is not running (highest session number). */
+  @Override
+  public Optional<LastSession> latestEnded(UUID roomId) {
+    return jdbc.sql(
+            """
+            SELECT id, status, end_reason, finished_at FROM game_session
+            WHERE room_id = :room AND status <> 'RUNNING'
+            ORDER BY session_number DESC LIMIT 1
+            """)
+        .param("room", roomId)
+        .query(
+            (rs, i) ->
+                new LastSession(
+                    rs.getObject("id", UUID.class),
+                    rs.getString("status"),
+                    rs.getString("end_reason"),
+                    rs.getTimestamp("finished_at") == null
+                        ? null
+                        : rs.getTimestamp("finished_at").toInstant()))
+        .optional();
   }
 
   public Optional<SessionHeader> header(UUID sessionId) {

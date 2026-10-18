@@ -1,14 +1,18 @@
 package com.dinoparty.games.telephone;
 
+import com.dinoparty.engine.SettingField.BoolField;
+import com.dinoparty.engine.SettingField.IntField;
+import com.dinoparty.engine.SettingsSchema;
 import com.dinoparty.games.telephone.TelephoneState.Kind;
-import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * The host's settings of one session ([TP-2], [TP-12]). The room module already validated them
- * against its schema; a missing or unusable value falls back to the default instead of failing the
- * game. Bounds and defaults must equal {@code room.SettingsSchema} and the catalog row ({@code V2},
- * {@code V9}).
+ * The host's settings of one session ([TP-2], [TP-12]) and their {@link #SCHEMA}, the one
+ * declaration of their keys, bounds and defaults (the room validates against it, the game API
+ * publishes it). A missing or unusable value falls back to the default instead of failing the game.
+ * The catalog row ({@code V2}, {@code V9}) keeps a non-authoritative copy of the defaults (guarded
+ * by {@code TelephoneIT}).
  *
  * @param entriesPerChain 0 = automatic, else 4..8 (D38)
  */
@@ -26,13 +30,28 @@ public record TelephoneSettings(
   static final int MIN_ENTRIES = 4;
   static final int MAX_ENTRIES = 8;
 
-  /** The catalog defaults ({@code game_definition.default_settings} of {@code telephone}). */
+  /**
+   * Host settings in display order. {@code entriesPerChain} 0 means automatic (D38); {@code
+   * allowSkipTimeout} accepts only {@code true} (D39).
+   */
+  public static final SettingsSchema SCHEMA =
+      new SettingsSchema(
+          List.of(
+              intField("promptSeconds", "Prompt time"),
+              intField("drawSeconds", "Drawing time"),
+              intField("describeSeconds", "Describing time"),
+              IntField.withAuto(
+                  "entriesPerChain", "Entries per album", MIN_ENTRIES, MAX_ENTRIES, 0, 0),
+              BoolField.only("allowSkipTimeout", "Skip on timeout", true)));
+
+  /** Every setting with its default ({@link #SCHEMA}). */
   public static Map<String, Object> defaults() {
-    Map<String, Object> defaults = new LinkedHashMap<>();
-    INT_BOUNDS.forEach((key, bound) -> defaults.put(key, bound.defaultValue()));
-    defaults.put("entriesPerChain", 0);
-    defaults.put("allowSkipTimeout", true);
-    return defaults;
+    return SCHEMA.defaults();
+  }
+
+  private static IntField intField(String key, String label) {
+    IntBound bound = INT_BOUNDS.get(key);
+    return IntField.of(key, label, bound.min(), bound.max(), bound.defaultValue());
   }
 
   static TelephoneSettings from(Map<String, Object> settings) {

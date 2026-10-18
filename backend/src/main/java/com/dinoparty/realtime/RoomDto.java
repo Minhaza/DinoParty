@@ -21,7 +21,8 @@ public record RoomDto(
     Map<String, Object> settings,
     List<PlayerDto> players,
     UUID sessionId,
-    String createdAt) {
+    String createdAt,
+    LastSessionDto lastSession) {
 
   public static RoomDto from(RoomDetails room, String publicUrl, MemberPresence presence) {
     return from(room, publicUrl, presence, RoomSessionInfo.NONE);
@@ -51,6 +52,7 @@ public record RoomDto(
                         session.scores() == null ? null : session.scores().get(m.guestId())))
             .toList(),
         session.sessionId(),
-        Timestamps.format(room.createdAt()));
+        Timestamps.format(room.createdAt()),
+        LastSessionDto.from(session.lastSession()));
   }
 }
