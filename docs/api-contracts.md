@@ -4,7 +4,7 @@ This file is the **single source of truth** for client/server contracts. Backend
 
 **Phase 4 implementation status (backend, verified by the integration tests listed in `docs/testing.md`):** implemented as written: `START_GAME` and `REMATCH_VOTE`, game commands with `phaseId`/`STALE_ACTION`, per-type rate and size limits, `ROOM_STATUS_CHANGED`, `GAME_STARTED`, `PHASE_STARTED`, `GAME_FINISHED`, `GAME_ABORTED`, `REMATCH_VOTES_UPDATED`, snapshot `game`, `RoomDto.sessionId` and `PlayerDto.score`, `POST /rooms/{code}/start|kick|close`, `GET /sessions/{id}/results`, restart recovery. **Not implemented yet (still contract only):** `Retry-After` on `RESULTS_NOT_READY`, `Idempotency-Key` on start. `GAME_FINISHED.resultsReady` is always `false`, and a client reconnecting during `STARTING` receives no `startsAt` in its snapshot. `maxPayloadBytes` of a `CommandSpec` is checked against the serialized payload object, and the rate is a fixed one-second window of `max(burst, ceil(rate))` commands. The frame cap stays 64 KiB (D20 is decided in Phase 6).
 
-**P7-01 (platform):** `GET /games`, `GET /games/{gameKey}` (served from the backend game registry, §2.6), `RoomDto.lastSession`, the `PATCH /guests/me` lock and the idle-room sweep (`ROOM_CLOSED {reason:"IDLE"}`) are specified below; their implementation lands in the same task (status updated when it is verified).
+**P7-01 (platform):** `GET /games`, `GET /games/{gameKey}` (served from the backend game registry, §2.6), `RoomDto.lastSession`, the `PATCH /guests/me` lock and the idle-room sweep (`ROOM_CLOSED {reason:"IDLE"}`) are implemented as written below (verified by the tests in `docs/testing.md` "P7-01 verification record").
 
 ## 1. Conventions
 
@@ -216,7 +216,7 @@ ImportResultDto    { imported, skipped /* duplicates + invalid */, duplicates, i
 
 ### 2.6 Game discovery (P7-01)
 
-Public, read-only, generated from the backend game registry (each game module declares its own metadata and settings schema; architecture.md §3.7). The `game_definition` row only decides availability (`enabled`).
+Public, read-only, generated from the backend game registry (each game module declares its own metadata and settings schema; architecture.md §3.8). The `game_definition` row only decides availability (`enabled`).
 
 ```
 GameSummaryDto { key, name, tagline, minPlayers, maxPlayers, iconKey, enabled }
@@ -513,3 +513,12 @@ Everything below is additive unless stated.
 | §3.3 | `TELEPHONE_SUBMIT_DRAWING` payload `{strokes}` → `{}` (commit of a private draft); new `TELEPHONE_TEXT_DRAFT`, `TELEPHONE_DRAW_STROKE`/`UNDO`/`CLEAR`; `REVEAL_NEXT`/`PREV` carry the cursor. The earlier 256 KB one-shot drawing and D20's frame-cap increase are no longer needed |
 | §3.4 | `TELEPHONE_PROGRESS` gains `phaseId`, `submittedGuestIds`; new `TELEPHONE_STEP_ENDED`; `ALBUM_REVEALED` payload specified; `TELEPHONE_TASK.source` gains `placeholder` and never carries the author |
 | §3.10 | New: Telephone commands, events, secrecy table, snapshot size budget, results |
+
+### P7-01 contract changes (shared platform)
+
+| Where | Change |
+|---|---|
+| §2, §2.6 | `GET /games` lists every registered game in key order, disabled ones with `enabled:false`; `GET /games/{gameKey}` answers 200 for a disabled game and `404 GAME_NOT_FOUND` for an unknown key. Both are served from the backend game registry |
+| §2.1 | `SettingField` gains `type:"list"`, `autoValue`, `maxItems`, `itemFormat`, `exclusiveOption`; `step` removed (never used); absent members are omitted |
+| §2.1 | `LastSessionDto` semantics spelled out (countdown keeps the previous value, `RESULTS` shows the finished session, `endReason` per status) |
+| §3.4 | `ROOM_CLOSED.reason` gains `IDLE` (idle-room sweep) |

@@ -14,7 +14,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
- * Game extensibility check (architecture.md §3.7): a game's key, metadata and settings are declared
+ * Game extensibility check (architecture.md §3.8): a game's key, metadata and settings are declared
  * by its module only, so platform code never names a game. Adding a game must not require editing a
  * hard-coded list anywhere outside {@code com.dinoparty.games}.
  */
