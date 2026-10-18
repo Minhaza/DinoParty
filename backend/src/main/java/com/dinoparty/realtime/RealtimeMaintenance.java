@@ -1,6 +1,7 @@
 package com.dinoparty.realtime;
 
 import com.dinoparty.guest.GuestService;
+import com.dinoparty.room.OrphanRoomCleanup;
 import com.dinoparty.session.SessionService;
 import java.time.Clock;
 import java.time.Instant;
@@ -15,7 +16,9 @@ import org.springframework.web.socket.CloseStatus;
 
 /**
  * Periodic housekeeping: expire disconnected players whose grace period ended, close connections
- * whose guest session expired or was revoked, and drop stale duplicate-detection windows.
+ * whose guest session expired or was revoked, drop stale duplicate-detection windows and close idle
+ * rooms nobody will come back to ({@link OrphanRoomCleanup}). The scheduler runs it with a fixed
+ * delay on one thread, so two passes never overlap.
  */
 @Component
 class RealtimeMaintenance implements SmartLifecycle {
@@ -26,18 +29,21 @@ class RealtimeMaintenance implements SmartLifecycle {
   private final ActionDeduper deduper;
   private final GuestService guests;
   private final SessionService games;
+  private final OrphanRoomCleanup orphans;
   private final WebSocketSessionRegistry sessions;
   private final ThreadPoolTaskScheduler scheduler;
   private final RealtimeProperties properties;
   private final Clock clock;
   private ScheduledFuture<?> task;
   private Instant lastSessionCheck;
+  private Instant lastOrphanSweep;
 
   RealtimeMaintenance(
       PresenceTracker presence,
       ActionDeduper deduper,
       GuestService guests,
       SessionService games,
+      OrphanRoomCleanup orphans,
       WebSocketSessionRegistry sessions,
       @Qualifier("realtimeScheduler") ThreadPoolTaskScheduler scheduler,
       RealtimeProperties properties,
@@ -46,6 +52,7 @@ class RealtimeMaintenance implements SmartLifecycle {
     this.deduper = deduper;
     this.guests = guests;
     this.games = games;
+    this.orphans = orphans;
     this.sessions = sessions;
     this.scheduler = scheduler;
     this.properties = properties;
@@ -59,6 +66,7 @@ class RealtimeMaintenance implements SmartLifecycle {
       deduper.purgeExpired();
       games.watchdog();
       dropStaleSessions();
+      closeIdleRooms();
     } catch (RuntimeException e) {
       log.warn("Realtime maintenance failed", e);
     }
@@ -80,6 +88,16 @@ class RealtimeMaintenance implements SmartLifecycle {
             connection.wsSessionId(), CloseStatus.POLICY_VIOLATION.withReason("SESSION_EXPIRED"));
       }
     }
+  }
+
+  private void closeIdleRooms() {
+    Instant now = clock.instant();
+    if (lastOrphanSweep != null
+        && lastOrphanSweep.plus(properties.orphanSweepInterval()).isAfter(now)) {
+      return;
+    }
+    lastOrphanSweep = now;
+    orphans.closeIdleRooms();
   }
 
   @Override

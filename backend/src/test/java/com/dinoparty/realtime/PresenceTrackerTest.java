@@ -69,7 +69,7 @@ class PresenceTrackerTest {
   void setUp() {
     RealtimeProperties properties =
         new RealtimeProperties(
-            Duration.ofSeconds(30), null, null, null, null, null, null, null, null, null);
+            Duration.ofSeconds(30), null, null, null, null, null, null, null, null, null, null);
     presence =
         new PresenceTracker(
             rooms,
@@ -125,6 +125,38 @@ class PresenceTrackerTest {
     clock.advance(Duration.ofMinutes(5));
     presence.sweep();
     verify(rooms, never()).leave(any(), any(), any());
+  }
+
+  @Test
+  void aMemberIsLiveWhileConnectedOrInsideTheGraceOnly() {
+    assertThat(presence.isLive("ABC234", guest)).as("never connected").isFalse();
+
+    presence.connected(connection("ws1"));
+    assertThat(presence.isLive("ABC234", guest)).as("connected").isTrue();
+
+    presence.disconnected(guest, "ws1");
+    assertThat(presence.isLive("ABC234", guest)).as("in grace").isTrue();
+
+    clock.advance(Duration.ofSeconds(30));
+    presence.sweep();
+    assertThat(presence.isLive("ABC234", guest)).as("grace over").isFalse();
+  }
+
+  @Test
+  void aClosedSocketWaitingForItsReconcileStillCountsAsLive() {
+    presence.connected(connection("ws1"));
+    deferred = true;
+
+    presence.disconnected(guest, "ws1"); // reconcile queued behind the room mailbox
+
+    assertThat(presence.isDisconnected("ABC234", guest)).isFalse();
+    assertThat(presence.isLive("ABC234", guest)).isTrue();
+    deferred = false;
+    queued.forEach(Runnable::run);
+    assertThat(presence.isLive("ABC234", guest)).as("now in grace").isTrue();
+    clock.advance(Duration.ofSeconds(30));
+    presence.sweep();
+    assertThat(presence.isLive("ABC234", guest)).isFalse();
   }
 
   @Test

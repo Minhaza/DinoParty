@@ -12,7 +12,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -122,6 +124,18 @@ public class GuestService {
   @Transactional(readOnly = true)
   public List<Guest> getAll(Collection<UUID> guestIds) {
     return guests.findAllById(guestIds).stream().map(GuestService::toGuest).toList();
+  }
+
+  /** The newest {@code last_seen_at} over each guest's sessions; guests without one are absent. */
+  @Transactional(readOnly = true)
+  public Map<UUID, Instant> lastSeen(Collection<UUID> guestIds) {
+    Map<UUID, Instant> seen = new HashMap<>();
+    if (!guestIds.isEmpty()) {
+      for (Object[] row : sessions.lastSeen(guestIds)) {
+        seen.put((UUID) row[0], (Instant) row[1]);
+      }
+    }
+    return seen;
   }
 
   /**
