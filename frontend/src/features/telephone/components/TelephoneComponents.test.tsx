@@ -147,12 +147,9 @@ describe('TelephonePhaseHeader', () => {
         step={2}
         totalSteps={6}
         deadlineAt="2099-01-01T00:00:00.000Z"
-        submitted={false}
       />,
     )
-    expect(
-      screen.getByRole('heading', { name: 'Step 3 of 6 — Describe the drawing' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Step 3 of 6' })).toBeInTheDocument()
     expect(screen.getByLabelText(/time remaining/i)).toBeInTheDocument()
   })
 
@@ -164,7 +161,6 @@ describe('TelephonePhaseHeader', () => {
         step={1}
         totalSteps={4}
         deadlineAt="2000-01-01T00:00:00.000Z"
-        submitted={false}
         onExpire={onExpire}
       />,
     )

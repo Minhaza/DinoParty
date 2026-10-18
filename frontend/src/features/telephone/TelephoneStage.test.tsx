@@ -6,8 +6,10 @@ import { useConnectionStore } from '@/features/realtime/connectionStore'
 import type { RealtimeClient } from '@/features/realtime/realtimeClient'
 import { RealtimeContext } from '@/features/realtime/realtimeContext'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
+import { useRoomStore } from '@/stores/roomStore'
 
 import {
+  albumRevealed,
   describePhaseStarted,
   describeSnapshotSubmitted,
   describeTask,
@@ -19,8 +21,10 @@ import {
   PHASE_PROMPT,
   promptPhaseStarted,
   promptSnapshotWithDraft,
+  revealPhaseStarted,
 } from './fixtures'
-import { TelephoneStage } from './TelephoneStage'
+import { useRevealStore } from './revealStore'
+import { SUBMIT_WATCHDOG_MS, TelephoneStage } from './TelephoneStage'
 import { useTelephoneStore } from './telephoneStore'
 import type { TelephonePhaseStartedPayload, TelephoneSnapshot } from './types'
 
@@ -69,6 +73,7 @@ describe('TelephoneStage', () => {
     sendCommand.mockClear()
     useGameSessionStore.getState().reset()
     useTelephoneStore.getState().reset()
+    useRoomStore.getState().setNeedsResync(false)
     useConnectionStore.setState({ status: 'CONNECTED' })
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(null)
     Element.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
@@ -96,18 +101,18 @@ describe('TelephoneStage', () => {
     expect(screen.getByText(/getting the next step ready/i)).toBeInTheDocument()
 
     startPhase(promptPhaseStarted)
-    expect(screen.getByRole('heading', { name: 'Step 1 of 4 — Write a prompt' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Step 1 of 4' })).toBeVisible()
     expect(screen.getByRole('textbox', { name: /your prompt/i })).toBeInTheDocument()
 
     startPhase(drawPhaseStarted)
     act(() => useTelephoneStore.getState().applyTask(drawTask))
-    expect(screen.getByRole('heading', { name: 'Step 2 of 4 — Draw it' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Step 2 of 4' })).toBeVisible()
     expect(screen.getByText(/stegosaurus juggling teacups/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /your drawing/i })).toBeInTheDocument()
 
     startPhase(describePhaseStarted)
     act(() => useTelephoneStore.getState().applyTask(describeTask))
-    expect(screen.getByRole('heading', { name: /step 3 of 4 — describe/i })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Step 3 of 4' })).toBeVisible()
     expect(screen.getByRole('img', { name: /drawing you need to describe/i })).toBeInTheDocument()
     // [TP-8]: the sentence two steps back is never shown.
     expect(screen.queryByText(/stegosaurus/)).not.toBeInTheDocument()
@@ -138,6 +143,23 @@ describe('TelephoneStage', () => {
     act(() => useTelephoneStore.getState().applyActionAck('action-1'))
     expect(screen.getByText(/your prompt is on its way/i)).toBeInTheDocument()
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('stops waiting for an unanswered submission, resyncs and lets the player send again', () => {
+    renderStage()
+    startPhase(promptPhaseStarted)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'A T-rex at the dentist' } })
+    fireEvent.click(screen.getByRole('button', { name: /send prompt/i }))
+    expect(useTelephoneStore.getState().submission).toBe('submitting')
+
+    act(() => vi.advanceTimersByTime(SUBMIT_WATCHDOG_MS - 1))
+    expect(useTelephoneStore.getState().submission).toBe('submitting')
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(useTelephoneStore.getState().submission).toBe('error')
+    expect(useRoomStore.getState().needsResync).toBe(true)
+    expect(screen.getByText(/no answer from the server/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /send prompt/i })).toBeEnabled()
   })
 
   it('TP9 syncs the text draft to the server after a pause in typing', () => {
@@ -236,9 +258,17 @@ describe('TelephoneStage', () => {
     })
   })
 
-  it('shows a holding panel during the reveal phase', () => {
+  it('TP6 hands the stage to the album reveal, with no task or editor left', () => {
     renderStage()
-    startPhase({ phase: 'REVEAL', phaseId: 'phase-reveal', deadlineAt: null })
-    expect(screen.getByText(/albums are being revealed/i)).toBeInTheDocument()
+    startPhase(revealPhaseStarted)
+    act(() => {
+      useRevealStore.getState().applyPhaseStarted(revealPhaseStarted, 'session-tp-01')
+      useRevealStore.getState().applyAlbumRevealed(albumRevealed(0, 0))
+    })
+    expect(screen.getByRole('region', { name: /album reveal/i })).toBeInTheDocument()
+    expect(screen.getByText('Prompt 1')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    // a player without the host role gets no reveal controls
+    expect(screen.queryByRole('button', { name: /reveal next/i })).not.toBeInTheDocument()
   })
 })

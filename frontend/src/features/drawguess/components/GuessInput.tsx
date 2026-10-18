@@ -60,16 +60,16 @@ export function GuessInput({ isDrawer, isSolved, isDrawingPhase, onSubmitGuess }
           maxLength={80}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="h-10 text-sm bg-card border-border/80 focus-visible:ring-primary shadow-xs"
+          className="h-12 text-base bg-card border-border/80 focus-visible:ring-primary shadow-xs"
         />
         <Button
           type="submit"
           size="sm"
           disabled={isDisabled || !value.trim()}
-          className="h-10 px-3.5 gap-1.5 shrink-0 font-bold"
+          className="h-12 px-4 gap-2 shrink-0 font-bold"
           aria-label="Send guess"
         >
-          <Send className="size-4" />
+          <Send className="size-5" />
           <span className="hidden sm:inline">Send</span>
         </Button>
       </div>

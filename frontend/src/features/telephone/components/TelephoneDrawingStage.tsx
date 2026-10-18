@@ -13,7 +13,6 @@ import type {
 
 import type { SubmissionStatus } from '../telephoneStore'
 import type { TelephoneSource } from '../types'
-import { TelephoneAssignmentCard } from './TelephoneAssignmentCard'
 import { TelephoneSubmissionStatus } from './TelephoneSubmissionStatus'
 
 export interface TelephoneDrawingStageProps {
@@ -59,13 +58,13 @@ export function TelephoneDrawingStage({
   const isEmpty = strokes.length === 0
 
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-12">
-      <div className="min-w-0 lg:col-span-4">
-        <TelephoneAssignmentCard source={source} />
-      </div>
-
-      <div className="flex min-w-0 flex-col gap-2 lg:col-span-8">
-        <div className="flex min-h-[240px] items-center justify-center overflow-hidden rounded-2xl border border-border bg-card p-2 shadow-xs sm:min-h-[360px]">
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-2">
+        <div
+          className="mx-auto aspect-[16/10] w-full"
+          // Fit the whole canvas on screen: width follows the height left under the header and toolbar.
+          style={{ maxWidth: 'max(24rem, calc((100dvh - 25rem) * 1.6))' }}
+        >
           <DrawCanvas
             isDrawer={true}
             isDrawingPhase={canDraw}

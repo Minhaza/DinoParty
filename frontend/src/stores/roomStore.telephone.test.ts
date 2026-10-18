@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { EventEnvelope, GameSnapshot, PlayerDto, RoomDto, SnapshotDto } from '@/api/types'
 import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
 import {
+  albumRevealed,
   describePhaseStarted,
   describeTask,
   drawProgress,
@@ -10,7 +11,11 @@ import {
   drawStepEnded,
   PHASE_DESCRIBE,
   PHASE_DRAW,
+  PHASE_REVEAL,
+  revealPhaseStarted,
+  revealSnapshot,
 } from '@/features/telephone/fixtures'
+import { useRevealStore } from '@/features/telephone/revealStore'
 import { useTelephoneStore } from '@/features/telephone/telephoneStore'
 
 import { useGameSessionStore } from './gameSessionStore'
@@ -137,6 +142,60 @@ describe('roomStore × Dino Telephone', () => {
     expect(telephone().kind).toBeNull()
   })
 
+  it('a duplicated private task is applied once and changes nothing the second time', () => {
+    apply(pub('PHASE_STARTED', describePhaseStarted))
+    const task = priv('TELEPHONE_TASK', describeTask)
+    expect(apply(task)).toBe('applied')
+    telephone().setTextDraft('a heron in a hat')
+    expect(apply(task)).toBe('ignored')
+    expect(telephone().textDraft).toBe('a heron in a hat')
+  })
+
+  it('a late task of the previous session never reaches the rematch session', () => {
+    apply(
+      pub('GAME_STARTED', {
+        sessionId: 'session-tp-02',
+        gameKey: 'telephone',
+        settings: {},
+        order: ['guest-2', 'guest-1', 'guest-4', 'guest-3'],
+      }),
+    )
+    apply(pub('PHASE_STARTED', { ...describePhaseStarted, phaseId: 'phase-rematch-prompt' }))
+    // Phase ids are server UUIDs, unique across sessions: the old task cannot match the new step.
+    apply(priv('TELEPHONE_TASK', describeTask))
+    expect(telephone().task).toBeNull()
+  })
+
+  it('TP8 the assignment and draft are dropped when the game finishes', () => {
+    telephone().setTextDraft('half typed')
+    apply(
+      pub('GAME_FINISHED', {
+        sessionId: 'session-tp-01',
+        endReason: 'COMPLETED',
+        standings: [],
+        resultsReady: true,
+      }),
+    )
+    expect(telephone().task).toBeNull()
+    expect(telephone().strokes).toEqual([])
+    expect(telephone().textDraft).toBe('')
+  })
+
+  it('entering another room drops every trace of the previous room', () => {
+    telephone().setTextDraft('a draft of room 1')
+    useRoomStore.getState().enterRoom({ ...room, id: 'room-2', code: 'OTHER2', sessionId: null })
+    expect(telephone().textDraft).toBe('')
+    expect(telephone().kind).toBeNull()
+    expect(useGameSessionStore.getState().phaseId).toBeNull()
+    expect(useRoomStore.getState().lastSeq).toEqual({ room: 0, private: 0 })
+    expect(useRoomStore.getState().room?.code).toBe('OTHER2')
+
+    // Re-entering the same room keeps its state.
+    telephone().setTextDraft('kept')
+    useRoomStore.getState().enterRoom({ ...room, id: 'room-2', code: 'OTHER2', sessionId: null })
+    expect(telephone().textDraft).toBe('kept')
+  })
+
   it('a new GAME_STARTED clears the previous session', () => {
     apply(
       pub('GAME_STARTED', {
@@ -148,5 +207,101 @@ describe('roomStore × Dino Telephone', () => {
     )
     expect(telephone().task).toBeNull()
     expect(telephone().strokes).toEqual([])
+  })
+})
+
+describe('roomStore × Dino Telephone reveal', () => {
+  const reveal = () => useRevealStore.getState()
+
+  beforeEach(() => {
+    useRoomStore.getState().reset()
+    roomSeq = 40
+    privateSeq = 9
+    useRoomStore.getState().applySnapshot({
+      room,
+      serverNow: '2026-10-14T10:00:20.000Z',
+      seq: { room: roomSeq, private: privateSeq },
+      game: drawSnapshotWithDraft as unknown as GameSnapshot,
+    })
+    apply(pub('PHASE_STARTED', revealPhaseStarted))
+    apply(pub('ALBUM_REVEALED', albumRevealed(0, 0)))
+  })
+
+  it('TP6 routes the reveal phase and its entries to the reveal store', () => {
+    expect(useGameSessionStore.getState().phase).toBe('REVEAL')
+    expect(reveal().phaseId).toBe(PHASE_REVEAL)
+    expect(reveal().sessionId).toBe('session-tp-01')
+    expect(reveal().entries['0:0']?.text).toBe('Prompt 1')
+    // the step store holds no task or draft in the reveal ([TP-8])
+    expect(telephone().task).toBeNull()
+    expect(telephone().strokes).toEqual([])
+
+    apply(pub('ALBUM_REVEALED', albumRevealed(0, 1)))
+    expect(reveal().cursor).toEqual({ chainIndex: 0, entryIndex: 1 })
+  })
+
+  it('settles a host move on its ACK and resyncs a stale one without a banner', () => {
+    reveal().trackNav('nav-1')
+    apply(priv('ACTION_ACK', {}, 'nav-1'))
+    expect(reveal().pendingActionId).toBeNull()
+
+    reveal().trackNav('nav-2')
+    apply(
+      priv(
+        'GAME_ERROR',
+        { actionId: 'nav-2', code: 'STALE_ACTION', message: 'moved on', retryable: false },
+        'nav-2',
+      ),
+    )
+    expect(reveal().pendingActionId).toBeNull()
+    expect(useRoomStore.getState().needsResync).toBe(true)
+    expect(useRoomStore.getState().lastError).toBeNull()
+  })
+
+  it('TP6 a reconnect snapshot restores the reveal position', () => {
+    useRoomStore.getState().applySnapshot({
+      room,
+      serverNow: '2026-10-14T10:05:00.000Z',
+      seq: { room: 90, private: 12 },
+      game: revealSnapshot as unknown as GameSnapshot,
+    })
+    expect(reveal().cursor).toEqual({ chainIndex: 0, entryIndex: 3 })
+    expect(reveal().highWater).toEqual({ chainIndex: 1, entryIndex: 0 })
+  })
+
+  it('the end of the game hands the albums over to the results (store cleared)', () => {
+    apply(
+      pub('GAME_FINISHED', {
+        sessionId: 'session-tp-01',
+        endReason: 'COMPLETED',
+        standings: [],
+        resultsReady: false,
+      }),
+    )
+    expect(reveal().phaseId).toBeNull()
+    expect(reveal().entries).toEqual({})
+  })
+
+  it('TP13 a rematch, a new game or another room leaves no album behind', () => {
+    apply(pub('ROOM_STATUS_CHANGED', { status: 'WAITING', reason: 'REMATCH' }))
+    expect(reveal().entries).toEqual({})
+
+    apply(pub('PHASE_STARTED', revealPhaseStarted))
+    apply(pub('ALBUM_REVEALED', albumRevealed(0, 0)))
+    apply(
+      pub('GAME_STARTED', {
+        sessionId: 'session-tp-02',
+        gameKey: 'telephone',
+        settings: {},
+        order: room.players.map((p) => p.guestId),
+      }),
+    )
+    expect(reveal().entries).toEqual({})
+
+    apply(pub('PHASE_STARTED', revealPhaseStarted))
+    apply(pub('ALBUM_REVEALED', albumRevealed(0, 0)))
+    useRoomStore.getState().enterRoom({ ...room, id: 'room-3', code: 'OTHER3', sessionId: null })
+    expect(reveal().phaseId).toBeNull()
+    expect(reveal().entries).toEqual({})
   })
 })

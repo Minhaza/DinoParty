@@ -26,6 +26,7 @@ import com.dinoparty.engine.Ranking;
 import com.dinoparty.engine.RoundRecord;
 import com.dinoparty.engine.ScoreDelta;
 import com.dinoparty.engine.ScoreLedger;
+import com.dinoparty.engine.SubmissionRecord;
 import com.dinoparty.engine.Transition;
 import com.dinoparty.engine.TurnOrder;
 import com.dinoparty.room.RoomStatus;
@@ -279,13 +280,20 @@ public class SessionService {
         });
   }
 
-  /** The host changed; a standing "yes" vote of the new host may now reset the room. */
-  public void onHostChanged(String code) {
+  /**
+   * The host changed: modules see the new host from their next call on, and a standing "yes" vote
+   * of the new host may now reset the room.
+   */
+  public void onHostChanged(String code, UUID newHost) {
     run(
         code,
         () -> {
           ActiveSession s = live(code);
-          if (s != null && s.status == SessionStatus.FINISHED) {
+          if (s == null) {
+            return;
+          }
+          s.host = newHost;
+          if (s.status == SessionStatus.FINISHED) {
             evaluateRematch(s);
           }
         });
@@ -551,6 +559,7 @@ public class SessionService {
                         new PlayerInfo(m.guestId(), m.nickname(), m.avatarKey(), m.avatarColor()),
                         m.connected() ? PlayerStatus.ACTIVE : PlayerStatus.DISCONNECTED)));
     s.sessionId = newId();
+    s.host = room.hostGuestId();
     s.startedAt = clock.instant();
     s.ledger = definition.scored() ? new ScoreLedger(s.order) : null;
     try (MDC.MDCCloseable ignored = scope(s)) {
@@ -789,6 +798,9 @@ public class SessionService {
     if (!t.scores().isEmpty()) { // an unscored game has no ledger; validate() rejects its deltas
       t.scores().forEach(s.ledger::apply);
     }
+    for (SubmissionRecord submission : t.submissions()) {
+      recorder.submissionAccepted(s.sessionId, submission);
+    }
     for (RoundRecord round : t.rounds()) {
       s.completedRounds++;
       recorder.roundCompleted(s.sessionId, round);
@@ -989,7 +1001,15 @@ public class SessionService {
     // Minted per module call and consumed by apply() if that call's transition starts a phase.
     s.nextPhaseId = newId();
     return new GameContext(
-        s.sessionId, clock, s.random, s.rosterInfos(), s.order, s.settings, s.setup, s.nextPhaseId);
+        s.sessionId,
+        clock,
+        s.random,
+        s.rosterInfos(),
+        s.order,
+        s.settings,
+        s.setup,
+        s.nextPhaseId,
+        s.host);
   }
 
   private <T> T inRoom(String code, Supplier<T> action) {

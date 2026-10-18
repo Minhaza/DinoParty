@@ -35,9 +35,7 @@ export function useRealtimeRoom(
   // Initialize store with initialRoom if not yet set
   React.useEffect(() => {
     if (initialRoom && (!room || room.code !== initialRoom.code)) {
-      useRoomStore.setState({
-        room: initialRoom,
-      })
+      useRoomStore.getState().enterRoom(initialRoom)
     }
   }, [initialRoom, room])
 

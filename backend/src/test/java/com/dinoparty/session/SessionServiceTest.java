@@ -843,4 +843,52 @@ class SessionServiceTest {
     assertThat(f.sessions.activeCount()).isZero();
     assertThat(f.scheduler.liveHandles()).isZero();
   }
+
+  // ------------------------------------------------------------------ SPI additions of P6-03
+
+  @Test
+  void theModuleSeesTheCurrentHostAndFollowsAHostChange() {
+    List<UUID> p = f.players(3);
+    f.startAndPlay();
+    Runnable byGuest =
+        () -> f.sessions.submit(CODE, p.get(1), "TEST_HOST_ONLY", f.phaseId(), Map.of());
+    Runnable byHost =
+        () -> f.sessions.submit(CODE, p.get(0), "TEST_HOST_ONLY", f.phaseId(), Map.of());
+
+    assertThat(rejected(byGuest).code()).isEqualTo(ErrorCode.NOT_HOST);
+    byHost.run();
+
+    f.room.host = p.get(1);
+    f.sessions.onHostChanged(CODE, p.get(1));
+
+    byGuest.run();
+    assertThat(rejected(byHost).code()).isEqualTo(ErrorCode.NOT_HOST);
+  }
+
+  @Test
+  void submissionsOfATransitionAreHandedToTheRecorder() {
+    List<UUID> p = f.players(2);
+    f.startAndPlay();
+
+    f.sessions.submit(CODE, p.get(1), "TEST_SUBMIT", f.phaseId(), Map.of("text", "kept"));
+
+    assertThat(f.recorder.submissions).hasSize(1);
+    var record = f.recorder.submissions.getFirst();
+    assertThat(record.authorGuestId()).isEqualTo(p.get(1));
+    assertThat(record.text()).isEqualTo("kept");
+    assertThat(record.submittedAt()).isEqualTo(f.clock.instant());
+  }
+
+  @Test
+  void aModuleSubmissionIsRecordedBeforeTheFinishItCauses() {
+    List<UUID> p = f.players(2);
+    f.startAndPlay();
+    UUID turn = (UUID) f.sink.ofType("PHASE_STARTED").getLast().payload().get("turnGuestId");
+    f.sessions.submit(CODE, turn, "TEST_NEXT", f.phaseId(), Map.of()); // round 2 of 2
+
+    f.sessions.submit(
+        CODE, p.get(0), "TEST_SUBMIT", f.phaseId(), Map.of("text", "last", "finish", true));
+
+    assertThat(f.recorder.log).containsSubsequence("submission", "finished");
+  }
 }

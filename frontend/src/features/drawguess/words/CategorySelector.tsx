@@ -106,7 +106,7 @@ export function CategorySelector({
           Loading categories…
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-1.5">
           {categories.map((cat) => {
             const isChecked = isRandomMix || value.includes(cat.key)
             const count = categoryCounts[cat.key]
@@ -114,7 +114,7 @@ export function CategorySelector({
               <label
                 key={cat.key}
                 className={cn(
-                  'relative flex cursor-pointer items-center justify-between gap-2 rounded-xl border-2 px-3 py-2 text-left transition-all outline-none',
+                  'relative flex cursor-pointer items-center justify-between gap-2 rounded-lg border-2 px-2.5 py-1.5 text-left transition-all outline-none',
                   isChecked
                     ? 'border-primary/80 bg-primary/10 text-primary font-bold shadow-xs'
                     : 'border-border bg-card text-foreground font-semibold hover:bg-secondary/70',

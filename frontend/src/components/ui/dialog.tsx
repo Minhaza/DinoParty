@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -154,7 +155,9 @@ export function DialogContent({
 
   if (!open) return null
 
-  return (
+  // Portal to <body>: an ancestor with backdrop-filter/transform (e.g. the sticky session header)
+  // would otherwise become the containing block of `fixed` and clip the dialog.
+  return createPortal(
     <div
       role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
@@ -192,7 +195,8 @@ export function DialogContent({
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

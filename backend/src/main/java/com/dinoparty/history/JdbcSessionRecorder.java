@@ -2,6 +2,7 @@ package com.dinoparty.history;
 
 import com.dinoparty.engine.PlayerInfo;
 import com.dinoparty.engine.RoundRecord;
+import com.dinoparty.engine.SubmissionRecord;
 import com.dinoparty.session.SessionRecorder;
 import com.dinoparty.session.SessionResult;
 import com.dinoparty.session.SessionStart;
@@ -29,7 +30,8 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>The RUNNING row is inserted synchronously (everything else references it and a start without a
  * durable id is refused). Everything else is queued in memory and written by one background thread
  * with retry and backoff, so a database outage never blocks a live room. Round records may be
- * dropped (and counted) when the queue is full; results and end markers never are.
+ * dropped (and counted) when the queue is full; submissions, results and end markers never are. One
+ * writer in queue order means a session's submissions are stored before its FINISHED status.
  */
 @Component
 class JdbcSessionRecorder implements SessionRecorder {
@@ -114,6 +116,42 @@ class JdbcSessionRecorder implements SessionRecorder {
                     .param("reason", round.endReason())
                     .param("deltas", toJson(deltas))
                     .param("meta", toJson(round.meta()))
+                    .update()));
+  }
+
+  /** Critical like results: an entry is part of an album, so it is retried and never dropped. */
+  @Override
+  public void submissionAccepted(UUID sessionId, SubmissionRecord submission) {
+    String payload = submission.strokes() == null ? null : toJson(submission.strokes());
+    enqueue(
+        new Task(
+            "submission",
+            true,
+            () ->
+                jdbc.sql(
+                        """
+                        INSERT INTO game_submission (id, session_id, chain_index, step_no,
+                                                     author_guest_id, kind, text, payload, fill,
+                                                     placeholder, timed_out, entries_per_chain,
+                                                     submitted_at)
+                        VALUES (:id, :session, :chain, :step, :author, :kind, :text,
+                                CAST(:payload AS jsonb), :fill, :placeholder, :timedOut, :entries,
+                                :at)
+                        ON CONFLICT (session_id, chain_index, step_no) DO NOTHING
+                        """)
+                    .param("id", UUID.randomUUID())
+                    .param("session", sessionId)
+                    .param("chain", submission.chainIndex())
+                    .param("step", submission.stepNo())
+                    .param("author", submission.authorGuestId())
+                    .param("kind", submission.kind().name())
+                    .param("text", submission.text())
+                    .param("payload", payload)
+                    .param("fill", submission.fill())
+                    .param("placeholder", submission.placeholder())
+                    .param("timedOut", submission.timedOut())
+                    .param("entries", submission.entriesPerChain())
+                    .param("at", java.sql.Timestamp.from(submission.submittedAt()))
                     .update()));
   }
 

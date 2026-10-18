@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Crown, UserMinus, WifiOff, Sparkles } from 'lucide-react'
+import { Check, Crown, UserMinus, WifiOff, Sparkles } from 'lucide-react'
 
 import type { PlayerDto } from '@/api/types'
 import { DinoAvatar } from '@/components/DinoAvatar'
@@ -20,6 +20,7 @@ export interface PlayerRosterProps {
   currentGuestId?: string | null
   hostGuestId?: string | null
   activeGuestId?: string | null
+  guessedGuestIds?: string[]
   scores?: Record<string, number> | null
   isHost?: boolean
   onKickPlayer?: (guestId: string) => Promise<void> | void
@@ -31,6 +32,7 @@ export function PlayerRoster({
   currentGuestId,
   hostGuestId,
   activeGuestId,
+  guessedGuestIds,
   scores,
   isHost = false,
   onKickPlayer,
@@ -50,6 +52,16 @@ export function PlayerRoster({
     }
   }
 
+  // One list doubles as the leaderboard: highest score first, ties keep join order.
+  const ranked = players
+    .map((player, index) => ({
+      player,
+      index,
+      score: scores?.[player.guestId] ?? player.score ?? 0,
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ player }, rank) => ({ player, rank: rank + 1 }))
+
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="flex items-center justify-between px-1">
@@ -59,11 +71,12 @@ export function PlayerRoster({
       </div>
 
       <ul role="list" className="flex flex-col gap-1.5" aria-label="Game session players">
-        {players.map((player) => {
+        {ranked.map(({ player, rank }) => {
           const isYou = player.guestId === currentGuestId
           const isPlayerHost = player.guestId === hostGuestId
           const isActiveTurn = player.guestId === activeGuestId
           const isDisconnected = player.connection === 'DISCONNECTED'
+          const hasGuessed = !isActiveTurn && Boolean(guessedGuestIds?.includes(player.guestId))
           const playerScore = scores?.[player.guestId] ?? player.score
 
           return (
@@ -79,6 +92,9 @@ export function PlayerRoster({
               )}
             >
               <div className="flex min-w-0 items-center gap-2.5">
+                <span className="w-4 shrink-0 text-center font-mono text-xs font-bold text-muted-foreground">
+                  {rank}
+                </span>
                 <div className="relative">
                   <DinoAvatar avatarKey={player.avatarKey} size="sm" />
                   {isDisconnected && (
@@ -120,20 +136,18 @@ export function PlayerRoster({
                     )}
                   </div>
 
-                  {isDisconnected && (
+                  {isDisconnected ? (
                     <span className="text-[11px] text-destructive font-medium">Disconnected</span>
-                  )}
+                  ) : hasGuessed ? (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-success">
+                      <Check className="size-3" />
+                      Guessed
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
-                {playerScore !== null && playerScore !== undefined && (
-                  <Badge variant="secondary" className="font-mono text-xs tabular-nums">
-                    {playerScore}{' '}
-                    <span className="text-[10px] text-muted-foreground ml-0.5">pts</span>
-                  </Badge>
-                )}
-
                 {isHost && !isYou && onKickPlayer && (
                   <Button
                     variant="ghost"
@@ -145,6 +159,12 @@ export function PlayerRoster({
                   >
                     <UserMinus className="size-3.5" />
                   </Button>
+                )}
+                {playerScore !== null && playerScore !== undefined && (
+                  <Badge variant="secondary" className="font-mono text-xs tabular-nums">
+                    {playerScore}{' '}
+                    <span className="text-[10px] text-muted-foreground ml-0.5">pts</span>
+                  </Badge>
                 )}
               </div>
             </li>

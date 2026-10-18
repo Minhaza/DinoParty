@@ -6,6 +6,7 @@ import type { DrawStrokePayload } from '@/features/drawing/types'
 import { useConnectionStore } from '@/features/realtime/connectionStore'
 import { useRealtimeClient } from '@/features/realtime/realtimeContext'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
+import { useRoomStore } from '@/stores/roomStore'
 
 import { stepLabel } from './copy'
 import { TelephoneDescriptionEditor } from './components/TelephoneDescriptionEditor'
@@ -13,6 +14,7 @@ import { TelephoneDrawingStage } from './components/TelephoneDrawingStage'
 import { TelephonePhaseHeader } from './components/TelephonePhaseHeader'
 import { TelephonePromptEditor } from './components/TelephonePromptEditor'
 import { TelephoneWaitingScreen } from './components/TelephoneWaitingScreen'
+import { TelephoneRevealView } from './reveal/TelephoneRevealView'
 import { useTelephoneStore } from './telephoneStore'
 import { codePointLength, sanitizeTelephoneText, TELEPHONE_TEXT_MAX } from './textRules'
 import { TELEPHONE_COMMANDS, type TelephoneCommandType } from './types'
@@ -20,12 +22,21 @@ import { TELEPHONE_COMMANDS, type TelephoneCommandType } from './types'
 /** Debounce for `TELEPHONE_TEXT_DRAFT` (server limit 2/s): keeps half-typed text across a refresh or the deadline. */
 const TEXT_DRAFT_DEBOUNCE_MS = 700
 
+/**
+ * How long a submission may wait for its `ACTION_ACK`/`GAME_ERROR`. Sent is not accepted, so the
+ * button stays locked meanwhile; after this the player may retry and a snapshot settles the truth
+ * (a retry of an accepted entry is answered `ALREADY_SUBMITTED`, which also means "submitted").
+ */
+export const SUBMIT_WATCHDOG_MS = 10_000
+
 export interface TelephoneStageProps {
   players: PlayerDto[]
   currentGuestId: string | null | undefined
+  /** Only the host's reveal controls are offered; the server enforces it ([TP-6]). */
+  isHost?: boolean
 }
 
-export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps) {
+export function TelephoneStage({ players, currentGuestId, isHost = false }: TelephoneStageProps) {
   const client = useRealtimeClient()
   const online = useConnectionStore((s) => s.status === 'CONNECTED')
 
@@ -86,6 +97,16 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
     [client, phaseId, trackCommand],
   )
 
+  React.useEffect(() => {
+    if (submission !== 'submitting') return
+    const timer = setTimeout(() => {
+      if (useTelephoneStore.getState().expireSubmission()) {
+        useRoomStore.getState().setNeedsResync(true)
+      }
+    }, SUBMIT_WATCHDOG_MS)
+    return () => clearTimeout(timer)
+  }, [submission, workPhaseId])
+
   // Draft sync: the server keeps the latest text so a refresh or the deadline never loses it.
   const lastSentDraftRef = React.useRef<{ phaseId: string | null; text: string }>({
     phaseId: null,
@@ -141,18 +162,22 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
 
   const announcement = inStep && kind ? stepLabel(step, totalSteps, kind) : ''
 
+  if (phase === 'REVEAL') {
+    return <TelephoneRevealView players={players} currentGuestId={currentGuestId} isHost={isHost} />
+  }
+
   return (
     <div
       role="region"
       aria-label="Dino Telephone gameplay stage"
-      className="mx-auto flex w-full max-w-6xl min-w-0 flex-1 flex-col gap-3"
+      className="mx-auto flex w-full min-w-0 flex-1 flex-col gap-3"
     >
       <p className="sr-only" aria-live="polite">
         {announcement}
       </p>
 
       {!inStep || !kind ? (
-        <HoldingPanel reveal={phase === 'REVEAL'} />
+        <HoldingPanel />
       ) : (
         <>
           <TelephonePhaseHeader
@@ -160,7 +185,8 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
             step={step}
             totalSteps={totalSteps}
             deadlineAt={deadlineAt}
-            submitted={submitted}
+            showDrawSource={kind === 'DRAW' && !submitted}
+            drawSource={task ? task.source : undefined}
             onExpire={handleExpire}
           />
 
@@ -220,8 +246,8 @@ export function TelephoneStage({ players, currentGuestId }: TelephoneStageProps)
   )
 }
 
-/** Between steps, before the first task, or during the reveal (whose viewer is a later task). */
-function HoldingPanel({ reveal }: { reveal: boolean }) {
+/** Between steps or before the first task. */
+function HoldingPanel() {
   return (
     <section
       role="status"
@@ -229,7 +255,7 @@ function HoldingPanel({ reveal }: { reveal: boolean }) {
     >
       <Loader2 className="size-6 text-primary motion-safe:animate-spin" aria-hidden="true" />
       <p className="font-fredoka text-xl font-semibold text-foreground">
-        {reveal ? 'The albums are being revealed…' : 'Getting the next step ready…'}
+        Getting the next step ready…
       </p>
     </section>
   )
