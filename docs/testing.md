@@ -540,4 +540,60 @@ Design: `architecture.md` §3.8; contract: `api-contracts.md` §2.6 and "P7-01 c
 - `GET /games*` has no rate limit (public and read-only, like `/health`).
 - `last_seen_at` is renewed only by `GET /guests/me`; see `architecture.md` §8.
 - The idle-room sweep loads all candidate codes (`WAITING`, older than the TTL) per pass; fine at single-instance scale.
-- The frontend still uses its hard-coded game list (`gameConfig.ts`, `GamesPage.tsx`); moving to `GET /games` is P7-02.
+- The frontend still uses its hard-coded game list (`gameConfig.ts`, `GamesPage.tsx`); moving to `GET /games` is P7-02. *(Done in P7-02; see the P7-02 verification record.)*
+
+## P7-02 verification record (dynamic game discovery and selection, frontend)
+
+Contract: `api-contracts.md` §2.6 (consumed as built in P7-01, no contract change). `features/rooms/gameConfig.ts` is gone: game names, taglines, descriptions, player bounds, availability, setting labels, bounds and defaults now come from `GET /games` and `GET /games/{key}`. The frontend keeps only presentation and capability, in `features/games/gameModules.ts`:
+- artwork and tone by `iconKey`, with a neutral fallback for unknown icons;
+- which game keys it can play;
+- which Draw & Guess setting keys its own lobby word panel edits.
+
+### Behaviour
+
+- **Server state.** The TanStack Query cache under `['games']` / `['games', key]` (5 min stale time) is the only copy of the game list; `useGames`, `useEnabledGames`, `useGameDetail` and `useGameName` all read it.
+- **Disabled games** are hidden: the existing design has no unavailable state.
+- **Enabled games without a frontend module** appear on the games page with fallback art and a "Not available in this version" badge. They have no play button and are not offered when creating a room.
+- **Settings form.**
+  - `int` fields become selects with values derived from `min`/`max`; the auto value is shown first as "Auto".
+  - `enum` fields become selects; `bool` fields become a checkbox.
+  - A `bool` with a single accepted option (`allowSkipTimeout`) and any `list` not claimed by a game panel are not shown; they keep their server value.
+  - The `*Seconds` key suffix is shown as "N seconds".
+- **Default room size.** The only mirrored rule is "8 clamped to the game bounds" (§2.2), in `defaultMaxPlayers`.
+- **Errors.** A server `fieldErrors` entry for `maxPlayers` or a rendered `settings.<key>` appears under its field (`aria-invalid`, `aria-describedby`). Others are listed in the form summary.
+
+### Automated tests
+
+| Test | Covers |
+|---|---|
+| `api/games.test.ts` (5) | list incl. disabled, detail schema/defaults, key encoding + `404 GAME_NOT_FOUND`, unknown setting type dropped, malformed body → 502 |
+| `features/games/useGames.test.tsx` (4) | one shared list request; enabled filter; neutral name fallback; detail fetched only for a selected key and once per key |
+| `features/games/gameModules.test.tsx` (4) | playable keys, Draw & Guess panel keys, fallback visual and banner for unknown icon keys |
+| `features/games/settings/schemaChoices.test.ts` (11) | int choices (small/large ranges keep bounds, default, current; auto first; no out-of-range), labels, read-only values, editable-field filter, player counts, default max players clamping |
+| `features/games/settings/SettingsFields.test.tsx` (4) | schema labels/defaults/bounds, typed values for int/bool/enum, Auto + hidden fixed bool, per-field server error |
+| `features/rooms/RoomForms.test.tsx` CreateRoomForm (9) | disabled and unplayable games hidden; POST = server defaults + edits; all scalar Draw & Guess settings; game switch resets to the new defaults with one detail request per game; telephone 4–8 players; submit disabled while the detail loads; field error under the field and unmapped error in the summary; `ALREADY_IN_ROOM`; list error retry |
+| `features/rooms/__tests__/RoomSettingsForm.test.tsx` (+2) | lobby bounds/fields from the detail; PATCH body and per-field error |
+| `pages/GamesPage.test.tsx` (4), `pages/HomePage.test.tsx` (3) | API names, taglines, descriptions, player ranges; disabled hidden; unplayable marked; play opens creation with the game preselected; retry |
+| Existing `routes`, `LobbyPage`, `GameSessionPage` tests | now mock `GET /games*`; assertions unchanged |
+
+### Commands run (2026-10-18)
+
+- `npm run format`, then `format:check`: clean. `lint`: clean. `build` (`tsc -b` + Vite): green.
+- `npm test` (Vitest): 57 files, 391 tests, all passed. In one earlier full run, `DrawCanvas.test.tsx` "splits a long gesture…" hit the default 5 s timeout under load. It passed alone and in the next full run; it does not touch P7-02 code.
+- Playwright `e2e` against a live backend (dev profile, PostgreSQL in Docker): 3/3 passed (`drawguess`, `telephone`, `telephone-submit-recovery`). The telephone scenario creates its room through the new API-driven picker.
+- Live `curl` of `GET /games`, `GET /games/telephone`, `GET /games/nope`: responses match the test fixtures; the unknown key answers `404 GAME_NOT_FOUND`.
+- Browser check (Chromium, 1280×900, real backend), with screenshots reviewed:
+  - home, games page and create page for both games;
+  - switching games resets settings (Drawing time 80 → 90);
+  - Telephone "Entries per album" offers "Auto" first;
+  - a request rewritten to `drawSeconds: 999` shows the server message "must be a whole number from 30 to 180" under Drawing time;
+  - the lobby settings save persisted `entriesPerChain: 6`;
+  - no console errors besides that deliberate 400.
+
+### Not verified / limitations
+
+- No axe run, no phone-size or dark-theme screenshots, no Firefox/WebKit.
+- The disabled and unknown game paths are covered by component tests only; the dev database has no disabled game.
+- The games page fetches each enabled game's detail for its description; the summary DTO has none. The details are cached and reused by the create form.
+- The `games/:gameKey` info page is still a placeholder, and `HowToPlayModal` copy is unchanged; both could use `description`/`howToPlay` later.
+- Possible contract additions that would remove the two client-side conventions above: `defaultMaxPlayers` on the summary and a `unit` on `int` fields. Neither is requested yet.
