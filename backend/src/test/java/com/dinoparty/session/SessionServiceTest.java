@@ -542,7 +542,8 @@ class SessionServiceTest {
     assertThat(f.room.status).isEqualTo(RoomStatus.WAITING);
     assertThat(f.room.reasons().getLast()).isEqualTo("WAITING:REMATCH");
     assertThat(f.sessions.activeCount()).isZero();
-    assertThat(f.sessions.info(CODE)).isEqualTo(RoomSessionInfo.NONE);
+    assertThat(f.sessions.info(CODE).sessionId()).isNull();
+    assertThat(f.sessions.info(CODE).scores()).isNull();
     assertThat(f.sessions.gameSnapshot(CODE, p.get(0))).isNull();
     assertThat(f.scheduler.liveHandles()).isZero();
 

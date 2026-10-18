@@ -71,6 +71,7 @@ public class SessionService {
   private final RoomLifecycle rooms;
   private final SessionEventSink sink;
   private final SessionRecorder recorder;
+  private final EndedSessionLookup history;
   private final DeadlineScheduler scheduler;
   private final Clock clock;
   private final RandomSource random;
@@ -78,11 +79,19 @@ public class SessionService {
   private final MeterRegistry meters;
   private final ConcurrentHashMap<String, ActiveSession> sessions = new ConcurrentHashMap<>();
 
+  /**
+   * Per room: its newest session that is no longer running, empty once a new one runs. Touched only
+   * inside the room mailbox; an absent entry means "not known in memory" (e.g. after a restart).
+   */
+  private final ConcurrentHashMap<String, Optional<LastSession>> lastSessions =
+      new ConcurrentHashMap<>();
+
   public SessionService(
       GameRegistry registry,
       RoomLifecycle rooms,
       SessionEventSink sink,
       SessionRecorder recorder,
+      EndedSessionLookup history,
       DeadlineScheduler scheduler,
       Clock clock,
       RandomSource random,
@@ -92,6 +101,7 @@ public class SessionService {
     this.rooms = rooms;
     this.sink = sink;
     this.recorder = recorder;
+    this.history = history;
     this.scheduler = scheduler;
     this.clock = clock;
     this.random = random;
@@ -308,6 +318,7 @@ public class SessionService {
           if (s != null) {
             dropSession(s, "ROOM_CLOSED");
           }
+          lastSessions.remove(code);
         });
   }
 
@@ -390,10 +401,12 @@ public class SessionService {
         code,
         () -> {
           ActiveSession s = live(code);
+          LastSession last = lastSession(code, s);
           if (s == null || s.sessionId == null) {
-            return RoomSessionInfo.NONE;
+            return new RoomSessionInfo(null, null, last);
           }
-          return new RoomSessionInfo(s.sessionId, s.ledger == null ? null : s.ledger.totals());
+          return new RoomSessionInfo(
+              s.sessionId, s.ledger == null ? null : s.ledger.totals(), last);
         });
   }
 
@@ -433,6 +446,26 @@ public class SessionService {
           view.forEach(snapshot::putIfAbsent);
           return snapshot;
         });
+  }
+
+  /**
+   * The room's newest session that is no longer running. Known in memory once a game of this
+   * process started or ended; otherwise (after a restart) read once from the history. A failed read
+   * is not cached, so the next view tries again.
+   */
+  private LastSession lastSession(String code, ActiveSession live) {
+    Optional<LastSession> known = lastSessions.get(code);
+    if (known == null) {
+      try {
+        UUID roomId = live != null ? live.roomId : rooms.state(code).roomId();
+        known = history.latestEnded(roomId);
+        lastSessions.put(code, known);
+      } catch (RuntimeException e) {
+        log.warn("Could not read the last session of the room", e);
+        return null;
+      }
+    }
+    return known.orElse(null);
   }
 
   /** True while the room has a session in any stage (countdown, running, results). */
@@ -587,6 +620,7 @@ public class SessionService {
       }
       rooms.changeStatus(s.code, RoomStatus.PLAYING, "COUNTDOWN_DONE", null);
       s.status = SessionStatus.RUNNING;
+      lastSessions.put(s.code, Optional.empty());
       log.info("Game started game={} players={}", definition.key(), s.order.size());
       count("lifecycle", "started");
       Map<String, Object> started = new LinkedHashMap<>();
@@ -881,6 +915,8 @@ public class SessionService {
     finished.put("resultsReady", false);
     sink.publish(s.code, s.roomId, "GAME_FINISHED", finished);
     recorder.sessionFinished(new SessionResult(s.sessionId, reason.name(), now, rows));
+    lastSessions.put(
+        s.code, Optional.of(new LastSession(s.sessionId, "FINISHED", reason.name(), now)));
     log.info("Game finished reason={} rounds={}", reason, s.completedRounds);
     count("lifecycle", "finished");
     s.deadlines.set(
@@ -906,7 +942,9 @@ public class SessionService {
     discard(s);
     sink.publish(
         s.code, s.roomId, "GAME_ABORTED", Map.of("sessionId", s.sessionId, "reason", reason));
-    recorder.sessionAborted(s.sessionId, reason, clock.instant());
+    Instant now = clock.instant();
+    recorder.sessionAborted(s.sessionId, reason, now);
+    lastSessions.put(s.code, Optional.of(new LastSession(s.sessionId, "ABORTED", reason, now)));
     log.warn("Game aborted reason={}", reason);
     count("lifecycle", "aborted");
     try {
