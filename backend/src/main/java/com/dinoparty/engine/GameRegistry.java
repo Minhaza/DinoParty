@@ -1,6 +1,7 @@
 package com.dinoparty.engine;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -11,8 +12,11 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * All registered game modules. Construction fails on duplicate keys and on a command or event type
- * declared by two modules, so a clash is found at startup and not in the middle of a game.
+ * All registered game modules, in key order; the one authority for which games exist and for their
+ * metadata, bounds, settings schema and commands. Adding a game means registering a module (and its
+ * {@code game_definition} availability row), nothing else. Construction fails on duplicate keys and
+ * on a command or event type declared by two modules, so a clash is found at startup and not in the
+ * middle of a game.
  */
 @Component
 public class GameRegistry {
@@ -23,7 +27,11 @@ public class GameRegistry {
   public GameRegistry(List<GameModule> registered) {
     Map<String, String> commandOwners = new HashMap<>();
     Map<String, String> eventOwners = new HashMap<>();
-    for (GameModule module : registered) {
+    List<GameModule> ordered =
+        registered.stream()
+            .sorted(Comparator.comparing((GameModule m) -> m.definition().key()))
+            .toList();
+    for (GameModule module : ordered) {
       GameDefinition definition = module.definition();
       if (modules.putIfAbsent(definition.key(), module) != null) {
         throw new IllegalStateException("Duplicate game key: " + definition.key());
@@ -50,6 +58,10 @@ public class GameRegistry {
 
   public Optional<GameModule> find(String key) {
     return Optional.ofNullable(modules.get(key));
+  }
+
+  public Optional<GameDefinition> definition(String key) {
+    return find(key).map(GameModule::definition);
   }
 
   /** The spec for a client command type of any registered game; used by the transport. */

@@ -8,6 +8,7 @@ import com.dinoparty.engine.DeadlineFired;
 import com.dinoparty.engine.FinishReason;
 import com.dinoparty.engine.GameContext;
 import com.dinoparty.engine.GameDefinition;
+import com.dinoparty.engine.GameMetadata;
 import com.dinoparty.engine.GameModule;
 import com.dinoparty.engine.GameOutcome;
 import com.dinoparty.engine.GameSetup;
@@ -18,6 +19,7 @@ import com.dinoparty.engine.PlayerAction;
 import com.dinoparty.engine.PlayerStatusChange;
 import com.dinoparty.engine.RoundRecord;
 import com.dinoparty.engine.ScoreDelta;
+import com.dinoparty.engine.SettingsSchema;
 import com.dinoparty.engine.SubmissionRecord;
 import com.dinoparty.engine.Transition;
 import java.time.Duration;
@@ -85,7 +87,14 @@ public class TestGameModule implements GameModule {
             new CommandSpec("TEST_HOST_ONLY", 256, 5, 5, Set.of("ROUND")),
             new CommandSpec("TEST_SUBMIT", 256, 5, 5, Set.of("ROUND"))),
         Set.of("TEST_SCORED", "TEST_ROUND_ENDED"),
-        Set.of("TEST_SECRET"));
+        Set.of("TEST_SECRET"),
+        new GameMetadata(
+            "Test Game",
+            "Engine test fixture",
+            "A test-only game that exercises the engine.",
+            List.of("Score points until the last round ends."),
+            KEY),
+        SettingsSchema.EMPTY);
   }
 
   @Override

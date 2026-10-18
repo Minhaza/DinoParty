@@ -1,11 +1,4 @@
 package com.dinoparty.room;
 
-import java.util.Map;
-
-public record GameInfo(
-    String key,
-    String name,
-    int minPlayers,
-    int maxPlayers,
-    boolean enabled,
-    Map<String, Object> defaultSettings) {}
+/** What the room module needs to know about a game: its name and lobby player bounds. */
+public record GameInfo(String key, String name, int minPlayers, int maxPlayers) {}

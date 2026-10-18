@@ -1,20 +1,27 @@
 package com.dinoparty.games.drawguess;
 
+import com.dinoparty.engine.SettingField.BoolField;
+import com.dinoparty.engine.SettingField.EnumField;
+import com.dinoparty.engine.SettingField.IntField;
+import com.dinoparty.engine.SettingField.ItemFormat;
+import com.dinoparty.engine.SettingField.ListField;
+import com.dinoparty.engine.SettingsSchema;
 import com.dinoparty.words.DifficultyFilter;
 import com.dinoparty.words.WordCatalogTypes;
 import com.dinoparty.words.WordSelection;
 import com.dinoparty.words.WordSource;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * The host's settings of one session ([DG] settings table). The room module already validated them
- * against its schema; a missing or unusable value falls back to the default instead of failing the
- * game. The bounds and defaults here must equal {@code room.SettingsSchema} and the catalog row
- * ({@code V2}, word keys {@code V7}) (guarded by tests).
+ * The host's settings of one session ([DG] settings table) and their {@link #SCHEMA}, the one
+ * declaration of their keys, bounds and defaults (the room validates against it, the game API
+ * publishes it). A missing or unusable value falls back to the default instead of failing the game.
+ * The catalog row ({@code V2}, word keys {@code V7}) keeps a non-authoritative copy of the defaults
+ * (guarded by {@code DrawGuessIT}).
  *
  * @param words the word selection; whether it gives enough words is checked at start ([DG-15])
  */
@@ -49,18 +56,49 @@ public record DrawGuessSettings(
   /** Most entries of {@code wordPackIds}. */
   public static final int MAX_PACKS = 10;
 
-  /** The catalog defaults ({@code game_definition.default_settings} of {@code draw-guess}). */
+  /** Host settings in display order; the labels are the lobby's. */
+  public static final SettingsSchema SCHEMA =
+      new SettingsSchema(
+          List.of(
+              intField("cycles", "Turns per player"),
+              intField("drawSeconds", "Drawing time"),
+              intField("wordChoiceSeconds", "Word choice time"),
+              BoolField.of("hintReveal", "Letter hints", DEFAULT_HINT_REVEAL),
+              new EnumField(
+                  "difficulty",
+                  "Difficulty",
+                  List.of("easy", "medium", "hard", "mixed"),
+                  DEFAULT_DIFFICULTY),
+              new EnumField(
+                  "wordSource",
+                  "Word source",
+                  Arrays.stream(WordSource.values()).map(WordSource::key).toList(),
+                  DEFAULT_WORD_SOURCE),
+              new ListField(
+                  "wordCategories",
+                  "Word categories",
+                  ItemFormat.CATEGORY_KEY,
+                  MAX_CATEGORIES,
+                  WordCatalogTypes.RANDOM_MIX,
+                  "category keys",
+                  List.of(WordCatalogTypes.RANDOM_MIX)),
+              new ListField(
+                  "wordPackIds",
+                  "Custom word packs",
+                  ItemFormat.UUID,
+                  MAX_PACKS,
+                  null,
+                  "word pack ids",
+                  List.of())));
+
+  /** Every setting with its default ({@link #SCHEMA}). */
   public static Map<String, Object> defaults() {
-    Map<String, Object> defaults = new LinkedHashMap<>();
-    defaults.put("cycles", INT_BOUNDS.get("cycles").defaultValue());
-    defaults.put("drawSeconds", INT_BOUNDS.get("drawSeconds").defaultValue());
-    defaults.put("wordChoiceSeconds", INT_BOUNDS.get("wordChoiceSeconds").defaultValue());
-    defaults.put("hintReveal", DEFAULT_HINT_REVEAL);
-    defaults.put("difficulty", DEFAULT_DIFFICULTY);
-    defaults.put("wordSource", DEFAULT_WORD_SOURCE);
-    defaults.put("wordCategories", List.of(WordCatalogTypes.RANDOM_MIX));
-    defaults.put("wordPackIds", List.of());
-    return defaults;
+    return SCHEMA.defaults();
+  }
+
+  private static IntField intField(String key, String label) {
+    IntBound bound = INT_BOUNDS.get(key);
+    return IntField.of(key, label, bound.min(), bound.max(), bound.defaultValue());
   }
 
   static DrawGuessSettings from(Map<String, Object> settings) {
