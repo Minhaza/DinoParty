@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 import { FolderHeart } from 'lucide-react'
 
-import { describeError, fieldError } from '@/api/errors'
+import { describeError, fieldError, otherFieldErrors } from '@/api/errors'
 import { roomQueryKey, updateRoomSettings } from '@/api/rooms'
 import type { DifficultySetting, RoomDto, SettingsMap, WordSourceSetting } from '@/api/types'
 import { listWordPacks, wordPackQueryKeys } from '@/api/wordPacks'
@@ -13,13 +13,20 @@ import { DifficultySelector } from '@/features/drawguess/words/DifficultySelecto
 import { EligibleWordCountBadge } from '@/features/drawguess/words/EligibleWordCountBadge'
 import { WordSourceSelector } from '@/features/drawguess/words/WordSourceSelector'
 
-import { GAME_CONFIGS, maxPlayerChoices } from './gameConfig'
+import { gameModule } from '@/features/games/gameModules'
+import { LoadError } from '@/features/games/LoadError'
+import { editableFields, playerCountChoices } from '@/features/games/settings/schemaChoices'
+import { SettingsFields } from '@/features/games/settings/SettingsFields'
+import { useGameDetail } from '@/features/games/useGames'
+
 import { SelectField } from './SelectField'
 
 /** Host-only editor for max players and game settings (PATCH /rooms/{code}/settings). */
 export function RoomSettingsForm({ room }: { room: RoomDto }) {
   const queryClient = useQueryClient()
-  const config = GAME_CONFIGS[room.gameKey]
+  const detailQuery = useGameDetail(room.gameKey)
+  const detail = detailQuery.data
+  const claimedKeys = gameModule(room.gameKey)?.lobbyPanelFields ?? []
   const [maxPlayers, setMaxPlayers] = React.useState(room.maxPlayers)
   const [settings, setSettings] = React.useState<SettingsMap>(room.settings)
   const [saved, setSaved] = React.useState(false)
@@ -52,10 +59,13 @@ export function RoomSettingsForm({ room }: { room: RoomDto }) {
     },
   })
 
-  const serverField =
-    fieldError(mutation.error, 'maxPlayers') ??
-    config.fields.map((f) => fieldError(mutation.error, `settings.${f.key}`)).find(Boolean) ??
-    null
+  const shownFields = new Set([
+    'maxPlayers',
+    ...(detail ? editableFields(detail.settingsSchema, claimedKeys) : []).map(
+      (f) => `settings.${f.key}`,
+    ),
+  ])
+  const unshownErrors = otherFieldErrors(mutation.error, shownFields)
 
   const touch = () => {
     setSaved(false)
@@ -92,32 +102,49 @@ export function RoomSettingsForm({ room }: { room: RoomDto }) {
           mutation.mutate()
         }}
       >
-        <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
-          <SelectField
-            label="Max players"
-            value={maxPlayers}
-            onChange={(v) => {
-              setMaxPlayers(v)
-              touch()
-            }}
-            options={maxPlayerChoices(room.gameKey).map((n) => ({
-              value: n,
-              label: `${n} players`,
-            }))}
-          />
-          {config.fields.map((field) => (
+        {detail ? (
+          <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
             <SelectField
-              key={field.key}
-              label={field.label}
-              value={Number(settings[field.key] ?? field.defaultValue)}
-              options={field.choices}
+              label="Max players"
+              value={maxPlayers}
               onChange={(v) => {
-                setSettings((s) => ({ ...s, [field.key]: v }))
+                setMaxPlayers(v)
                 touch()
               }}
+              options={playerCountChoices(detail).map((n) => ({
+                value: n,
+                label: `${n} players`,
+              }))}
+              error={fieldError(mutation.error, 'maxPlayers')}
             />
-          ))}
-        </div>
+            <SettingsFields
+              schema={detail.settingsSchema}
+              claimedKeys={claimedKeys}
+              values={settings}
+              onChange={(key, value) => {
+                setSettings((s) => ({ ...s, [key]: value }))
+                touch()
+              }}
+              errorFor={(key) => fieldError(mutation.error, `settings.${key}`)}
+              disabled={mutation.isPending}
+            />
+          </div>
+        ) : detailQuery.isError ? (
+          <LoadError error={detailQuery.error} onRetry={() => void detailQuery.refetch()} />
+        ) : (
+          <div
+            className="grid gap-3 sm:grid-cols-3 sm:gap-4"
+            aria-busy="true"
+            aria-label="Loading settings"
+          >
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="h-10 animate-pulse rounded-xl bg-secondary motion-reduce:animate-none"
+              />
+            ))}
+          </div>
+        )}
 
         {/* Draw & Guess Word Settings */}
         {isDrawGuess && (
@@ -193,13 +220,13 @@ export function RoomSettingsForm({ room }: { room: RoomDto }) {
 
         {mutation.isError && (
           <p role="alert" className="text-sm font-medium text-destructive">
-            {serverField ?? describeError(mutation.error)}
+            {unshownErrors.length > 0 ? unshownErrors.join(' ') : describeError(mutation.error)}
           </p>
         )}
         <p aria-live="polite" className="min-h-4 text-sm font-medium text-emerald-600">
           {saved ? 'Settings saved.' : ''}
         </p>
-        <Button type="submit" variant="secondary" disabled={mutation.isPending}>
+        <Button type="submit" variant="secondary" disabled={!detail || mutation.isPending}>
           {mutation.isPending ? 'Saving…' : 'Save settings'}
         </Button>
       </form>
