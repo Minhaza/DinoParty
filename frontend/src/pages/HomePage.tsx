@@ -1,21 +1,27 @@
 import { ArrowRight, Heart, Monitor, Plus, Users } from 'lucide-react'
 import { useState } from 'react'
 
-import { PaletteBadge, PencilBadge } from '@/components/art/gameArt'
+import type { GameKey, GameSummaryDto } from '@/api/types'
 import { HeroScene } from '@/components/art/HeroScene'
 import { CreateRoomModal } from '@/components/modals/CreateRoomModal'
 import { JoinRoomModal } from '@/components/modals/JoinRoomModal'
 import { Button } from '@/components/ui/button'
+import { gameModule, gameVisual, TONE_STYLES } from '@/features/games/gameModules'
+import { useEnabledGames } from '@/features/games/useGames'
 import { SystemStatus } from '@/features/status/SystemStatus'
-
-type GameChoice = 'draw-guess' | 'telephone'
 
 export function HomePage() {
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [joinModalOpen, setJoinModalOpen] = useState(false)
-  const [initialGame, setInitialGame] = useState<GameChoice>('draw-guess')
+  const [initialGame, setInitialGame] = useState<GameKey | undefined>(undefined)
+  // Featured games are the ones a room can be created for from this client.
+  const featured = (useEnabledGames().data ?? []).filter((g) => gameModule(g.key))
+  const playerRange =
+    featured.length > 0
+      ? `${Math.min(...featured.map((g) => g.minPlayers))} - ${Math.max(...featured.map((g) => g.maxPlayers))} players`
+      : null
 
-  const openCreateFor = (game: GameChoice) => {
+  const openCreateFor = (game: GameKey | undefined) => {
     setInitialGame(game)
     setCreateModalOpen(true)
   }
@@ -39,7 +45,7 @@ export function HomePage() {
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
-            <Button size="xl" onClick={() => openCreateFor('draw-guess')}>
+            <Button size="xl" onClick={() => openCreateFor(undefined)}>
               <Plus className="size-5 stroke-[3]" aria-hidden />
               <span>Create a Room</span>
             </Button>
@@ -52,28 +58,18 @@ export function HomePage() {
 
         {/* Featured games */}
         <div className="relative z-10 mt-10 grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2 lg:mt-auto lg:pt-16">
-          <FeaturedGame
-            title="Draw & Guess"
-            blurb="Take turns drawing and guessing fun words with your friends."
-            badge={<PaletteBadge className="size-14" />}
-            actionLabel="Start Draw & Guess"
-            tone="draw"
-            onStart={() => openCreateFor('draw-guess')}
-          />
-          <FeaturedGame
-            title="Dino Telephone"
-            blurb="A creative chain of drawings and descriptions. See how it evolves!"
-            badge={<PencilBadge className="size-14" />}
-            actionLabel="Start Dino Telephone"
-            tone="phone"
-            onStart={() => openCreateFor('telephone')}
-          />
+          {featured.map((game) => (
+            <FeaturedGame key={game.key} game={game} onStart={() => openCreateFor(game.key)} />
+          ))}
         </div>
 
         <ul className="relative z-10 mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 rounded-full bg-card/80 px-6 py-2 text-xs font-bold text-foreground backdrop-blur-sm">
-          <li className="flex items-center gap-2">
-            <Users className="size-4 text-primary" aria-hidden />2 - 10 players
-          </li>
+          {playerRange && (
+            <li className="flex items-center gap-2">
+              <Users className="size-4 text-primary" aria-hidden />
+              {playerRange}
+            </li>
+          )}
           <li className="flex items-center gap-2">
             <Monitor className="size-4 text-primary" aria-hidden />
             Play in your browser
@@ -100,35 +96,22 @@ export function HomePage() {
   )
 }
 
-function FeaturedGame({
-  title,
-  blurb,
-  badge,
-  actionLabel,
-  tone,
-  onStart,
-}: {
-  title: string
-  blurb: string
-  badge: React.ReactNode
-  actionLabel: string
-  tone: 'draw' | 'phone'
-  onStart: () => void
-}) {
+function FeaturedGame({ game, onStart }: { game: GameSummaryDto; onStart: () => void }) {
+  const { Badge, tone } = gameVisual(game.iconKey)
   return (
-    <div className="group flex items-center gap-4 rounded-[22px] border-2 border-border bg-card/95 p-4 shadow-card backdrop-blur-sm transition-all hover:-translate-y-1">
-      <div className="shrink-0 transition-transform group-hover:-rotate-6 group-hover:scale-105">
-        {badge}
+    <div className="group flex items-center gap-4 rounded-[22px] border-2 border-border bg-card/95 p-4 shadow-card backdrop-blur-sm transition-all hover:-translate-y-1 motion-reduce:hover:translate-y-0">
+      <div className="shrink-0 transition-transform group-hover:-rotate-6 group-hover:scale-105 motion-reduce:group-hover:transform-none">
+        <Badge className="size-14" />
       </div>
       <div className="min-w-0 flex-1 text-left">
-        <h2 className="text-xl font-semibold text-foreground">{title}</h2>
-        <p className="text-sm font-semibold leading-snug text-muted-foreground">{blurb}</p>
+        <h2 className="text-xl font-semibold text-foreground">{game.name}</h2>
+        <p className="text-sm font-semibold leading-snug text-muted-foreground">{game.tagline}</p>
       </div>
       <Button
         size="icon"
-        variant={tone === 'draw' ? 'default' : 'accent'}
+        variant={TONE_STYLES[tone].variant}
         onClick={onStart}
-        aria-label={actionLabel}
+        aria-label={`Start ${game.name}`}
       >
         <ArrowRight className="size-5 stroke-[2.5]" aria-hidden />
       </Button>

@@ -35,7 +35,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { WordSettingsSummary } from '@/features/drawguess/words/WordSettingsSummary'
 import { RequireGuest } from '@/features/guest/RequireGuest'
 import { useRealtimeRoom } from '@/features/realtime/useRealtimeRoom'
-import { GAME_CONFIGS } from '@/features/rooms/gameConfig'
+import { gameModule } from '@/features/games/gameModules'
+import { ReadOnlySettings } from '@/features/games/settings/ReadOnlySettings'
+import { useGameDetail, useGameName } from '@/features/games/useGames'
 import { RoomSettingsForm } from '@/features/rooms/RoomSettingsForm'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -126,7 +128,7 @@ function PreviewLobby({ preview }: { preview: RoomPreviewDto }) {
       setLastRoomCode(room.code)
     },
   })
-  const game = GAME_CONFIGS[preview.gameKey]
+  const gameName = useGameName(preview.gameKey)
 
   if (preview.status === 'CLOSED') {
     return <Notice title="Room closed" body={`Room ${preview.code} has been closed.`} />
@@ -138,7 +140,7 @@ function PreviewLobby({ preview }: { preview: RoomPreviewDto }) {
       <CardHeader>
         <CardTitle as="h1">Join room {preview.code}</CardTitle>
         <CardDescription>
-          {game.name} hosted by {preview.hostNickname} · {preview.playerCount}/{preview.maxPlayers}{' '}
+          {gameName} hosted by {preview.hostNickname} · {preview.playerCount}/{preview.maxPlayers}{' '}
           players
         </CardDescription>
       </CardHeader>
@@ -192,7 +194,8 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
 
   const [copied, setCopied] = React.useState(false)
   const [kickTarget, setKickTarget] = React.useState<string | null>(null)
-  const game = GAME_CONFIGS[currentRoom.gameKey]
+  const gameName = useGameName(currentRoom.gameKey)
+  const gameDetail = useGameDetail(currentRoom.gameKey).data
   const isDrawGuess = currentRoom.gameKey === 'draw-guess'
   const wordSource = (currentRoom.settings['wordSource'] as WordSourceSetting) ?? 'built-in'
   const needsPacks =
@@ -347,7 +350,7 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
               <div className="flex min-w-0 flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={currentRoom.gameKey === 'draw-guess' ? 'default' : 'accent'}>
-                    {game.name}
+                    {gameName}
                   </Badge>
                   <Badge variant="muted">
                     {currentRoom.status === 'WAITING' ? 'Waiting for players' : currentRoom.status}
@@ -411,7 +414,7 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
               </CardTitle>
               {missing > 0 && (
                 <CardDescription>
-                  {game.name} needs at least {currentRoom.minPlayers} players; waiting for {missing}{' '}
+                  {gameName} needs at least {currentRoom.minPlayers} players; waiting for {missing}{' '}
                   more.
                 </CardDescription>
               )}
@@ -450,18 +453,19 @@ function MemberLobby({ initialRoom, guest }: { initialRoom: RoomDto; guest: Gues
                 <RoomSettingsForm room={currentRoom} />
               ) : (
                 <div className="flex flex-col gap-4">
-                  <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
-                    <dt className="font-semibold text-muted-foreground">Max players</dt>
-                    <dd className="font-bold">{currentRoom.maxPlayers}</dd>
-                    {game.fields.map((field) => (
-                      <React.Fragment key={field.key}>
-                        <dt className="font-semibold text-muted-foreground">{field.label}</dt>
-                        <dd className="font-bold">
-                          {String(currentRoom.settings[field.key] ?? '–')}
-                        </dd>
-                      </React.Fragment>
-                    ))}
-                  </dl>
+                  {gameDetail ? (
+                    <ReadOnlySettings
+                      schema={gameDetail.settingsSchema}
+                      claimedKeys={gameModule(currentRoom.gameKey)?.lobbyPanelFields ?? []}
+                      values={currentRoom.settings}
+                      maxPlayers={currentRoom.maxPlayers}
+                    />
+                  ) : (
+                    <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
+                      <dt className="font-semibold text-muted-foreground">Max players</dt>
+                      <dd className="font-bold">{currentRoom.maxPlayers}</dd>
+                    </dl>
+                  )}
                   {isDrawGuess && (
                     <WordSettingsSummary
                       wordSource={wordSource}

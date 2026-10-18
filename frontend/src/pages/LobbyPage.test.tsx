@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { useAuthStore } from '@/stores/authStore'
-import { GUEST, mockApi, problem, renderApp, roomFixture } from '@/test/mockApi'
+import { gameHandlers, GUEST, mockApi, problem, renderApp, roomFixture } from '@/test/mockApi'
 
 import { LobbyPage } from './LobbyPage'
 
@@ -186,6 +186,7 @@ describe('LobbyPage', () => {
   it('saves host settings with a PATCH', async () => {
     const calls = mockApi({
       ...guestMe,
+      ...gameHandlers(),
       'GET /rooms/AB3D7K': { status: 200, body: roomFixture() },
       'PATCH /rooms/AB3D7K/settings': {
         status: 200,

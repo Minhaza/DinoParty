@@ -7,7 +7,7 @@ import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
 import { useRoomStore } from '@/stores/roomStore'
-import { GUEST, mockApi, renderApp, roomFixture } from '@/test/mockApi'
+import { gameHandlers, GUEST, mockApi, renderApp, roomFixture } from '@/test/mockApi'
 
 import { GameSessionPage } from './GameSessionPage'
 
@@ -70,6 +70,7 @@ describe('GameSessionPage', () => {
 
     mockApi({
       ...guestMe,
+      ...gameHandlers(),
       'GET /rooms/AB3D7K': { status: 200, body: room },
     })
 
