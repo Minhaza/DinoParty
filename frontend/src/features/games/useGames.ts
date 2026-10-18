@@ -1,4 +1,4 @@
-import { useQuery, type QueryClient } from '@tanstack/react-query'
+import { queryOptions, useQuery, type QueryClient } from '@tanstack/react-query'
 
 import { gameQueryKeys, getGame, listGames } from '@/api/games'
 import type { GameSummaryDto } from '@/api/types'
@@ -12,22 +12,19 @@ const enabledOnly = (games: GameSummaryDto[]) => games.filter((g) => g.enabled)
  * Game discovery (`GET /games`). The TanStack Query cache is the single copy of the list; every
  * screen reads it through these hooks instead of keeping its own.
  */
+const gamesQuery = queryOptions({
+  queryKey: gameQueryKeys.all,
+  queryFn: ({ signal }) => listGames(signal),
+  staleTime: GAMES_STALE_MS,
+})
+
 export function useGames() {
-  return useQuery({
-    queryKey: gameQueryKeys.all,
-    queryFn: ({ signal }) => listGames(signal),
-    staleTime: GAMES_STALE_MS,
-  })
+  return useQuery(gamesQuery)
 }
 
 /** Games a room can be created for; disabled ones are never offered. */
 export function useEnabledGames() {
-  return useQuery({
-    queryKey: gameQueryKeys.all,
-    queryFn: ({ signal }) => listGames(signal),
-    staleTime: GAMES_STALE_MS,
-    select: enabledOnly,
-  })
+  return useQuery({ ...gamesQuery, select: enabledOnly })
 }
 
 /** `GET /games/{key}` for the selected game; nothing is fetched while `key` is empty. */
