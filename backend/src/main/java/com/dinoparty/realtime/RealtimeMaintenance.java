@@ -57,6 +57,9 @@ class RealtimeMaintenance implements SmartLifecycle {
     this.scheduler = scheduler;
     this.properties = properties;
     this.clock = clock;
+    // Not at startup: restart recovery has just put every room back to WAITING and no client has
+    // reconnected yet, so every older room would look abandoned.
+    this.lastOrphanSweep = clock.instant();
   }
 
   /** One maintenance pass; public to the package so tests can drive it with a manual clock. */
@@ -92,8 +95,7 @@ class RealtimeMaintenance implements SmartLifecycle {
 
   private void closeIdleRooms() {
     Instant now = clock.instant();
-    if (lastOrphanSweep != null
-        && lastOrphanSweep.plus(properties.orphanSweepInterval()).isAfter(now)) {
+    if (lastOrphanSweep.plus(properties.orphanSweepInterval()).isAfter(now)) {
       return;
     }
     lastOrphanSweep = now;
