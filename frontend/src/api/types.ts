@@ -1,6 +1,71 @@
 /** DTO shapes mirrored from docs/api-contracts.md §2.1; keep in sync with that file. */
 
-export type GameKey = 'draw-guess' | 'telephone'
+/**
+ * Game keys come from the server's game registry (`GET /games`), so any string is possible; a key
+ * this client has no module for is still displayable (features/games/gameModules.tsx).
+ */
+export type GameKey = string
+
+/** Games this client can render. Only for branches into game-specific code, never for metadata. */
+export type KnownGameKey = 'draw-guess' | 'telephone'
+
+/** §2.6: members that do not apply to a field's `type` are omitted by the server. */
+export interface IntSettingField {
+  type: 'int'
+  key: string
+  label: string
+  default: number
+  min: number
+  max: number
+  /** Also accepted besides `min…max`; means "automatic". */
+  autoValue?: number
+}
+
+export interface BoolSettingField {
+  type: 'bool'
+  key: string
+  label: string
+  default: boolean
+  /** Present only when narrower than `[false, true]`, e.g. `[true]`. */
+  options?: boolean[]
+}
+
+export interface EnumSettingField {
+  type: 'enum'
+  key: string
+  label: string
+  default: string
+  options: string[]
+}
+
+export interface ListSettingField {
+  type: 'list'
+  key: string
+  label: string
+  default: string[]
+  maxItems: number
+  itemFormat: 'category-key' | 'uuid' | string
+  exclusiveOption?: string
+}
+
+export type SettingField = IntSettingField | BoolSettingField | EnumSettingField | ListSettingField
+
+export interface GameSummaryDto {
+  key: GameKey
+  name: string
+  tagline: string
+  minPlayers: number
+  maxPlayers: number
+  iconKey: string
+  enabled: boolean
+}
+
+export interface GameDetailDto extends GameSummaryDto {
+  description: string
+  howToPlay: string[]
+  settingsSchema: SettingField[]
+  defaultSettings: SettingsMap
+}
 
 export interface GuestDto {
   id: string
