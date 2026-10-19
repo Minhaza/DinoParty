@@ -2,6 +2,18 @@ import { devices, expect, test, type Locator, type Page } from '@playwright/test
 
 import { authHeaders, canvasStats, drag, newPlayer, type Player } from './support'
 
+/** The parts of the §2.6 game DTOs this spec asserts on. */
+interface GameSummary {
+  key: string
+  name: string
+  minPlayers: number
+  maxPlayers: number
+  enabled: boolean
+}
+interface GameDetail extends GameSummary {
+  settingsSchema: { key: string; label: string; type: string }[]
+}
+
 /**
  * Dino Telephone smoke (P6-04): four players (the game's minimum, [C-1]) in separate browser
  * contexts play a complete game against the real backend: the host picks Telephone in the UI,
@@ -81,7 +93,35 @@ test('four players complete a Dino Telephone game and rematch', async ({ browser
 
   await test.step('host creates a Telephone room in the UI; three players join', async () => {
     await host.page.goto('/rooms/new')
+    // The picker and settings form come from the live Game Registry (GET /games*, no mocks).
+    const listRes = await request.get('/api/v1/games')
+    expect(listRes.ok(), await listRes.text()).toBe(true)
+    const listed = (await listRes.json()) as GameSummary[]
+    for (const g of listed.filter((x) => x.enabled)) {
+      await expect(
+        host.page.getByRole('button', {
+          name: new RegExp(`${g.name}.*${g.minPlayers}–${g.maxPlayers} players`),
+        }),
+      ).toBeVisible()
+    }
     await host.page.getByRole('button', { name: /Dino Telephone/ }).click()
+    const detailRes = await request.get('/api/v1/games/telephone')
+    expect(detailRes.ok(), await detailRes.text()).toBe(true)
+    const detail = (await detailRes.json()) as GameDetail
+    await expect(host.page.getByRole('button', { name: /Dino Telephone/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await expect(host.page.getByRole('button', { name: /Draw & Guess/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    const maxPlayers = host.page.getByLabel('Max players')
+    await expect(maxPlayers.locator('option').first()).toHaveText(`${detail.minPlayers} players`)
+    await expect(maxPlayers.locator('option').last()).toHaveText(`${detail.maxPlayers} players`)
+    for (const f of detail.settingsSchema.filter((x) => x.type === 'int' || x.type === 'enum')) {
+      await expect(host.page.getByLabel(f.label, { exact: true })).toBeVisible()
+    }
     await host.page.getByRole('button', { name: '+ Create room' }).first().click()
     await expect(host.page).toHaveURL(/\/rooms\/[A-Z0-9]+$/)
     code = host.page.url().split('/').pop() ?? ''
