@@ -16,7 +16,7 @@ Current coverage (Phase 1): health service/probe units, `GET /api/v1/health` (20
 
 Vitest + Testing Library (`npm --prefix frontend test`). Current coverage (Phase 1): health API client (200, 503-as-DOWN, bad shape, error), system-status widget (UP/DOWN/unreachable), routing and placeholder labelling, theme resolution. Playwright E2E arrives with the phases that have flows to test.
 
-Playwright E2E (since P5-05): `frontend/e2e/*.e2e.ts`, run with `npm --prefix frontend run e2e`. It needs the backend on `:8080` with its database (for example `scripts/dev.sh`, or the compose `db` plus `spring-boot:run -Dspring-boot.run.profiles=dev`); the config starts the Vite dev server unless one is already running. Chromium only, one worker, not yet in CI. Multi-user runs use one browser context per player; `e2e/support.ts` provides the canvas pixel probes, mouse/touch (CDP) drags and a WebSocket "network cut" built on `routeWebSocket`.
+Playwright E2E (since P5-05): `frontend/e2e/*.e2e.ts`, run with `npm --prefix frontend run e2e`. It needs the backend on `:8080` with its database (for example `scripts/dev.sh`, or the compose `db` plus `spring-boot:run -Dspring-boot.run.profiles=dev`); the config starts the Vite dev server unless one is already running. Chromium only, one worker, `retries: 0`. Runs in CI since P7-03 (the `e2e` job in `.github/workflows/ci.yml`; see "P7-03 verification record"). Multi-user runs use one browser context per player; `e2e/support.ts` provides the canvas pixel probes, mouse/touch (CDP) drags and a WebSocket "network cut" built on `routeWebSocket`.
 
 ## Phase 1 verification record
 
@@ -363,12 +363,12 @@ Two players against the dev backend (`spring-boot:run`, compose PostgreSQL) and 
 
 - Three or more browsers. A drawer or guesser *leaving* (grace expiry → `LEFT`) in the browser is covered by backend tests only.
 - Raw wrong-role STOMP commands from a browser page (P5-04 did this ad hoc; the committed suite only checks that the guesser UI sends nothing).
-- Firefox/WebKit, real mobile devices (touch was emulated through CDP in Chromium), axe/keyboard walk-through, Linux/CI (E2E is not wired into CI yet).
+- Firefox/WebKit, real mobile devices (touch was emulated through CDP in Chromium), axe/keyboard walk-through, Linux/CI (E2E was wired into CI in P7-03).
 - Load: 10-player fan-out, mailbox hold times, zero-Hibernate-statements per command (as in P5-02).
 
 ### Remaining risks
 
-- E2E relies on a manually started backend and database; a CI job (Phase 8.3) is still needed before it can gate merges.
+- E2E relies on a manually started backend and database; *(superseded: the `e2e` CI job was added in P7-03).*
 - The E2E pixel checks assume the canvas background `#FFFDF8` and the palette in `coords.ts`; a design change there must update `e2e/support.ts`.
 - The known P5-04 limitations still apply: the brief local double-draw after a reconnect mid-stroke, the canvas budget enforced only by the server, per-point preview data in Zustand, and no `role="dialog"` on the word-choice overlay.
 
@@ -597,3 +597,33 @@ Contract: `api-contracts.md` §2.6 (consumed as built in P7-01, no contract chan
 - The games page fetches each enabled game's detail for its description; the summary DTO has none. The details are cached and reused by the create form.
 - The `games/:gameKey` info page is still a placeholder, and `HowToPlayModal` copy is unchanged; both could use `description`/`howToPlay` later.
 - Possible contract additions that would remove the two client-side conventions above: `defaultMaxPlayers` on the summary and a `unit` on `int` fields. Neither is requested yet.
+
+## P7-03 verification record (E2E in CI, registry assertions)
+
+Scope: the existing three Playwright specs became a CI gate; no gameplay or production code changed. The scenario audit (what is covered where) is in `docs/p7-03-hardening-plan.md` section 1; authorization, wrong-phase and Telephone-secrecy cases stay in the backend ITs and the raw-STOMP probe, not in Playwright.
+
+### Changes
+
+- CI: new `e2e` job (no new workflow, runs on every PR and on pushes to `main`). It starts a `postgres:16-alpine` service, builds the backend jar (`./mvnw -DskipTests package`; tests run in the `backend` job), starts it with `java -jar` and waits for `GET /api/v1/health` to report `UP`, installs Chromium and runs `npm run e2e` (Vite is started by `playwright.config.ts`). On failure it uploads `frontend/playwright-report/`, `frontend/test-results/` (traces, screenshots) and `backend.log` for 7 days. Triage: the trace shows the browser and STOMP frames, `backend.log` the server, Flyway and PostgreSQL side.
+- `playwright.config.ts`: `forbidOnly` and the `github` reporter on CI; `reuseExistingServer` only outside CI.
+- `telephone.e2e.ts`: the create-room step now checks the live `GET /games` and `GET /games/telephone`: every enabled game has a picker button with its `min–max players`, the chosen game has `aria-pressed="true"` and the other `false`, "Max players" spans the game's bounds, and each `int`/`enum` setting label from the schema is shown.
+- `drawguess.e2e.ts`: the 500 ms sleep in "the guesser cannot draw" is replaced by asserting that the guesser's page sent no `DRAW_STROKE` frame (`NetworkSwitch.sentFrames()` in `support.ts`).
+
+### Executed (Windows 11, JDK 21.0.3, Node 22, Docker Desktop, dev backend + Vite)
+
+| Command | Result |
+|---|---|
+| `npm run format:check`, `lint`, `typecheck` | clean |
+| `npm test` | 392 passed (57 files) |
+| `npm run build` | success |
+| `npm run e2e` | 3 of 3 passed (about 2.5 min) |
+| `npm run e2e -- --repeat-each=2` | 6 of 6 passed (about 4.9 min) |
+
+### Not verified
+
+- The new `e2e` CI job has not run yet (needs the PR); its failure-artifact upload has not been exercised.
+- `./mvnw verify` was not re-run: no backend file changed.
+- Linux, Firefox/WebKit, axe (task 7.2) and mobile emulation (7.3) are unchanged.
+- The disabled and unknown game paths remain component-test only: the real registry has no disabled game and no test-only endpoint was added.
+- Vite prints `ws proxy error` lines at teardown when the last sockets close; they do not fail the run.
+
