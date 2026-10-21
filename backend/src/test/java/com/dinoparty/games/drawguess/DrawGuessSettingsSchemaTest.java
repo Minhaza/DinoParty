@@ -1,10 +1,10 @@
-package com.dinoparty.room;
+package com.dinoparty.games.drawguess;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dinoparty.common.DomainException;
-import com.dinoparty.games.drawguess.DrawGuessSettings;
+import com.dinoparty.engine.SettingField.EnumField;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -13,47 +13,57 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * The room module validates Draw & Guess settings with its own schema; the module reads them with
- * its own bounds. They must not drift (draw-guess-design §10): every module bound is accepted by
- * the room schema and one step outside is refused.
+ * The schema the room validates with and the values {@link DrawGuessSettings#from} reads must not
+ * drift (draw-guess-design §10): every module bound is accepted by the schema and one step outside
+ * is refused; every option the module understands is an option of the schema.
  */
 class DrawGuessSettingsSchemaTest {
 
   private static final Map<String, Object> DEFAULTS = DrawGuessSettings.defaults();
 
+  private static Map<String, Object> resolve(Map<String, Object> supplied) {
+    return DrawGuessSettings.SCHEMA.resolve(supplied);
+  }
+
   @Test
-  void integerBoundsMatchTheRoomSchema() {
+  void enumOptionsAreExactlyTheValuesTheModuleReads() {
+    assertThat(DrawGuessSettings.SCHEMA.field("difficulty").orElseThrow())
+        .isInstanceOfSatisfying(
+            EnumField.class,
+            f ->
+                assertThat(f.options())
+                    .containsExactlyInAnyOrderElementsOf(DrawGuessSettings.DIFFICULTIES.keySet()));
+    assertThat(DrawGuessSettings.SCHEMA.field("wordSource").orElseThrow())
+        .isInstanceOfSatisfying(
+            EnumField.class,
+            f -> assertThat(f.options()).containsExactly("built-in", "custom", "combined"));
+  }
+
+  @Test
+  void integerBoundsMatchTheSchema() {
     DrawGuessSettings.INT_BOUNDS.forEach(
         (key, bound) -> {
-          assertThat(SettingsSchema.resolve("draw-guess", DEFAULTS, Map.of(key, bound.min())))
-              .containsEntry(key, bound.min());
-          assertThat(SettingsSchema.resolve("draw-guess", DEFAULTS, Map.of(key, bound.max())))
-              .containsEntry(key, bound.max());
-          assertThatThrownBy(
-                  () ->
-                      SettingsSchema.resolve("draw-guess", DEFAULTS, Map.of(key, bound.min() - 1)))
+          assertThat(resolve(Map.of(key, bound.min()))).containsEntry(key, bound.min());
+          assertThat(resolve(Map.of(key, bound.max()))).containsEntry(key, bound.max());
+          assertThatThrownBy(() -> resolve(Map.of(key, bound.min() - 1)))
               .isInstanceOf(DomainException.class);
-          assertThatThrownBy(
-                  () ->
-                      SettingsSchema.resolve("draw-guess", DEFAULTS, Map.of(key, bound.max() + 1)))
+          assertThatThrownBy(() -> resolve(Map.of(key, bound.max() + 1)))
               .isInstanceOf(DomainException.class);
         });
   }
 
   @Test
   void theDefaultsAreAValidCompleteSettingsObject() {
-    assertThat(SettingsSchema.resolve("draw-guess", Map.of(), DEFAULTS)).isEqualTo(DEFAULTS);
+    assertThat(resolve(DEFAULTS)).isEqualTo(DEFAULTS);
     for (String difficulty : DrawGuessSettings.DIFFICULTIES.keySet()) {
-      assertThat(SettingsSchema.resolve("draw-guess", DEFAULTS, Map.of("difficulty", difficulty)))
-          .containsEntry("difficulty", difficulty);
+      assertThat(resolve(Map.of("difficulty", difficulty))).containsEntry("difficulty", difficulty);
     }
   }
 
   @Test
   void wordSelectionValuesTheModuleReadsAreAccepted() {
     for (String source : List.of("built-in", "custom", "combined")) {
-      assertThat(SettingsSchema.resolve("draw-guess", DEFAULTS, Map.of("wordSource", source)))
-          .containsEntry("wordSource", source);
+      assertThat(resolve(Map.of("wordSource", source))).containsEntry("wordSource", source);
     }
     List<String> nine =
         List.of(
@@ -68,16 +78,14 @@ class DrawGuessSettingsSchemaTest {
             "actions");
     for (List<String> categories :
         List.of(List.<String>of(), List.of("random-mix"), List.of("animals"), nine)) {
-      assertThat(
-              SettingsSchema.resolve("draw-guess", DEFAULTS, Map.of("wordCategories", categories)))
+      assertThat(resolve(Map.of("wordCategories", categories)))
           .containsEntry("wordCategories", categories);
     }
     List<String> packs = new ArrayList<>();
     for (int i = 0; i < DrawGuessSettings.MAX_PACKS; i++) {
       packs.add(UUID.randomUUID().toString());
     }
-    assertThat(SettingsSchema.resolve("draw-guess", DEFAULTS, Map.of("wordPackIds", packs)))
-        .containsEntry("wordPackIds", packs);
+    assertThat(resolve(Map.of("wordPackIds", packs))).containsEntry("wordPackIds", packs);
   }
 
   @Test
@@ -108,7 +116,7 @@ class DrawGuessSettingsSchemaTest {
             Map.of("wordPackIds", List.of(id, id)),
             Map.of("wordPackIds", tooManyPacks));
     for (Map<String, Object> settings : bad) {
-      assertThatThrownBy(() -> SettingsSchema.resolve("draw-guess", DEFAULTS, settings))
+      assertThatThrownBy(() -> resolve(settings))
           .as(settings.toString())
           .isInstanceOfSatisfying(
               DomainException.class,

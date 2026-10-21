@@ -26,17 +26,24 @@ export interface Player {
 export interface NetworkSwitch {
   cut(): void
   restore(): void
+  /** Every frame the page has sent over its STOMP socket so far (text frames only). */
+  sentFrames(): readonly string[]
 }
 
 async function routeRealtime(context: BrowserContext): Promise<NetworkSwitch> {
   let blocked = false
   const live = new Set<{ close(): Promise<void> }>()
+  const sent: string[] = []
   await context.routeWebSocket(/\/ws$/, (ws) => {
     if (blocked) {
       void ws.close({ code: 4000, reason: 'e2e network cut' })
       return
     }
     const server = ws.connectToServer()
+    ws.onMessage((message) => {
+      if (typeof message === 'string') sent.push(message)
+      server.send(message)
+    })
     const pair = {
       close: async () => {
         await ws.close({ code: 4000, reason: 'e2e network cut' })
@@ -55,6 +62,7 @@ async function routeRealtime(context: BrowserContext): Promise<NetworkSwitch> {
     restore() {
       blocked = false
     },
+    sentFrames: () => sent,
   }
 }
 

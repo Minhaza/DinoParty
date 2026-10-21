@@ -31,6 +31,15 @@ export function describeError(error: unknown): string {
   return 'Could not reach the server. Check your connection and try again.'
 }
 
+/**
+ * Messages of the server's `fieldErrors` whose field is not in `shown`, so a form can list them
+ * in its summary instead of dropping errors for fields it does not render.
+ */
+export function otherFieldErrors(error: unknown, shown: ReadonlySet<string>): string[] {
+  if (!(error instanceof ApiError)) return []
+  return (error.problem?.fieldErrors ?? []).filter((f) => !shown.has(f.field)).map((f) => f.message)
+}
+
 /** Returns the server's message for one invalid field, if any. */
 export function fieldError(error: unknown, field: string): string | null {
   if (!(error instanceof ApiError)) return null

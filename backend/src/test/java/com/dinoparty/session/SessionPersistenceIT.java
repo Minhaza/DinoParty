@@ -215,8 +215,35 @@ class SessionPersistenceIT {
         .andExpect(jsonPath("$.status").value("INTERRUPTED"))
         .andExpect(jsonPath("$.endReason").value("SERVER_RESTART"))
         .andExpect(jsonPath("$.standings.length()").value(0));
+    // The room tells its members that a restart ended their game (api-contracts §3.8).
+    mvc.perform(
+            get("/api/v1/rooms/" + room.code()).header("Authorization", "Bearer " + host.token()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.sessionId").doesNotExist())
+        .andExpect(jsonPath("$.lastSession.sessionId").value(start.sessionId().toString()))
+        .andExpect(jsonPath("$.lastSession.status").value("INTERRUPTED"))
+        .andExpect(jsonPath("$.lastSession.endReason").value("SERVER_RESTART"))
+        .andExpect(jsonPath("$.lastSession.finishedAt").isNotEmpty());
+    mvc.perform(
+            get("/api/v1/rooms/" + room.code() + "/snapshot")
+                .header("Authorization", "Bearer " + other.token()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.game").doesNotExist())
+        .andExpect(jsonPath("$.room.lastSession.status").value("INTERRUPTED"))
+        .andExpect(jsonPath("$.room.lastSession.endReason").value("SERVER_RESTART"));
     // A second recovery changes nothing.
     recovery.recover();
     assertThat(sessionStatus(start.sessionId())).isEqualTo("INTERRUPTED");
+  }
+
+  @Test
+  void aRoomWithoutAnEndedGameHasNoLastSession() throws Exception {
+    Member host = guest();
+    RoomDetails room = room(host);
+
+    mvc.perform(
+            get("/api/v1/rooms/" + room.code()).header("Authorization", "Bearer " + host.token()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.lastSession").value(org.hamcrest.Matchers.nullValue()));
   }
 }

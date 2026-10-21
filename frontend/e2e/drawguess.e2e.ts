@@ -140,8 +140,13 @@ test('two players complete a Draw & Guess game and rematch', async ({ browser, r
     const before = (await canvasStats(r1.drawer.page)).ink
     const guesserBefore = (await canvasStats(r1.guesser.page)).ink
     await expect(canvasOf(r1.guesser.page)).toHaveAccessibleName('Draw & Guess canvas view')
+    // Record what the guesser's page sends instead of waiting out a timer: a drag that sent no
+    // stroke frame cannot have changed any canvas.
+    const strokeFrames = () =>
+      r1.guesser.network.sentFrames().filter((f) => f.includes('DRAW_STROKE')).length
+    const strokesBefore = strokeFrames()
     await drag(r1.guesser, [0.1, 0.1], [0.9, 0.9])
-    await r1.guesser.page.waitForTimeout(500)
+    expect(strokeFrames()).toBe(strokesBefore)
     expect((await canvasStats(r1.drawer.page)).ink).toBe(before)
     expect((await canvasStats(r1.guesser.page)).ink).toBe(guesserBefore)
   })

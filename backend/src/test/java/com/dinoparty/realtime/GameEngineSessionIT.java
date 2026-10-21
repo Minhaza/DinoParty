@@ -159,6 +159,7 @@ class GameEngineSessionIT extends GameEngineSupport {
     // WAITING: no game part.
     JsonNode waiting = t.snapshotFor(t.sockets.get(1)).payload();
     assertThat(waiting.get("game").isNull()).isTrue();
+    assertThat(waiting.get("room").get("lastSession").isNull()).isTrue();
 
     t.start();
     t.host().awaitType("PHASE_STARTED");
@@ -182,6 +183,7 @@ class GameEngineSessionIT extends GameEngineSupport {
     assertThat(snapshot.toString()).doesNotContain(secret);
     assertThat(snapshot.get("room").get("sessionId").asString())
         .isEqualTo(started.get("sessionId").asString());
+    assertThat(snapshot.get("room").get("lastSession").isNull()).isTrue();
     // The turn player sees the secret in their own snapshot.
     JsonNode own = t.snapshotFor(t.sockets.get(turn)).payload().get("game");
     assertThat(own.get("secret").asString()).isEqualTo(secret);
@@ -197,7 +199,12 @@ class GameEngineSessionIT extends GameEngineSupport {
     int turn2 = t.indexOf(second.get("order").get(1).asString());
     t.send(t.sockets.get(turn2), "TEST_NEXT", t.phaseId(t.host()), "{}", actionId());
     t.host().awaitType("GAME_FINISHED");
-    JsonNode results = t.snapshotFor(again).payload().get("game");
+    JsonNode resultsSnapshot = t.snapshotFor(again).payload();
+    JsonNode last = resultsSnapshot.get("room").get("lastSession");
+    assertThat(last.get("sessionId").asString()).isEqualTo(started.get("sessionId").asString());
+    assertThat(last.get("status").asString()).isEqualTo("FINISHED");
+    assertThat(last.get("endReason").asString()).isEqualTo("COMPLETED");
+    JsonNode results = resultsSnapshot.get("game");
     assertThat(results.get("status").asString()).isEqualTo("FINISHED");
     assertThat(results.get("results").get("standings")).hasSize(3);
     assertThat(results.get("rematch").get("votes").isObject()).isTrue();
@@ -205,7 +212,9 @@ class GameEngineSessionIT extends GameEngineSupport {
     // After the reset the game part is gone again.
     t.host().command(t.code, "REMATCH_VOTE", actionId(), "{\"vote\":true}");
     t.awaitStatus(again, "WAITING", "REMATCH");
-    assertThat(t.snapshotFor(again).payload().get("game").isNull()).isTrue();
+    JsonNode reset = t.snapshotFor(again).payload();
+    assertThat(reset.get("game").isNull()).isTrue();
+    assertThat(reset.get("room").get("lastSession").get("status").asString()).isEqualTo("FINISHED");
   }
 
   @Test

@@ -1,7 +1,7 @@
 import { Gamepad2, Trophy, Sparkles } from 'lucide-react'
 
 import type { PlayerDto } from '@/api/types'
-import { GAME_CONFIGS } from '@/features/rooms/gameConfig'
+import { useGameName } from '@/features/games/useGames'
 import { DinoAvatar } from '@/components/DinoAvatar'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useGameSessionStore } from '@/stores/gameSessionStore'
@@ -34,10 +34,7 @@ export function GameStage({
   onReturnToLobby,
 }: GameStageProps) {
   const session = useGameSessionStore()
-  const config = GAME_CONFIGS[gameKey as keyof typeof GAME_CONFIGS] ?? {
-    name: 'Game Session',
-    description: 'Active party game session',
-  }
+  const gameName = useGameName(gameKey)
 
   // Active turn player if order is established
   const currentTurnGuestId = session.order.length > 0 ? session.order[0] : null
@@ -47,7 +44,7 @@ export function GameStage({
     <div className="flex-1 flex flex-col gap-4 min-h-0">
       {/* 3-Second Starting Countdown Overlay */}
       {roomStatus === 'STARTING' && (
-        <GameStartingOverlay startsAt={session.startsAt} gameTitle={config.name} />
+        <GameStartingOverlay startsAt={session.startsAt} gameTitle={gameName} />
       )}
 
       {/* RESULTS Phase View */}
@@ -123,7 +120,7 @@ export function GameStage({
               )}
             </div>
             <CardDescription className="text-xs sm:text-sm">
-              Phase {session.phaseId ? `#${session.phaseId.slice(0, 8)}` : 'active'} · {config.name}
+              Phase {session.phaseId ? `#${session.phaseId.slice(0, 8)}` : 'active'} · {gameName}
             </CardDescription>
           </CardHeader>
 
@@ -145,7 +142,7 @@ export function GameStage({
             <div
               tabIndex={0}
               role="region"
-              aria-label={`${config.name} gameplay stage`}
+              aria-label={`${gameName} gameplay stage`}
               className="flex-1 flex flex-col items-center justify-center w-full max-w-lg rounded-2xl border-2 border-dashed border-border/80 bg-muted/20 p-8 focus:ring-2 focus:ring-primary focus:outline-hidden transition-all"
             >
               <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-3">

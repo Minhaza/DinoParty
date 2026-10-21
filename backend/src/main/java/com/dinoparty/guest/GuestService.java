@@ -12,12 +12,16 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Guest identity and session lifecycle: create, authenticate by opaque token, edit profile. */
 @Service
@@ -35,6 +39,8 @@ public class GuestService {
   private final RateLimiter rateLimiter;
   private final Clock clock;
   private final GuestProperties properties;
+  private final ProfileEditGuard profileGuard;
+  private final TransactionTemplate tx;
 
   GuestService(
       GuestIdentityRepository guests,
@@ -42,13 +48,17 @@ public class GuestService {
       RandomSource random,
       RateLimiter rateLimiter,
       Clock clock,
-      GuestProperties properties) {
+      GuestProperties properties,
+      ProfileEditGuard profileGuard,
+      PlatformTransactionManager transactionManager) {
     this.guests = guests;
     this.sessions = sessions;
     this.random = random;
     this.rateLimiter = rateLimiter;
     this.clock = clock;
     this.properties = properties;
+    this.profileGuard = profileGuard;
+    this.tx = new TransactionTemplate(transactionManager);
   }
 
   /**
@@ -116,18 +126,45 @@ public class GuestService {
     return guests.findAllById(guestIds).stream().map(GuestService::toGuest).toList();
   }
 
-  /** Applies only the provided (non-null) fields. */
-  @Transactional
+  /** The newest {@code last_seen_at} over each guest's sessions; guests without one are absent. */
+  @Transactional(readOnly = true)
+  public Map<UUID, Instant> lastSeen(Collection<UUID> guestIds) {
+    Map<UUID, Instant> seen = new HashMap<>();
+    if (!guestIds.isEmpty()) {
+      for (Object[] row : sessions.lastSeen(guestIds)) {
+        seen.put((UUID) row[0], (Instant) row[1]);
+      }
+    }
+    return seen;
+  }
+
+  /**
+   * Applies only the provided (non-null) fields. Refused with {@code INVALID_PHASE} while the
+   * guest's room is starting or playing; the transaction commits before the room's mailbox is
+   * released, so a start queued behind it sees the new profile.
+   */
   public Guest updateProfile(UUID guestId, String nickname, String avatarKey, String avatarColor) {
-    GuestIdentityEntity guest =
-        guests
-            .findById(guestId)
-            .orElseThrow(() -> new DomainException(ErrorCode.UNAUTHENTICATED, "Unknown guest."));
-    String newNickname = nickname == null ? guest.getNickname() : validNickname(nickname);
-    String newAvatarKey = avatarKey == null ? guest.getAvatarKey() : validAvatarKey(avatarKey);
-    String newColor = avatarColor == null ? guest.getAvatarColor() : validColor(avatarColor);
-    guest.updateProfile(newNickname, newAvatarKey, newColor, clock.instant());
-    return toGuest(guest);
+    String cleanNickname = nickname == null ? null : validNickname(nickname);
+    String cleanAvatarKey = avatarKey == null ? null : validAvatarKey(avatarKey);
+    String cleanColor = avatarColor == null ? null : validColor(avatarColor);
+    return profileGuard.whileEditable(
+        guestId,
+        () ->
+            tx.execute(
+                status -> {
+                  GuestIdentityEntity guest =
+                      guests
+                          .findById(guestId)
+                          .orElseThrow(
+                              () ->
+                                  new DomainException(ErrorCode.UNAUTHENTICATED, "Unknown guest."));
+                  guest.updateProfile(
+                      cleanNickname == null ? guest.getNickname() : cleanNickname,
+                      cleanAvatarKey == null ? guest.getAvatarKey() : cleanAvatarKey,
+                      cleanColor == null ? guest.getAvatarColor() : cleanColor,
+                      clock.instant());
+                  return toGuest(guest);
+                }));
   }
 
   private static String validNickname(String nickname) {

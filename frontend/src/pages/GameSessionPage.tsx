@@ -9,7 +9,7 @@ import { buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { RequireGuest } from '@/features/guest/RequireGuest'
 import { useRealtimeRoom } from '@/features/realtime/useRealtimeRoom'
-import { GAME_CONFIGS } from '@/features/rooms/gameConfig'
+import { useGameName } from '@/features/games/useGames'
 import { GameSessionLayout } from '@/features/session/GameSessionLayout'
 import { DrawGuessChatPanel } from '@/features/drawguess/components/DrawGuessChatPanel'
 import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
@@ -110,10 +110,7 @@ function ActiveSessionView({
   const guessedGuestIds = useDrawGuessStore((s) => s.guessedGuestIds)
   const currentRoom = realtimeRoom ?? initialRoom
   const isDrawGuess = currentRoom.gameKey === 'draw-guess'
-  const gameConfig = GAME_CONFIGS[currentRoom.gameKey] ?? {
-    name: 'Game Session',
-    description: 'Active party game session',
-  }
+  const gameName = useGameName(currentRoom.gameKey)
 
   // If room returns to WAITING status, navigate back to lobby
   React.useEffect(() => {
@@ -157,7 +154,7 @@ function ActiveSessionView({
   return (
     <GameSessionLayout
       roomCode={currentRoom.code}
-      gameTitle={gameConfig.name}
+      gameTitle={gameName}
       players={currentRoom.players}
       currentGuestId={guest.id}
       hostGuestId={currentRoom.hostGuestId}

@@ -18,7 +18,8 @@ public record RealtimeProperties(
     Integer commandLimitPer10s,
     Integer connectLimitPerMinute,
     Integer authFailureLimitPerMinute,
-    Boolean maintenanceEnabled) {
+    Boolean maintenanceEnabled,
+    Duration orphanSweepInterval) {
 
   public RealtimeProperties {
     disconnectGrace = disconnectGrace == null ? Duration.ofSeconds(30) : disconnectGrace;
@@ -34,5 +35,6 @@ public record RealtimeProperties(
     connectLimitPerMinute = connectLimitPerMinute == null ? 60 : connectLimitPerMinute;
     authFailureLimitPerMinute = authFailureLimitPerMinute == null ? 20 : authFailureLimitPerMinute;
     maintenanceEnabled = maintenanceEnabled == null || maintenanceEnabled;
+    orphanSweepInterval = orphanSweepInterval == null ? Duration.ofMinutes(5) : orphanSweepInterval;
   }
 }

@@ -2,7 +2,8 @@ spring:
   application:
     name: dinoparty
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/dinoparty}
+    # DB_URL wins; otherwise the URL is assembled from parts (Render hands out host/port/name).
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:dinoparty}}
     username: ${DB_USER:dinoparty}
     password: ${DB_PASSWORD:}
     hikari:
@@ -31,7 +32,12 @@ logging:
     org.springframework.web.socket: INFO
 
 server:
-  port: 8080
+  # Hosts such as Render inject PORT.
+  port: ${PORT:8080}
+  # `native` (set behind Render's proxy, D49) lets Tomcat's RemoteIpValve take the client address
+  # from X-Forwarded-For when the peer is a private-range proxy. Off by default: without a trusted
+  # proxy the header is client-controlled and would let anyone dodge the per-address rate limits.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
   error:
     include-stacktrace: never
     include-message: never
@@ -85,6 +91,11 @@ app:
   version: "@project.version@"
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  # Serve the built frontend from this process (single-origin deploy, D49). Off in dev, where Vite
+  # serves it. The location is a Spring resource URL ending in '/', e.g. file:/app/static/.
+  spa:
+    enabled: ${SPA_ENABLED:false}
+    location: ${SPA_LOCATION:classpath:/static/}
   # Frontend origin used to build invite links ({APP_PUBLIC_URL}/join/{CODE}).
   public-url: ${APP_PUBLIC_URL:http://localhost:5173}
   guest:

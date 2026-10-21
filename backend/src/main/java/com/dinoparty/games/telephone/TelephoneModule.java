@@ -11,6 +11,7 @@ import com.dinoparty.engine.DeadlineRequest;
 import com.dinoparty.engine.FinishReason;
 import com.dinoparty.engine.GameContext;
 import com.dinoparty.engine.GameDefinition;
+import com.dinoparty.engine.GameMetadata;
 import com.dinoparty.engine.GameModule;
 import com.dinoparty.engine.GameOutcome;
 import com.dinoparty.engine.GameSetup;
@@ -102,7 +103,19 @@ public class TelephoneModule implements GameModule {
               new CommandSpec(REVEAL_NEXT, 256, 5, 5, REVEAL_PHASES),
               new CommandSpec(REVEAL_PREV, 256, 5, 5, REVEAL_PHASES)),
           Set.of("TELEPHONE_PROGRESS", "TELEPHONE_STEP_ENDED", "ALBUM_REVEALED"),
-          Set.of("TELEPHONE_TASK"));
+          Set.of("TELEPHONE_TASK"),
+          new GameMetadata(
+              "Dino Telephone",
+              "Zero drawing skill needed",
+              "A fun chain of drawings and descriptions. Watch how your original idea transforms"
+                  + " into something completely different!",
+              List.of(
+                  "Everyone writes a secret prompt.",
+                  "Draw the prompt you receive, then describe the drawing you receive.",
+                  "You only ever see the entry just before yours.",
+                  "At the end, the host reveals every album step by step."),
+              KEY),
+          TelephoneSettings.SCHEMA);
 
   private final WordPoolService words;
 

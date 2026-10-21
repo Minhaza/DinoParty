@@ -16,7 +16,7 @@ Current coverage (Phase 1): health service/probe units, `GET /api/v1/health` (20
 
 Vitest + Testing Library (`npm --prefix frontend test`). Current coverage (Phase 1): health API client (200, 503-as-DOWN, bad shape, error), system-status widget (UP/DOWN/unreachable), routing and placeholder labelling, theme resolution. Playwright E2E arrives with the phases that have flows to test.
 
-Playwright E2E (since P5-05): `frontend/e2e/*.e2e.ts`, run with `npm --prefix frontend run e2e`. It needs the backend on `:8080` with its database (for example `scripts/dev.sh`, or the compose `db` plus `spring-boot:run -Dspring-boot.run.profiles=dev`); the config starts the Vite dev server unless one is already running. Chromium only, one worker, not yet in CI. Multi-user runs use one browser context per player; `e2e/support.ts` provides the canvas pixel probes, mouse/touch (CDP) drags and a WebSocket "network cut" built on `routeWebSocket`.
+Playwright E2E (since P5-05): `frontend/e2e/*.e2e.ts`, run with `npm --prefix frontend run e2e`. It needs the backend on `:8080` with its database (for example `scripts/dev.sh`, or the compose `db` plus `spring-boot:run -Dspring-boot.run.profiles=dev`); the config starts the Vite dev server unless one is already running. Chromium only, one worker, `retries: 0`. Runs in CI since P7-03 (the `e2e` job in `.github/workflows/ci.yml`; see "P7-03 verification record"). Multi-user runs use one browser context per player; `e2e/support.ts` provides the canvas pixel probes, mouse/touch (CDP) drags and a WebSocket "network cut" built on `routeWebSocket`.
 
 ## Phase 1 verification record
 
@@ -71,9 +71,9 @@ Run on Windows 11, JDK 21.0.3, Node 22, Docker Desktop, Edge (headless).
 ### Not verified / known limitations (Phase 2)
 
 - **Playwright E2E is not part of the repo yet** (Phase 8); the browser run above was an ad-hoc script. No mobile, cross-browser or axe accessibility run; keyboard flow and focus order were not manually walked.
-- `GET /games` and `GET /games/{gameKey}` are not implemented (game choices are hard-coded in `features/rooms/gameConfig.ts` and seeded in `game_definition`); the frontend game-info page is still a placeholder.
+- `GET /games` and `GET /games/{gameKey}` are not implemented (game choices are hard-coded in `features/rooms/gameConfig.ts` and seeded in `game_definition`); the frontend game-info page is still a placeholder. *(Done in P7-01; see the P7-01 verification record.)*
 - No `Idempotency-Key` handling: join and leave are naturally idempotent instead.
-- `PATCH /guests/me` does not yet return `INVALID_PHASE` while a game is running (no games exist). Add it with the room status check in Phase 4.
+- `PATCH /guests/me` does not yet return `INVALID_PHASE` while a game is running (no games exist). Add it with the room status check in Phase 4. *(Done in P7-01; see the P7-01 verification record.)*
 - Rate limiting is per `remoteAddr` for guest creation and ignores `X-Forwarded-For`; behind Caddy every client would share one bucket until a trusted-proxy setting is added in the deployment phase. Limits are in memory (single instance).
 - No nickname blocklist (A14): only length and a character allow-list.
 - The frontend remembers the last room code in `localStorage` only as a "back to my room" hint. No endpoint returns a guest's current room, so after clearing browser storage a guest who is still in a room can only be freed by leaving from that browser; presence-based expiry arrives in Phase 3.
@@ -155,7 +155,7 @@ Coverage by layer:
 
 - **No frontend work**: task 4.8 is not done. The lobby Start button reaches a real backend start, but no production game module exists, so `draw-guess` and `telephone` answer `GAME_NOT_FOUND`.
 - **Process kill not exercised**: recovery is tested by seeding the rows a dead process leaves; the outage test renames a table rather than stopping the database.
-- **Not implemented**: `GET /games*`, `RoomDto.lastSession`, the `PATCH /guests/me` lock, orphan-room sweep, typed payload binding, the 320 KiB frame cap (D20), the snapshot replay-equivalence property test, `Retry-After` on `RESULTS_NOT_READY`.
+- **Not implemented** (the first four were done in P7-01): `GET /games*`, `RoomDto.lastSession`, the `PATCH /guests/me` lock, orphan-room sweep, typed payload binding, the 320 KiB frame cap (D20), the snapshot replay-equivalence property test, `Retry-After` on `RESULTS_NOT_READY`.
 - **`GAME_FINISHED.resultsReady` is always `false`**; clients poll `GET /sessions/{id}/results`.
 - **Per-type rate limiting** is a fixed one-second window, not a token bucket, so a burst can straddle two windows.
 - **Single instance only**: recovery treats every `RUNNING` row as orphaned.
@@ -363,12 +363,12 @@ Two players against the dev backend (`spring-boot:run`, compose PostgreSQL) and 
 
 - Three or more browsers. A drawer or guesser *leaving* (grace expiry → `LEFT`) in the browser is covered by backend tests only.
 - Raw wrong-role STOMP commands from a browser page (P5-04 did this ad hoc; the committed suite only checks that the guesser UI sends nothing).
-- Firefox/WebKit, real mobile devices (touch was emulated through CDP in Chromium), axe/keyboard walk-through, Linux/CI (E2E is not wired into CI yet).
+- Firefox/WebKit, real mobile devices (touch was emulated through CDP in Chromium), axe/keyboard walk-through, Linux/CI (E2E was wired into CI in P7-03).
 - Load: 10-player fan-out, mailbox hold times, zero-Hibernate-statements per command (as in P5-02).
 
 ### Remaining risks
 
-- E2E relies on a manually started backend and database; a CI job (Phase 8.3) is still needed before it can gate merges.
+- E2E relies on a manually started backend and database; *(superseded: the `e2e` CI job was added in P7-03).*
 - The E2E pixel checks assume the canvas background `#FFFDF8` and the palette in `coords.ts`; a design change there must update `e2e/support.ts`.
 - The known P5-04 limitations still apply: the brief local double-draw after a reconnect mid-stroke, the canvas budget enforced only by the server, per-point preview data in Zustand, and no `role="dialog"` on the word-choice overlay.
 
@@ -503,3 +503,127 @@ Scope: the backend reveal, submission persistence and album endpoints (P6-03) an
   - Screenshots were reviewed on desktop and phone; that review made the reveal controls non-sticky, because they covered the newest entry on phones.
 
 Not verified: the axe accessibility smoke and the load check (P6-06), a non-host `REVEAL_NEXT` forged from the browser (covered by STOMP ITs instead), the auto-advance in a real browser (covered by session tests), a real network outage during the reveal, and Linux/CI.
+
+## P7-01 verification record (shared platform and game registry, backend)
+
+Design: `architecture.md` §3.8; contract: `api-contracts.md` §2.6 and "P7-01 contract changes".
+
+### Automated tests
+
+| Test | Covers |
+|---|---|
+| `engine.SettingsSchemaTest` (11, replaces `room.SettingsSchemaTest`) | defaults in declaration order; merge over defaults; unknown key, wrong type and out-of-range reported together with the former messages; inclusive int bounds, fractions refused; auto value; only-`true` boolean; category and UUID lists (case, duplicates, exclusive `random-mix`, non-list, too many); empty schema; duplicate keys / invalid default rejected at construction |
+| `games.drawguess.DrawGuessSettingsSchemaTest` (5, moved from `room`), `games.telephone.TelephoneSettingsSchemaTest` (5) | module bounds = schema bounds, enum options = values the module reads, defaults complete and valid, `[TP-2]` entries 0/4–8, `[TP-5]` only `true` |
+| `engine.GameRegistryTest` (+1) | key order, `definition(key)` with metadata and schema |
+| `web.GameApiIT` (6) | `GET /games` without auth lists draw-guess, telephone and the test game in key order with metadata and bounds, no schema in summaries; draw-guess and telephone details (schema members per type, omitted members, defaults); unknown key `404 GAME_NOT_FOUND` problem+json; disabled row → `enabled:false` in list and detail, `POST /rooms` `404`; the test-scope `TestGameModule` is discovered from its module alone |
+| `architecture.GameKeyLiteralTest` (1) | no game-key literal outside `com.dinoparty.games` except the allow-listed Telephone album endpoint |
+| `session.LastSessionTest` (8) | none before a game and during the first countdown; `FINISHED`/`COMPLETED` in `RESULTS` and after the reset; previous one kept during the next countdown and cleared once running; cancelled countdown keeps it; abort → `ABORTED`/`NO_COMPLETED_ROUND`; after a restart read once and cached; never shown while a game runs; dropped on close |
+| `session.SessionPersistenceIT` (+1, 1 extended) | after restart recovery, REST room and snapshot show `lastSession {INTERRUPTED, SERVER_RESTART}`; a room without games has `lastSession:null` |
+| `realtime.GameEngineSessionIT` (1 extended) | over real STOMP: `lastSession` null while waiting and playing, the finished session in `RESULTS` and after the rematch reset |
+| `guest.GuestProfileLockIT` (5) | allowed outside a room, in `WAITING`, and in `RESULTS` after a real game; `409 INVALID_PHASE` for every member in `STARTING` and `PLAYING`, profile unchanged; `400` before `409`; a change queued behind a mailbox command that starts the game waits for the mailbox and is refused |
+| `realtime.OrphanRoomCleanupIT` (8) | stale room closed and both members can create new rooms; repeated sweeps change nothing (`closed_at` stable); recent room kept; connected member keeps it; dropped (in grace) and reconnected member keeps it; recent `last_seen_at` keeps it; `STARTING`/`PLAYING`/`RESULTS` never touched; the maintenance scheduler runs it by itself |
+| `realtime.PresenceTrackerTest` (+2) | `isLive`: never connected, connected, in grace, grace over; a closed socket whose reconcile is still queued counts as live |
+
+### Defect found and fixed
+
+`OrphanRoomCleanupIT` exposed a window in presence: a closed socket is removed from the connection table at once, but its grace entry is added later by `reconcile`, which waits for the room mailbox, the same mailbox the sweep holds. A member who had been connected for over an hour in an idle lobby and dropped at that instant would have been treated as gone. `PresenceTracker` now counts unreconciled disconnects as live.
+
+### Commands run (2026-10-18)
+
+- `./mvnw verify` (backend): **BUILD SUCCESS**; unit (surefire) 385 tests, integration (failsafe) 260 tests, 0 failures, 0 errors, 0 skipped; Spotless check and ArchUnit green. This covers the Draw & Guess, Telephone, room, engine, STOMP, word-pack and REST suites.
+- No frontend file changed, so no frontend command was run.
+
+### Not verified / limitations
+
+- No manual `curl` or browser check against a running backend; the API was exercised through MockMvc and real STOMP clients in the ITs only.
+- Rate limiting unchanged (fixed window); only its documentation was corrected (`architecture.md` §3.5). No new rate-limit tests.
+- `GET /games*` has no rate limit (public and read-only, like `/health`).
+- `last_seen_at` is renewed only by `GET /guests/me`; see `architecture.md` §8.
+- The idle-room sweep loads all candidate codes (`WAITING`, older than the TTL) per pass; fine at single-instance scale.
+- The frontend still uses its hard-coded game list (`gameConfig.ts`, `GamesPage.tsx`); moving to `GET /games` is P7-02. *(Done in P7-02; see the P7-02 verification record.)*
+
+## P7-02 verification record (dynamic game discovery and selection, frontend)
+
+Contract: `api-contracts.md` §2.6 (consumed as built in P7-01, no contract change). `features/rooms/gameConfig.ts` is gone: game names, taglines, descriptions, player bounds, availability, setting labels, bounds and defaults now come from `GET /games` and `GET /games/{key}`. The frontend keeps only presentation and capability, in `features/games/gameModules.ts`:
+- artwork and tone by `iconKey`, with a neutral fallback for unknown icons;
+- which game keys it can play;
+- which Draw & Guess setting keys its own lobby word panel edits.
+
+### Behaviour
+
+- **Server state.** The TanStack Query cache under `['games']` / `['games', key]` (5 min stale time) is the only copy of the game list; `useGames`, `useEnabledGames`, `useGameDetail` and `useGameName` all read it.
+- **Disabled games** are hidden: the existing design has no unavailable state.
+- **Enabled games without a frontend module** appear on the games page with fallback art and a "Not available in this version" badge. They have no play button and are not offered when creating a room.
+- **Settings form.**
+  - `int` fields become selects with values derived from `min`/`max`; the auto value is shown first as "Auto".
+  - `enum` fields become selects; `bool` fields become a checkbox.
+  - A `bool` with a single accepted option (`allowSkipTimeout`) and any `list` not claimed by a game panel are not shown; they keep their server value.
+  - The `*Seconds` key suffix is shown as "N seconds".
+- **Default room size.** The only mirrored rule is "8 clamped to the game bounds" (§2.2), in `defaultMaxPlayers`.
+- **Errors.** A server `fieldErrors` entry for `maxPlayers` or a rendered `settings.<key>` appears under its field (`aria-invalid`, `aria-describedby`). Others are listed in the form summary.
+
+### Automated tests
+
+| Test | Covers |
+|---|---|
+| `api/games.test.ts` (5) | list incl. disabled, detail schema/defaults, key encoding + `404 GAME_NOT_FOUND`, unknown setting type dropped, malformed body → 502 |
+| `features/games/useGames.test.tsx` (4) | one shared list request; enabled filter; neutral name fallback; detail fetched only for a selected key and once per key |
+| `features/games/gameModules.test.tsx` (4) | playable keys, Draw & Guess panel keys, fallback visual and banner for unknown icon keys |
+| `features/games/settings/schemaChoices.test.ts` (11) | int choices (small/large ranges keep bounds, default, current; auto first; no out-of-range), labels, read-only values, editable-field filter, player counts, default max players clamping |
+| `features/games/settings/SettingsFields.test.tsx` (4) | schema labels/defaults/bounds, typed values for int/bool/enum, Auto + hidden fixed bool, per-field server error |
+| `features/rooms/RoomForms.test.tsx` CreateRoomForm (9) | disabled and unplayable games hidden; POST = server defaults + edits; all scalar Draw & Guess settings; game switch resets to the new defaults with one detail request per game; telephone 4–8 players; submit disabled while the detail loads; field error under the field and unmapped error in the summary; `ALREADY_IN_ROOM`; list error retry |
+| `features/rooms/__tests__/RoomSettingsForm.test.tsx` (+2) | lobby bounds/fields from the detail; PATCH body and per-field error |
+| `pages/GamesPage.test.tsx` (4), `pages/HomePage.test.tsx` (3) | API names, taglines, descriptions, player ranges; disabled hidden; unplayable marked; play opens creation with the game preselected; retry |
+| Existing `routes`, `LobbyPage`, `GameSessionPage` tests | now mock `GET /games*`; assertions unchanged |
+
+### Commands run (2026-10-18)
+
+- `npm run format`, then `format:check`: clean. `lint`: clean. `build` (`tsc -b` + Vite): green.
+- `npm test` (Vitest): 57 files, 391 tests, all passed. In one earlier full run, `DrawCanvas.test.tsx` "splits a long gesture…" hit the default 5 s timeout under load. It passed alone and in the next full run; it does not touch P7-02 code.
+- Playwright `e2e` against a live backend (dev profile, PostgreSQL in Docker): 3/3 passed (`drawguess`, `telephone`, `telephone-submit-recovery`). The telephone scenario creates its room through the new API-driven picker.
+- Live `curl` of `GET /games`, `GET /games/telephone`, `GET /games/nope`: responses match the test fixtures; the unknown key answers `404 GAME_NOT_FOUND`.
+- Browser check (Chromium, 1280×900, real backend), with screenshots reviewed:
+  - home, games page and create page for both games;
+  - switching games resets settings (Drawing time 80 → 90);
+  - Telephone "Entries per album" offers "Auto" first;
+  - a request rewritten to `drawSeconds: 999` shows the server message "must be a whole number from 30 to 180" under Drawing time;
+  - the lobby settings save persisted `entriesPerChain: 6`;
+  - no console errors besides that deliberate 400.
+
+### Not verified / limitations
+
+- No axe run, no phone-size or dark-theme screenshots, no Firefox/WebKit.
+- The disabled and unknown game paths are covered by component tests only; the dev database has no disabled game.
+- The games page fetches each enabled game's detail for its description; the summary DTO has none. The details are cached and reused by the create form.
+- The `games/:gameKey` info page is still a placeholder, and `HowToPlayModal` copy is unchanged; both could use `description`/`howToPlay` later.
+- Possible contract additions that would remove the two client-side conventions above: `defaultMaxPlayers` on the summary and a `unit` on `int` fields. Neither is requested yet.
+
+## P7-03 verification record (E2E in CI, registry assertions)
+
+Scope: the existing three Playwright specs became a CI gate; no gameplay or production code changed. The scenario audit (what is covered where) is in `docs/p7-03-hardening-plan.md` section 1; authorization, wrong-phase and Telephone-secrecy cases stay in the backend ITs and the raw-STOMP probe, not in Playwright.
+
+### Changes
+
+- CI: new `e2e` job (no new workflow, runs on every PR and on pushes to `main`). It starts a `postgres:16-alpine` service, builds the backend jar (`./mvnw -DskipTests package`; tests run in the `backend` job), starts it with `java -jar` and waits for `GET /api/v1/health` to report `UP`, installs Chromium and runs `npm run e2e` (Vite is started by `playwright.config.ts`). On failure it uploads `frontend/playwright-report/`, `frontend/test-results/` (traces, screenshots) and `backend.log` for 7 days. Triage: the trace shows the browser and STOMP frames, `backend.log` the server, Flyway and PostgreSQL side.
+- `playwright.config.ts`: `forbidOnly` and the `github` reporter on CI; `reuseExistingServer` only outside CI.
+- `telephone.e2e.ts`: the create-room step now checks the live `GET /games` and `GET /games/telephone`: every enabled game has a picker button with its `min–max players`, the chosen game has `aria-pressed="true"` and the other `false`, "Max players" spans the game's bounds, and each `int`/`enum` setting label from the schema is shown.
+- `drawguess.e2e.ts`: the 500 ms sleep in "the guesser cannot draw" is replaced by asserting that the guesser's page sent no `DRAW_STROKE` frame (`NetworkSwitch.sentFrames()` in `support.ts`).
+
+### Executed (Windows 11, JDK 21.0.3, Node 22, Docker Desktop, dev backend + Vite)
+
+| Command | Result |
+|---|---|
+| `npm run format:check`, `lint`, `typecheck` | clean |
+| `npm test` | 392 passed (57 files) |
+| `npm run build` | success |
+| `npm run e2e` | 3 of 3 passed (about 2.5 min) |
+| `npm run e2e -- --repeat-each=2` | 6 of 6 passed (about 4.9 min) |
+
+### Not verified
+
+- The new `e2e` CI job has not run yet (needs the PR); its failure-artifact upload has not been exercised.
+- `./mvnw verify` was not re-run: no backend file changed.
+- Linux, Firefox/WebKit, axe (task 7.2) and mobile emulation (7.3) are unchanged.
+- The disabled and unknown game paths remain component-test only: the real registry has no disabled game and no test-only endpoint was added.
+- Vite prints `ws proxy error` lines at teardown when the last sockets close; they do not fail the run.
+

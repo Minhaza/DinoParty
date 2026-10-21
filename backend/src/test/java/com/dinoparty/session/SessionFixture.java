@@ -16,9 +16,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
@@ -116,6 +118,18 @@ final class SessionFixture {
 
     List<String> reasons() {
       return changes.stream().map(c -> c.status() + ":" + c.reason()).toList();
+    }
+  }
+
+  /** The stored history as seen by {@link EndedSessionLookup}; counts its lookups. */
+  static final class FakeHistory implements EndedSessionLookup {
+    volatile LastSession stored;
+    final AtomicInteger lookups = new AtomicInteger();
+
+    @Override
+    public Optional<LastSession> latestEnded(UUID roomId) {
+      lookups.incrementAndGet();
+      return Optional.ofNullable(stored);
     }
   }
 
@@ -240,6 +254,7 @@ final class SessionFixture {
   final RecordingSink sink = new RecordingSink();
   final RecordingRecorder recorder = new RecordingRecorder();
   final ManualScheduler scheduler = new ManualScheduler();
+  final FakeHistory history = new FakeHistory();
   final SessionService sessions;
   final TestGameModule module;
 
@@ -256,6 +271,7 @@ final class SessionFixture {
             room,
             sink,
             recorder,
+            history,
             scheduler,
             clock,
             new SeededRandomSource(7),
