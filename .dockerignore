@@ -1,0 +1,16 @@
+# Keep the build context small and free of local secrets and build output.
+.git
+.github
+.claude
+.kandev
+.env
+.env.*
+**/node_modules
+**/dist
+**/target
+**/coverage
+**/playwright-report
+**/test-results
+**/*.tsbuildinfo
+docs
+deploy/otel
