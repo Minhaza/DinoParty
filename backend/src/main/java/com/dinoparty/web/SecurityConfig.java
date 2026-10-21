@@ -13,6 +13,9 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -20,14 +23,26 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 /**
  * Deny-by-default: only health and guest creation are public; everything else needs a guest bearer
  * token resolved by {@link GuestTokenAuthenticationFilter}. CSRF is disabled on purpose: the API is
- * stateless, uses Bearer tokens and sets no cookies.
+ * stateless, uses Bearer tokens and sets no cookies. With the single-origin deploy (D49), GETs
+ * outside {@code /api}, {@code /actuator} and {@code /ws} are the public frontend files.
  */
 @Configuration(proxyBeanMethods = false)
 class SecurityConfig {
 
   @Bean
   SecurityFilterChain securityFilterChain(
-      HttpSecurity http, ProblemJsonWriter problems, GuestService guestService) throws Exception {
+      HttpSecurity http, ProblemJsonWriter problems, GuestService guestService, SpaProperties spa)
+      throws Exception {
+    // Parsed like MVC parses paths, so an odd spelling cannot reach a controller as a "file".
+    PathPatternRequestMatcher.Builder paths = PathPatternRequestMatcher.withDefaults();
+    RequestMatcher backend =
+        new OrRequestMatcher(
+            paths.matcher("/api/**"), paths.matcher("/actuator/**"), paths.matcher("/ws/**"));
+    RequestMatcher frontendFile =
+        request ->
+            spa.enabled()
+                && HttpMethod.GET.matches(request.getMethod())
+                && !backend.matches(request);
     return http.csrf(AbstractHttpConfigurer::disable)
         .cors(Customizer.withDefaults())
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -52,6 +67,8 @@ class SecurityConfig {
                     .requestMatchers(HttpMethod.GET, "/actuator/health/**")
                     .permitAll()
                     .requestMatchers(HttpMethod.OPTIONS, "/**")
+                    .permitAll()
+                    .requestMatchers(frontendFile)
                     .permitAll()
                     .anyRequest()
                     .authenticated())

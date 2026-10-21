@@ -14,9 +14,9 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 /**
  * Throttles WebSocket upgrades per client address and remembers that address for the STOMP layer
- * (which only sees frames). Forwarded headers are ignored, as for REST: they are client-controlled
- * until a trusted proxy is configured (deployment phase). The Origin allowlist is enforced by the
- * endpoint registration, before this runs.
+ * (which only sees frames). Forwarded headers are not read here, as for REST: behind a trusted
+ * proxy Tomcat's RemoteIpValve has already rewritten the remote address (D49). The Origin allowlist
+ * is enforced by the endpoint registration, before this runs.
  */
 @Component
 class HandshakeGuard implements HandshakeInterceptor {

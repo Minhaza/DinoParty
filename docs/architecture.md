@@ -251,7 +251,7 @@ Tailwind v4 with design tokens in CSS variables, shadcn/ui components themed to 
 
 - Dev: `docker compose -f deploy/compose.dev.yml up -d db` for Postgres; backend `./mvnw spring-boot:run` (profile `dev`), frontend `npm run dev` (Vite proxy `/api`, `/ws` → 8080). Full-stack compose profile added in Phase 8.
 - CI (GitHub Actions): backend unit + IT (Testcontainers), frontend lint/typecheck/test/build, Playwright (later), Docker image build (linux/amd64 + arm64).
-- Prod: backend + Postgres + Caddy via `deploy/compose.prod.yml`; frontend on Cloudflare Pages; details in `docs/deployment.md` (Phase 8).
+- Prod (decision D49): one Render Docker web service (`deploy/Dockerfile`, `render.yaml`) serves the SPA, `/api` and `/ws` from one origin, with Render PostgreSQL; details in `docs/deployment.md`. The earlier Caddy + Cloudflare Pages plan is parked.
 
 ## 7. Observability
 

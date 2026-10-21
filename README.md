@@ -97,7 +97,7 @@ CI (`.github/workflows/ci.yml`) runs the backend `verify` and the frontend forma
 ```
 backend/    Spring Boot 4 (Java 21) modular monolith: common, guest, room, health, web (more modules arrive with their phase)
 frontend/   React + TypeScript (strict) + Vite, Tailwind v4, shadcn/ui-style components, React Router, Zustand, TanStack Query
-deploy/     compose.dev.yml (PostgreSQL for development)
+deploy/     compose.dev.yml (PostgreSQL for development), Dockerfile (production image; see docs/deployment.md)
 docs/       requirements, architecture, contracts, rules, plan
 ```
 
