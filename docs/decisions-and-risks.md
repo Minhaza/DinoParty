@@ -9,7 +9,7 @@ Status legend: **PROPOSED** = architect recommendation awaiting approval; **FIXE
 - React + TypeScript + Vite, Tailwind v4, shadcn/ui, Zustand, TanStack Query, React Router, Canvas + Pointer Events, STOMP client, Lucide.
 - Modular monolith, single backend instance, in-memory active room state, durable history in PostgreSQL. Redis only as an abstraction; never required locally.
 - Server-authoritative game logic. Guest identity via opaque token (hash stored server-side).
-- Deploy: Docker/Compose, GitHub Actions, Cloudflare Pages (frontend), Oracle Always Free ARM64 VM + Caddy (backend).
+- Deploy: Docker/Compose, GitHub Actions, Cloudflare Pages (frontend), Oracle Always Free ARM64 VM + Caddy (backend). *Superseded by D49 (Render, §8).*
 
 ## 2. Ambiguities and how we resolve them
 
@@ -178,3 +178,17 @@ Phase 6 risks:
 | R29 | Albums have holes because a submission was dropped or the server restarted. | Never-drop `SubmissionRecord`; `INTERRUPTED` sessions expose no albums by design. |
 | R30 | The SPI change for submissions disturbs Draw & Guess. | R21 process: the P6-03 PR updates `game-engine.md` and the test game; Draw & Guess passes an empty list. |
 | R31 | Memory per room (8 live drafts + ≤ 32 stored drawings). | Same bounds as H6; ≈ 1 MB per draft, ≈ 6.5 MB worst-case entries; measured in P6-06. |
+
+## 8. Deployment decisions
+
+| # | Decision | Recommendation | Alternative |
+|---|---|---|---|
+| D49 | **Hosting target.** §1 names Cloudflare Pages + an Oracle ARM64 VM behind Caddy. | **Approved (user, 2026-10-21):** Render. One Docker web service (`deploy/Dockerfile`, blueprint `render.yaml`) serves the built SPA, `/api` and `/ws` from one origin, so the frontend keeps its same-origin calls and no CORS is needed; Render PostgreSQL holds the data. Free tier for now. Client addresses for rate limits come from `X-Forwarded-For` only through Tomcat's `RemoteIpValve` (`FORWARD_HEADERS_STRATEGY=native`), which trusts private-range proxies only and takes the right-most untrusted hop, so a client cannot choose its own address. Supersedes the deploy line of §1 and Phase 8 tasks 8.2–8.4 for now; the Oracle/Cloudflare plan stays possible later. | Oracle VM + Caddy + Cloudflare Pages (original plan: more ops work, no idle spin-down); Render static site + separate backend service (needs a configurable API/WebSocket base URL in the frontend and cross-origin CORS; Render static rewrites do not carry WebSockets). |
+
+Deployment risks (Render free tier):
+
+| # | Risk | Mitigation |
+|---|---|---|
+| R32 | Free web services spin down after ~15 min without inbound traffic; the restart ends live games (D13) and the next visitor waits for a cold start (tens of seconds). | Accepted for a demo; Starter plan (always on) before real use. |
+| R33 | Render deploys start the new instance before stopping the old one (no persistent disk on free tier), so startup recovery (D13) can mark sessions `INTERRUPTED` that the old instance is still running. | Deploy when no games run; the old instance's graceful shutdown aborts its sessions anyway. A paid instance with a disk gets stop-then-start deploys. |
+| R34 | Free PostgreSQL expires after 30 days and has no backups. | Demo data only; paid database before real use. |
