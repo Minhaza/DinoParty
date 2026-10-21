@@ -3,6 +3,7 @@ package com.dinoparty.web;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -22,8 +23,17 @@ class SpaIT {
   @Autowired MockMvc mvc;
 
   @Test
-  void rootAndClientRoutesServeIndexWithoutAuthentication() throws Exception {
-    for (String path : new String[] {"/", "/games", "/join/ABCD", "/rooms/ABCD/play"}) {
+  void rootForwardsToIndexWithoutAuthentication() throws Exception {
+    // MockMvc records the forward instead of following it; the index itself is checked below.
+    mvc.perform(get("/")).andExpect(status().isOk()).andExpect(forwardedUrl("/index.html"));
+    mvc.perform(get("/index.html"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("spa-fixture")));
+  }
+
+  @Test
+  void clientRoutesServeIndexWithoutAuthentication() throws Exception {
+    for (String path : new String[] {"/games", "/join/ABCD", "/rooms/ABCD/play"}) {
       mvc.perform(get(path))
           .andExpect(status().isOk())
           .andExpect(content().string(containsString("spa-fixture")))

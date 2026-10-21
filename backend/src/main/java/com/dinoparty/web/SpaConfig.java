@@ -9,6 +9,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.resource.PathResourceResolver;
 
@@ -26,6 +27,13 @@ class SpaConfig implements WebMvcConfigurer {
 
   SpaConfig(SpaProperties properties) {
     this.properties = properties;
+  }
+
+  @Override
+  public void addViewControllers(ViewControllerRegistry registry) {
+    // The resource handler drops an empty path before any resolver runs, so "/" needs its own
+    // route.
+    registry.addViewController("/").setViewName("forward:/index.html");
   }
 
   @Override
