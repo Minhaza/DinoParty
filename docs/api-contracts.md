@@ -493,7 +493,7 @@ Rejections leave state unchanged; `ACTION_ACK` follows accepted commands. Roles,
 
 | `type` | Stream | Payload |
 |---|---|---|
-| `PHASE_STARTED` | public | common fields plus `round`, `totalRounds`; `DRAWING`: `lap`, `laps`, `turn` (0-based), `totalTurns`, `drawerGuestId`, `seatOrder:[guestId]`; `GUESS`: `impostorGuestId` |
+| `PHASE_STARTED` | public | common fields plus `round`, `totalRounds`; `DRAWING`: `lap` (1-based, 1…`laps`), `laps`, `turn` (0-based), `totalTurns`, `drawerGuestId`, `seatOrder:[guestId]`; `GUESS`: `impostorGuestId` |
 | `IMPOSTOR_ROLE` *(shared)* | private, every roster member not `LEFT`, in the `ROLE_REVEAL` transition | `{phaseId, round, role:"ARTIST"\|"IMPOSTOR", category:{key, label}, word:string\|null}` — same shape for everyone; see §3.12 for the unaware impostor |
 | `IMPOSTOR_DRAWING_UPDATED` | public | `{kind:"STROKE", authorGuestId, strokeId, batchNo, tool, color, size, points, final}` — each accepted batch unchanged plus its author; the drawer's client ignores its own echo |
 | `IMPOSTOR_CHAT_MESSAGE` *(shared)* | public | `{guestId, text, ts}` |
@@ -503,6 +503,8 @@ Rejections leave state unchanged; `ACTION_ACK` follows accepted commands. Roles,
 | `IMPOSTOR_ROUND_ENDED` *(shared)* | public, closing event of the round | `{round, outcome:"ESCAPED"\|"GUESSED"\|"CAUGHT"\|"IMPOSTOR_LEFT", impostorGuestId, category:{key, label}, word, decoyWord:string\|null, votes:{voter:target}, guess:string\|null, scoreDeltas:{guestId:int}, scores:{guestId:int}}` — `CAUGHT` = caught and wrong or no guess |
 
 **Secrets.** The word and the decoy appear in no public event before `IMPOSTOR_ROUND_ENDED`; the impostor's identity in none before `IMPOSTOR_VOTE_CLOSED` (when caught) or `IMPOSTOR_ROUND_ENDED`; vote targets in none before `IMPOSTOR_VOTE_CLOSED`. None of them appear in another viewer's snapshot, a `GAME_ERROR` or a log line. Every `IMPOSTOR_ROLE` of a round is sent in the same transition and serializes to the same set of fields.
+
+**Turns (Dino Impostor).** The round's `seatOrder` and `totalTurns` (= `laps × n`, `n` = seated players) are fixed when the round starts; turn `t` belongs to `seatOrder[t mod n]` in lap `⌊t / n⌋ + 1`. A seat whose player is `LEFT` is skipped, so `turn` may jump. Session colours in `colors` are uppercase `#RRGGBB`; a batch's `color` must equal the sender's, compared case-insensitively. When a turn ends with the drawer's stroke still open (deadline, drawer `LEFT`), the server closes it as it stands without publishing a batch: clients close an open stroke when the next `PHASE_STARTED` arrives, and snapshots show it with `closed:true`.
 
 **`DinoImpostorSnapshot`** (common header first, §2.1):
 
@@ -615,3 +617,4 @@ Everything below is additive unless stated.
 | §3.6 | Family prefix for types shared by games built on shared code |
 | §3.11 | New: shared impostor commands/events (`IMPOSTOR_*`), Dino Impostor commands, events, secrets, snapshot, results |
 | §3.12 | New: Sketchy Saurus commands/events (`SKETCHY_*`), unaware impostor, snapshot and size bound |
+| §3.11 (P9-02) | Clarified: `lap` is 1-based; fixed seat order per round with `LEFT` seats skipped; colours uppercase and compared case-insensitively; an open stroke closed at the turn's end gets no event |
