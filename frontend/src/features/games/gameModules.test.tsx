@@ -27,6 +27,24 @@ describe('frontend game modules', () => {
     expect(gameVisual('mystery').tone).toBe('neutral')
   })
 
+  it('has visuals for both impostor games but only Dino Impostor is playable (P9-05)', () => {
+    expect(gameVisual('dino-impostor').tone).toBe('impostor')
+    expect(gameVisual('sketchy-saurus').tone).toBe('impostor')
+    expect(gameVisual('dino-impostor').Badge).not.toBe(gameVisual('sketchy-saurus').Badge)
+    expect(gameVisual('dino-impostor').Badge).not.toBe(gameVisual('mystery').Badge)
+    expect(gameModule('dino-impostor')).toEqual({ playable: true, lobbyPanelFields: [] })
+    expect(gameModule('sketchy-saurus')).toBeNull()
+  })
+
+  it('draws the impostor badges when there is no painted banner', () => {
+    for (const key of ['dino-impostor', 'sketchy-saurus']) {
+      const { container, unmount } = render(<GameBanner iconKey={key} />)
+      expect(container.querySelector('img')).toBeNull()
+      expect(container.querySelector('svg')).not.toBeNull()
+      unmount()
+    }
+  })
+
   it('renders the painted banner for known games and a fallback for unknown ones', () => {
     const known = render(<GameBanner iconKey="telephone" />)
     expect(known.container.querySelector('img')?.getAttribute('src')).toContain('telephone')

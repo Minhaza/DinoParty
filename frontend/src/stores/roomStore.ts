@@ -34,6 +34,18 @@ import type {
   WordChoicesPayload,
 } from '@/features/drawguess/types'
 import { useDrawGuessStore } from '@/features/drawguess/drawGuessStore'
+import type {
+  DinoImpostorPhaseStartedPayload,
+  DinoImpostorSnapshot,
+  ImpostorChatMessagePayload,
+  ImpostorDrawingUpdatedPayload,
+  ImpostorGuessOpenPayload,
+  ImpostorRolePayload,
+  ImpostorRoundEndedPayload,
+  ImpostorVoteClosedPayload,
+  ImpostorVoteProgressPayload,
+} from '@/features/impostor/common/types'
+import { useDinoImpostorStore } from '@/features/impostor/dino/dinoImpostorStore'
 import { useRevealStore } from '@/features/telephone/revealStore'
 import { useTelephoneStore, type CommandErrorOutcome } from '@/features/telephone/telephoneStore'
 import type {
@@ -90,6 +102,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       useTelephoneStore.getState().applySnapshot(snapshot.game as unknown as TelephoneSnapshot)
       useRevealStore.getState().applySnapshot(snapshot.game as unknown as TelephoneSnapshot)
     }
+    if (snapshot.room.gameKey === 'dino-impostor' || snapshot.game?.gameKey === 'dino-impostor') {
+      useDinoImpostorStore
+        .getState()
+        .applySnapshot(snapshot.game as unknown as DinoImpostorSnapshot | null)
+    }
 
     set({
       room: snapshot.room,
@@ -145,13 +162,13 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     }
 
     // Forward game lifecycle events to gameSessionStore
-    dispatchGameLifecycleEvents(envelope)
+    const resyncRequested = dispatchGameLifecycleEvents(envelope)
 
     // Dispatch event to update room state
     const currentRoom = state.room
     if (!currentRoom) {
       // Ignore until a snapshot arrives
-      set({ lastSeq: nextSeq })
+      set(resyncRequested ? { lastSeq: nextSeq, needsResync: true } : { lastSeq: nextSeq })
       return 'applied'
     }
 
@@ -159,7 +176,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
     let terminalNotice = state.terminalNotice
     let lastError = state.lastError
-    let needsResync = state.needsResync
+    let needsResync = state.needsResync || resyncRequested
 
     if (envelope.type === 'SESSION_REPLACED') {
       terminalNotice = 'SESSION_REPLACED'
@@ -199,6 +216,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     useDrawGuessStore.getState().reset()
     useTelephoneStore.getState().reset()
     useRevealStore.getState().reset()
+    useDinoImpostorStore.getState().reset()
     set({
       room: null,
       serverNow: null,
@@ -220,14 +238,19 @@ function routeCommandError(
   if (reveal !== 'unhandled') return reveal
   const outcome = useTelephoneStore.getState().applyCommandError(payload, actionId)
   if (outcome !== 'unhandled') return outcome
+  const impostor = useDinoImpostorStore.getState().applyCommandError(payload, actionId)
+  if (impostor !== 'unhandled') return impostor
   return useDrawGuessStore.getState().applyCommandError(payload, actionId)
 }
 
-function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
+/** Applies an event to the session and game stores; returns `true` when a snapshot is needed. */
+function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): boolean {
   const sessionStore = useGameSessionStore.getState()
   const drawGuessStore = useDrawGuessStore.getState()
   const telephoneStore = useTelephoneStore.getState()
   const revealStore = useRevealStore.getState()
+  const impostorStore = useDinoImpostorStore.getState()
+  let resync = false
 
   switch (envelope.type) {
     case 'GAME_STARTED':
@@ -235,11 +258,17 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
       drawGuessStore.reset()
       telephoneStore.reset()
       revealStore.reset()
+      impostorStore.reset()
       break
     case 'PHASE_STARTED': {
       const payload = envelope.payload as DrawGuessPhaseStartedPayload
       sessionStore.applyPhaseStarted(payload, envelope.ts)
-      if (useGameSessionStore.getState().gameKey === 'telephone') {
+      const gameKey = useGameSessionStore.getState().gameKey
+      if (gameKey === 'dino-impostor') {
+        resync = impostorStore.applyPhaseStarted(
+          envelope.payload as DinoImpostorPhaseStartedPayload,
+        )
+      } else if (gameKey === 'telephone') {
         const telephonePhase = envelope.payload as TelephonePhaseStartedPayload
         telephoneStore.applyPhaseStarted(telephonePhase)
         revealStore.applyPhaseStarted(telephonePhase, useGameSessionStore.getState().sessionId)
@@ -278,10 +307,35 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
     case 'GUESSER_CHAT':
       drawGuessStore.applyGuesserChat(envelope.payload as GuesserChatPayload, envelope.ts)
       break
+    case 'IMPOSTOR_ROLE':
+      impostorStore.applyRole(envelope.payload as ImpostorRolePayload)
+      break
+    case 'IMPOSTOR_DRAWING_UPDATED':
+      impostorStore.applyDrawingUpdated(envelope.payload as ImpostorDrawingUpdatedPayload)
+      break
+    case 'IMPOSTOR_CHAT_MESSAGE':
+      impostorStore.applyChatMessage(envelope.payload as ImpostorChatMessagePayload)
+      break
+    case 'IMPOSTOR_VOTE_PROGRESS':
+      impostorStore.applyVoteProgress(envelope.payload as ImpostorVoteProgressPayload)
+      break
+    case 'IMPOSTOR_VOTE_CLOSED':
+      impostorStore.applyVoteClosed(envelope.payload as ImpostorVoteClosedPayload)
+      break
+    case 'IMPOSTOR_GUESS_OPEN':
+      impostorStore.applyGuessOpen(envelope.payload as ImpostorGuessOpenPayload)
+      break
+    case 'IMPOSTOR_ROUND_ENDED': {
+      const payload = envelope.payload as ImpostorRoundEndedPayload
+      impostorStore.applyRoundEnded(payload)
+      if (payload.scores) sessionStore.updateScores(payload.scores)
+      break
+    }
     case 'ACTION_ACK':
       drawGuessStore.applyActionAck(envelope.actionId)
       telephoneStore.applyActionAck(envelope.actionId)
       revealStore.applyActionAck(envelope.actionId)
+      impostorStore.applyActionAck(envelope.actionId)
       break
     case 'ROUND_ENDED': {
       const payload = envelope.payload as RoundEndedPayload
@@ -312,6 +366,7 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
       drawGuessStore.reset()
       telephoneStore.reset()
       revealStore.reset()
+      impostorStore.reset()
       break
     case 'REMATCH_VOTES_UPDATED':
       sessionStore.applyRematchVotesUpdated(envelope.payload as RematchVotesUpdatedPayload)
@@ -323,6 +378,7 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
         drawGuessStore.reset()
         telephoneStore.reset()
         revealStore.reset()
+        impostorStore.reset()
       }
       break
     }
@@ -344,6 +400,7 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): void {
     default:
       break
   }
+  return resync
 }
 
 function reduceRoomEvent(room: RoomDto, envelope: EventEnvelope<unknown>): RoomDto {
