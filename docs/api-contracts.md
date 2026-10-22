@@ -100,8 +100,8 @@ AlbumEntryDto   { step /* 0-based */, kind:"TEXT|DRAWING", authorGuestId, author
 ### 2.2 Room rules (Phase 2)
 
 - A guest may be an active member of at most one room (`ALREADY_IN_ROOM` on create/join of another room). Leaving or the room closing frees them.
-- `maxPlayers` defaults to 8 clamped to the game's bounds (`draw-guess` 2–10, `telephone` 4–8) and must stay within them; it cannot be set below the current player count (400).
-- `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|medium|hard|mixed`, `wordSource` `built-in|custom|combined`, `wordCategories` list of ≤ 20 distinct category keys or `["random-mix"]`, `wordPackIds` list of ≤ 10 distinct lowercase UUID strings — word keys in §2.4; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `entriesPerChain` `0` (auto) or integer 4–8 *(Phase 6, proposed D38)*, `allowSkipTimeout` bool — only `true` accepted *(Phase 6, proposed D39)*). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
+- `maxPlayers` defaults to 8 clamped to the game's bounds (`draw-guess` 2–10, `telephone` 4–8, `dino-impostor` 4–10, `sketchy-saurus` 4–10) and must stay within them; it cannot be set below the current player count (400).
+- `settings` is a flat object validated against the game's schema (`draw-guess`: `cycles` 1–5, `drawSeconds` 30–180, `wordChoiceSeconds` 5–30, `hintReveal` bool, `difficulty` `easy|medium|hard|mixed`, `wordSource` `built-in|custom|combined`, `wordCategories` list of ≤ 20 distinct category keys or `["random-mix"]`, `wordPackIds` list of ≤ 10 distinct lowercase UUID strings — word keys in §2.4; `telephone`: `promptSeconds` 20–120, `drawSeconds` 30–180, `describeSeconds` 20–90, `entriesPerChain` `0` (auto) or integer 4–8 *(Phase 6, proposed D38)*, `allowSkipTimeout` bool — only `true` accepted *(Phase 6, proposed D39)*; `dino-impostor` *(Phase 9, proposed)*: `rounds` `0` (auto) or 3–10, `laps` 1–3, `turnSeconds` 10–60, `voteSeconds` 30–120, `guessSeconds` 15–60, `difficulty` `easy|medium|mixed`; `sketchy-saurus` *(Phase 9, proposed)*: `rounds`, `voteSeconds`, `guessSeconds`, `difficulty` as `dino-impostor`, `sketchSeconds` 30–120, `impostorKnows` bool, `unawareGuess` bool). Unknown keys or out-of-range values are 400 with `fieldErrors`; omitted keys take defaults. Supplying `settings` replaces the whole object. Changing `gameKey` resets settings to the supplied/default values.
 - `players[]` lists active members ordered by join time. `score` is the engine's running total while a session is `RUNNING`/`FINISHED` (after `RESULTS`→`WAITING` it is `null` again) and always `null` for unscored games; `sessionId` is the current session (`RUNNING` or awaiting rematch) or `null`. Members who left or timed out during a session are no longer in `players[]`; their final score stays in the results.
 - `ready` (Phase 3) is server-authoritative and persisted per membership: `false` on join/rejoin, changed only by `SET_READY` / `POST …/ready` while the room is `WAITING`.
 - `connection` (Phase 3): `DISCONNECTED` while a member's STOMP connection is gone and the grace period (`app.realtime.disconnect-grace`, default 30 s) has not expired; otherwise `CONNECTED`. A member who has never opened a STOMP connection (REST-only client) is reported `CONNECTED` and is never timed out. `LEFT` is not used in `players[]` (left members are removed).
@@ -109,7 +109,7 @@ AlbumEntryDto   { step /* 0-based */, kind:"TEXT|DRAWING", authorGuestId, author
 - `inviteUrl` = `{APP_PUBLIC_URL}/join/{CODE}`.
 - Rate limits: `POST /guests` per client IP and join per guest answer `429 RATE_LIMITED` with `Retry-After`.
 
-`GameSnapshot` is viewer-specific. Every game's snapshot starts with the engine-owned common header (Phase 4) followed by the game's own fields, flat in the same object:
+`GameSnapshot` is viewer-specific (Dino Impostor and Sketchy Saurus snapshots: §3.11, §3.12). Every game's snapshot starts with the engine-owned common header (Phase 4) followed by the game's own fields, flat in the same object:
 
 ```
 GameSnapshotHeader { sessionId, gameKey, status:"RUNNING|FINISHED", order:[guestId],
@@ -374,7 +374,7 @@ Private stream (`/user/queue/rooms/{code}`):
 
 ### 3.6 Extension rule for new games
 
-New games add command and event `type` values with a game prefix (e.g. `FAKEARTIST_*`) and a `GameSnapshot` variant; they must not change the envelope, common events, or existing game payloads. (Draw & Guess and Telephone keep their unprefixed names from §3.3/§3.4; they are the reference games.)
+New games add command and event `type` values with a game prefix (e.g. `FAKEARTIST_*`) and a `GameSnapshot` variant; they must not change the envelope, common events, or existing game payloads. (Draw & Guess and Telephone keep their unprefixed names from §3.3/§3.4; they are the reference games.) A **family** of games built on shared code may share one prefix for the types they have in common (Dino Impostor and Sketchy Saurus: `IMPOSTOR_*`, §3.11) and use their own prefix for the rest (`SKETCHY_*`, §3.12); a shared type has one payload in every game of the family.
 
 ### 3.7 Game session lifecycle events (Phase 4)
 
@@ -474,6 +474,89 @@ Rejections leave state unchanged. `ACTION_ACK` follows accepted commands. Roles 
 
 **Settings and start.** `entriesPerChain` is resolved when the roster freezes (`min(setting, n)`, auto = `n` if even else `n − 1`); the effective value is `totalSteps`. Start errors are the engine's; no Telephone-specific start check exists besides the roster size.
 
+### 3.11 Impostor games: shared part and Dino Impostor (Phase 9 — design only; decisions D50–D64, approved rows in `decisions-and-risks.md` §9)
+
+Rules: `docs/game-rules.md` (`[DI-1]…[DI-14]`); plan: `docs/dino-impostor-plan.md`. Game key `dino-impostor`; `GameDefinition`: 4–10 players, `minActivePlayers` 3, scored. Phases (`PHASE_STARTED.phase`): `ROLE_REVEAL`, `DRAWING` (**one phase per turn**, each with a fresh `phaseId`), `VOTE`, `GUESS`, `ROUND_END`. All commands carry `actionId` and the current `phaseId` (§3.3); the validation order is the engine pipeline (`game-engine.md` §4.1). The **shared** commands and events below (prefix `IMPOSTOR_*`, D62) are also used by Sketchy Saurus (§3.12), whose voting phase is called `GALLERY`.
+
+**Commands**
+
+| `type` | Sender | Legal phase | Payload | Per-type limits | Effect | Errors (code — when) |
+|---|---|---|---|---|---|---|
+| `IMPOSTOR_DRAW_STROKE` | the turn's drawer | `DRAWING` | identical to `DRAW_STROKE` (§3.9) except `tool` must be `"PENCIL"` and `color` the sender's session colour | 8 KiB; 30/s, burst 40 | Appends the batch to the shared canvas (`drawing.CanvasBuffer`, `[DG-14]` limits) and publishes `IMPOSTOR_DRAWING_UPDATED`; the `final` batch ends the turn | `NOT_DRAWER` (not the drawer of this turn), `VALIDATION_FAILED` (schema; `ERASER`; wrong colour), `INVALID_ACTION` (batch order/style), `ALREADY_SUBMITTED` (a second stroke in the turn), `PAYLOAD_TOO_LARGE`, `STALE_ACTION` (an earlier turn's `phaseId`, or after the turn deadline), `INVALID_PHASE`, `RATE_LIMITED` |
+| `IMPOSTOR_CHAT` *(shared)* | roster member, not `LEFT` | `VOTE` / `GALLERY` | `{text}`: after stripping `Cc`/`Cf` and trimming, 1–120 code points | 1 KiB; 5 per 10 s | Publishes `IMPOSTOR_CHAT_MESSAGE` | `VALIDATION_FAILED`, `RATE_LIMITED`, `STALE_ACTION`, `INVALID_PHASE`, `NOT_IN_ROOM` |
+| `IMPOSTOR_VOTE` *(shared)* | roster member, not `LEFT` | `VOTE` / `GALLERY` | `{targetGuestId:uuid\|null}` — `null` withdraws the vote | 256 B; 10 per 10 s | Records/replaces/withdraws the sender's vote; publishes `IMPOSTOR_VOTE_PROGRESS`; may close the phase early (`[DI-9]`) | `VALIDATION_FAILED` (not a uuid; self; not a roster member; a member who is `LEFT`), `STALE_ACTION`, `INVALID_PHASE`, `NOT_IN_ROOM` |
+| `IMPOSTOR_GUESS` *(shared)* | the caught impostor | `GUESS` | `{text}`: 1–80 code points after trim (as `SUBMIT_GUESS`) | 1 KiB; 2/s, burst 3 | Final guess; ends `GUESS` | `FORBIDDEN` (anyone else), `VALIDATION_FAILED`, `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` |
+
+Rejections leave state unchanged; `ACTION_ACK` follows accepted commands. Roles, turns and targets are checked against the authenticated principal; the payload never names the sender.
+
+**Events**
+
+| `type` | Stream | Payload |
+|---|---|---|
+| `PHASE_STARTED` | public | common fields plus `round`, `totalRounds`; `DRAWING`: `lap`, `laps`, `turn` (0-based), `totalTurns`, `drawerGuestId`, `seatOrder:[guestId]`; `GUESS`: `impostorGuestId` |
+| `IMPOSTOR_ROLE` *(shared)* | private, every roster member not `LEFT`, in the `ROLE_REVEAL` transition | `{phaseId, round, role:"ARTIST"\|"IMPOSTOR", category:{key, label}, word:string\|null}` — same shape for everyone; see §3.12 for the unaware impostor |
+| `IMPOSTOR_DRAWING_UPDATED` | public | `{kind:"STROKE", authorGuestId, strokeId, batchNo, tool, color, size, points, final}` — each accepted batch unchanged plus its author; the drawer's client ignores its own echo |
+| `IMPOSTOR_CHAT_MESSAGE` *(shared)* | public | `{guestId, text, ts}` |
+| `IMPOSTOR_VOTE_PROGRESS` *(shared)* | public | `{phaseId, votedGuestIds:[guestId]}` — who has a vote in, never the targets |
+| `IMPOSTOR_VOTE_CLOSED` *(shared)* | public, closing event of `VOTE`/`GALLERY` | `{round, votes:{voterGuestId:targetGuestId}, accusedGuestId:guestId\|null /* strict top, else null */, caught:boolean, impostorGuestId:guestId\|null /* only when caught */}` |
+| `IMPOSTOR_GUESS_OPEN` *(shared)* | private, the caught impostor | `{phaseId, round, category:{key, label}, deadlineAt}` |
+| `IMPOSTOR_ROUND_ENDED` *(shared)* | public, closing event of the round | `{round, outcome:"ESCAPED"\|"GUESSED"\|"CAUGHT"\|"IMPOSTOR_LEFT", impostorGuestId, category:{key, label}, word, decoyWord:string\|null, votes:{voter:target}, guess:string\|null, scoreDeltas:{guestId:int}, scores:{guestId:int}}` — `CAUGHT` = caught and wrong or no guess |
+
+**Secrets.** The word and the decoy appear in no public event before `IMPOSTOR_ROUND_ENDED`; the impostor's identity in none before `IMPOSTOR_VOTE_CLOSED` (when caught) or `IMPOSTOR_ROUND_ENDED`; vote targets in none before `IMPOSTOR_VOTE_CLOSED`. None of them appear in another viewer's snapshot, a `GAME_ERROR` or a log line. Every `IMPOSTOR_ROLE` of a round is sent in the same transition and serializes to the same set of fields.
+
+**`DinoImpostorSnapshot`** (common header first, §2.1):
+
+```
+DinoImpostorSnapshot { round, totalRounds, laps, seatOrder:[guestId], colors:{guestId:"#RRGGBB"},
+                       lap|null, turn|null, totalTurns, drawerGuestId|null /* DRAWING only */,
+                       role:{role, category:{key, label}, word|null}|null /* viewer only; null for spectators */,
+                       strokes:ImpostorStroke[] /* the shared canvas in drawing order */,
+                       canvasBudget:{points, maxPoints:12000, strokes, maxStrokes:300},
+                       votedGuestIds:[guestId], myVote:guestId|null /* VOTE: viewer only */,
+                       recentChat:[{guestId, text, ts}] /* ≤ 30, oldest first; empty outside VOTE…ROUND_END */,
+                       voteClosed:IMPOSTOR_VOTE_CLOSED payload|null /* GUESS, ROUND_END */,
+                       roundEnd:IMPOSTOR_ROUND_ENDED payload|null /* ROUND_END */ }
+ImpostorStroke       { …Stroke (§2.1), closed:boolean, authorGuestId }
+```
+
+**Results.** `standings[].detail`: `{roundsAsImpostor, escapes, correctGuesses, impostorsFound}` (`impostorsFound` = rounds the player voted for a caught impostor). `ResultsDto.rounds[].meta`: `{impostorGuestId, word, category, decoyWord|null, outcome, accusedGuestId|null}`; `endReason` = `outcome`.
+
+### 3.12 Sketchy Saurus (Phase 9 — design only)
+
+Rules: `docs/game-rules.md` (`[SS-1]…[SS-3]` plus the shared `[DI-*]`). Game key `sketchy-saurus`; 4–10 players, `minActivePlayers` 3, scored. Phases: `ROLE_REVEAL`, `SKETCH`, `GALLERY` (voting), `GUESS`, `ROUND_END`. Shared commands and events as §3.11 (`GALLERY` wherever §3.11 says `VOTE`).
+
+**Commands** (Sketchy only)
+
+| `type` | Sender | Legal phase | Payload | Per-type limits | Effect | Errors |
+|---|---|---|---|---|---|---|
+| `SKETCHY_DRAW_STROKE` | roster member, not `LEFT` | `SKETCH` | identical to `DRAW_STROKE` (§3.9) | 8 KiB; 30/s, burst 40 | Appends to the sender's private draft (≤ 1 500 live points, 100 strokes per drawing, other `[DG-14]` limits); **not published** | as `TELEPHONE_DRAW_STROKE` (§3.10) |
+| `SKETCHY_DRAW_UNDO` / `SKETCHY_DRAW_CLEAR` | same | `SKETCH` | `{}` | as `TELEPHONE_DRAW_UNDO`/`CLEAR` | On the sender's draft | `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` |
+| `SKETCHY_SUBMIT` | same | `SKETCH` | `{}` | 128 B; 2/s, burst 3 | Makes the draft (possibly empty) final; `SKETCHY_PROGRESS`; ends `SKETCH` if it was the last | `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` |
+
+**Events** (Sketchy only)
+
+| `type` | Stream | Payload |
+|---|---|---|
+| `SKETCHY_PROGRESS` | public | `{phaseId, submittedGuestIds:[guestId]}` |
+| `SKETCHY_GALLERY_OPENED` | public, after `PHASE_STARTED{GALLERY}` | `{round, drawings:[{guestId, strokes:Stroke[], empty:boolean}]}` in seat order of the roster (`order`), one per player not `LEFT` when `SKETCH` ended |
+
+**Unaware impostor** (`impostorKnows = false`, D63). Their `IMPOSTOR_ROLE` is `{role:"ARTIST", category, word:<decoy>}`: the same fields, types and transition as every artist's, and their snapshot's `role` likewise; nothing they receive before `IMPOSTOR_VOTE_CLOSED` differs in shape. When caught with `unawareGuess = true` they get `IMPOSTOR_GUESS_OPEN`; with `unawareGuess = false` the round goes from `GALLERY` straight to `ROUND_END` (`outcome:"CAUGHT"`). `IMPOSTOR_ROUND_ENDED.decoyWord` names the decoy.
+
+**`SketchySaurusSnapshot`**:
+
+```
+SketchySaurusSnapshot { round, totalRounds,
+                        role:{role, category:{key, label}, word|null}|null /* viewer only */,
+                        draft:{strokes:Stroke[], canvasBudget:{points, maxPoints:1500, strokes, maxStrokes:100}}|null /* SKETCH: viewer's own */,
+                        submitted:boolean, submittedGuestIds:[guestId],
+                        gallery:[{guestId, strokes:Stroke[], empty}]|null /* GALLERY onward */,
+                        votedGuestIds, myVote, recentChat, voteClosed, roundEnd /* as DinoImpostorSnapshot */ }
+```
+
+Size: with the D64 budget the maximal `GALLERY` snapshot (10 full drawings + 30 chat lines) must serialize to `< 262 144` bytes; a test asserts it, and the per-drawing budget is lowered if it does not.
+
+**Results** as §3.11.
+
 ## 4. Phase 4 changes to existing contract text
 
 Everything below is additive unless stated.
@@ -522,3 +605,13 @@ Everything below is additive unless stated.
 | §2.1 | `SettingField` gains `type:"list"`, `autoValue`, `maxItems`, `itemFormat`, `exclusiveOption`; `step` removed (never used); absent members are omitted |
 | §2.1 | `LastSessionDto` semantics spelled out (countdown keeps the previous value, `RESULTS` shows the finished session, `endReason` per status) |
 | §3.4 | `ROOM_CLOSED.reason` gains `IDLE` (idle-room sweep) |
+
+### Phase 9 contract changes (Dino Impostor, Sketchy Saurus; design only, decisions D50–D64)
+
+| Where | Change |
+|---|---|
+| §1 error codes | None new: out-of-turn strokes use `NOT_DRAWER`, a second stroke/submit `ALREADY_SUBMITTED`, a guess by anyone but the caught impostor `FORBIDDEN`, a too-small word pool `WORD_POOL_TOO_SMALL` |
+| §2.2 | `maxPlayers` bounds and settings for `dino-impostor` and `sketchy-saurus` |
+| §3.6 | Family prefix for types shared by games built on shared code |
+| §3.11 | New: shared impostor commands/events (`IMPOSTOR_*`), Dino Impostor commands, events, secrets, snapshot, results |
+| §3.12 | New: Sketchy Saurus commands/events (`SKETCHY_*`), unaware impostor, snapshot and size bound |

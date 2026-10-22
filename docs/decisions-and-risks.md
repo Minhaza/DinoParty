@@ -71,7 +71,7 @@ Please approve, amend or reject. Anything unanswered is implemented as PROPOSED.
 | D7 | Room code is the only invite secret; unlisted rooms; no public browser | Approve |
 | D8 | Event sequencing: two streams (public per-room seq, private per-recipient seq) | Approve |
 | D9 | Frontend test runner/E2E: Vitest + Testing Library, Playwright | Approve |
-| D10 | Fake Artist naming/IP review before building it | Required before any implementation |
+| D10 | Fake Artist naming/IP review before building it | Required before any implementation. Names chosen (D50, §9); the originality checklist is signed off in P9-01 |
 | D11 | Dev ports: backend 8080, frontend 5173, Postgres 5432 (compose maps 5433 on host to avoid clashes) | Approve |
 | D12 | Branching: one branch per task; PRs into `main`; squash merge | Approve |
 
@@ -192,3 +192,48 @@ Deployment risks (Render free tier):
 | R32 | Free web services spin down after ~15 min without inbound traffic; the restart ends live games (D13) and the next visitor waits for a cold start (tens of seconds). | Accepted for a demo; Starter plan (always on) before real use. |
 | R33 | Render deploys start the new instance before stopping the old one (no persistent disk on free tier), so startup recovery (D13) can mark sessions `INTERRUPTED` that the old instance is still running. | Deploy when no games run; the old instance's graceful shutdown aborts its sessions anyway. A paid instance with a disk gets stop-then-start deploys. |
 | R34 | Free PostgreSQL expires after 30 days and has no backups. | Demo data only; paid database before real use. |
+
+## 9. Phase 9 decisions (Dino Impostor and Sketchy Saurus)
+
+Plan: `docs/dino-impostor-plan.md` (it answers the open list FA-Q1…FA-Q16 of `fake-artist-proposal.md`, which it supersedes). Contract: `api-contracts.md` §3.11 (shared impostor family + Dino Impostor), §3.12 (Sketchy Saurus). Rules: `game-rules.md` `[DI-*]`, `[SS-*]`. Status: rows marked **Approved** were chosen by the user on 2026-10-22; every other row is **PROPOSED** and already applied in the docs. A rejected row changes rules and contract in a `docs(contract)` commit before the task that needs it (P9-02: D50–D56, D60, D62; P9-03: D57–D59, D61; P9-04: D63, D64).
+
+| ID | Decision | Recommendation | Alternative / consequence |
+|---|---|---|---|
+| D50 | Names and originality (D10). | **Approved names:** Dino Impostor (`dino-impostor`) and Sketchy Saurus (`sketchy-saurus`). Original copy, art and badges; no reference to the tabletop title in product text. The originality checklist (names, rules text, UI copy, art) is signed off by the user when this P9-01 change is approved (§9.1). | One game with a mode (rejected, D62). |
+| D51 | Player counts. | 4–10 at start (`maxPlayers` default 8); `minActivePlayers` 3. | 3 at start: the vote is close to a coin flip. |
+| D52 | Impostor choice. | **Approved:** exactly 1 per round by fair rotation — among the roster members not `LEFT` with the fewest impostor rounds so far, uniformly at random, drawn from the injected `RandomSource` (not the session seed, so the stored seed cannot reveal it; as the D&G word choice). | Uniform random each round (someone may never or always be the impostor). |
+| D53 | What each viewer is told. | Artists: category + word. Impostor: category + their role. Exception: D63. | Impostor gets nothing (too hard, round is a guess). |
+| D54 | Dino Impostor turns. | `laps` 1–3 (default 2), one stroke per turn, `turnSeconds` 10–60 (default 25); the turn ends on the stroke's `final` batch or the deadline (empty turn). | A stroke count per turn (harder to explain, longer turns). |
+| D55 | Dino Impostor seat order. | Reshuffled each round from the session's random source; the impostor is never seat 0 (the shuffle is redrawn deterministically by rotating the impostor one seat later). | Fixed order for the session (the impostor's seat becomes a pattern). |
+| D56 | Dino Impostor stroke identity and accessibility. | A fixed per-player colour for the session from a 10-colour palette chosen for colour-blind distinguishability, plus initial badges and a stroke legend; `PENCIL` only, the batch colour must be the sender's, no undo/clear. Author shown during play. | Free colours (strokes not attributable); allowing undo (one player could remove another's stroke). |
+| D57 | Voting and chat. | **Chat approved:** no chat while drawing, a public chat only while voting. Voting: `voteSeconds` 30–120 (default 60); secret votes (others see who has voted), changeable, withdrawable, no self-vote; early close once every active player has a vote in and ≥ 15 s have passed; caught = strictly the most votes, a tie or no votes = escaped. | Open votes (bandwagoning); majority threshold (rarely reached with 10 players). |
+| D58 | Caught impostor's guess. | **Approved:** one guess, `guessSeconds` 15–60 (default 30), matched by the D&G normalizer moved to `words` (exact after normalization; close does not count); timeout = wrong. | No guess (impostor has nothing to play for once suspected). |
+| D59 | Rounds, scoring, reveal. | **Approved structure:** N rounds with rotation; `rounds` 0 (auto = players at start, clamped 3–10) or 3–10. Points per round: escaped → impostor +2; caught + right guess → impostor +2; caught + wrong/no guess → each artist +1 and +1 more for each artist who voted for the impostor. `ROUND_END` 8 s shows impostor, word, decoy, all votes, guess and points. | Single round per game, with rematch to replay. |
+| D60 | Word source. | Built-in catalog (9 categories), `easy|medium|mixed` (`EASY` ∪ `MEDIUM` for `mixed`), room locale; no word twice in a session; custom packs not supported (no categories). | Custom packs with a "category" column (a WP-03 contract change). |
+| D61 | Leaving and disconnects. | 60 s grace (D25). The impostor `LEFT` → the round ends `IMPOSTOR_LEFT` with no points. Votes for a player who left are dropped. DI: a disconnected drawer's turn runs out. SS: a disconnected player's draft is what counts. Fewer than 3 active → `[C-1]`. | Replace the impostor mid-round (the new one has seen the word). |
+| D62 | One game with a mode, or two games. | **Approved:** two games (two registry rows, two settings schemas, enabled separately) built on one backend package `games.impostor` and one frontend folder. The shared voting/chat/guess/round types use the prefix `IMPOSTOR_*` in both games; Sketchy-only types use `SKETCHY_*` (§3.6 gains a family-prefix sentence). | One game with `mode`: conditional settings the generic form cannot show, one launch for both. |
+| D63 | Sketchy Saurus: impostor awareness. | **Approved settings:** `impostorKnows` (default `true`) and `unawareGuess` (default `false`, only used when `impostorKnows` is `false`). Unaware impostor: gets a decoy word (same category and difficulty, different after normalization, unused elsewhere in the session) and an `ARTIST` role, events and snapshot of the same shape as an artist's. Caught: with `unawareGuess` a private `IMPOSTOR_GUESS_OPEN` tells them and opens the guess; otherwise no guess. | Decoy pairs curated by hand (better balance, needs authoring). |
+| D64 | Sketchy Saurus drawing transport and limits. | Private server-held drafts (as D36) over `SKETCHY_DRAW_*`, not echoed to anyone; per drawing ≤ 1 500 live points and 100 strokes (other `[DG-14]` limits unchanged), so a 10-drawing gallery in one event and one snapshot stays < 256 KiB; the exact figures are fixed by the maximal-snapshot test in P9-04. Drawings live in memory for the round only (not persisted). | Larger drafts simplified by the server when the gallery opens; or a gallery size budget with omitted drawings (Telephone's reveal), both more code. |
+
+Phase 9 risks:
+
+| # | Risk | Mitigation |
+|---|---|---|
+| R35 | The word or the impostor's identity leaks (public event, other viewer's snapshot, error, log), or an unaware impostor can tell their role from event shape, size or timing. | Per-viewer `*Views` as the single place for secrets; every player gets one `IMPOSTOR_ROLE` of the same shape in the same transition; a secrecy harness records every frame of every client over full games of both, in each setting, and checks content, order and shape. |
+| R36 | A 10-drawing gallery exceeds 256 KiB. | D64 budget; maximal-gallery snapshot and event tests; lower the budget rather than the engine bound. |
+| R37 | The catalog cannot supply `rounds` words plus decoys at one difficulty. | `prepare` rejects with `WORD_POOL_TOO_SMALL` (as D&G); 9 categories and the current word counts cover 10 rounds at every difficulty. |
+| R38 | Moving `GuessMatcher` to `words` changes Draw & Guess matching. | Its own commit in P9-02; D&G tests unchanged and green. |
+| R39 | Dino Impostor games run long with 10 players (≈ 8 min of drawing at the defaults). | Turns end on the stroke's last batch; defaults tuned from the P9-07 play tests. |
+
+### 9.1 Originality checklist (D10, D50)
+
+Signed off by the user when approving P9-01. Each item is checked against the published tabletop game the idea came from.
+
+| # | Item | Check |
+|---|---|---|
+| O1 | Names | "Dino Impostor" and "Sketchy Saurus" do not use or imitate the tabletop title or its words ("fake artist", "New York", "question master"). |
+| O2 | Rules text | `game-rules.md` Games 3–4 are written from scratch; no sentence is taken or paraphrased from the published rulebook. |
+| O3 | Roles and terms | Roles are "artist" and "impostor"; the game has no question-master role (the server picks the words). |
+| O4 | UI copy | All screens, tooltips and help text written for DinoParty (reviewed in P9-05/P9-06). |
+| O5 | Art | Badges, banners and colours are original DinoParty art (reviewed in P9-05). |
+| O6 | Words | Only the DinoParty word catalog (D60); no word lists from the published game. |

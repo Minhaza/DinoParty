@@ -8,7 +8,7 @@ All values marked *(default)* are configurable within the stated bounds. The ser
 - Every phase has a server `deadlineAt`, except Telephone's `REVEAL` (`deadlineAt: null`; it is driven by the host with a server auto-advance, `[TP-6]`). Client clocks are display-only.
 - Actions carry `actionId` and `phaseId`; duplicates are ignored (idempotent ack), stale ones rejected.
 - A disconnected player has a reconnection grace period (30 s lobby / 60 s in-game, default). After it, the player is `LEFT` for the current session (they may rejoin only after the game ends, in the lobby). The in-game value needs its own setting (`app.realtime.in-game-disconnect-grace`, default 60 s); Phase 3 has only the lobby value.
-- If the number of players not `LEFT` falls below the game's `minActivePlayers` during play (draw-guess 2, telephone 3), the game ends early `[C-1]`: with results computed from the completed rounds if there is at least one, otherwise it is aborted with no results and the room returns to `WAITING`. A player who is merely `DISCONNECTED` (inside the grace period) still counts as active, so a network blip never ends a game.
+- If the number of players not `LEFT` falls below the game's `minActivePlayers` during play (draw-guess 2, telephone 3, dino-impostor 3, sketchy-saurus 3), the game ends early `[C-1]`: with results computed from the completed rounds if there is at least one, otherwise it is aborted with no results and the room returns to `WAITING`. A player who is merely `DISCONNECTED` (inside the grace period) still counts as active, so a network blip never ends a game.
 - Host leaving permanently transfers hosting to the longest-connected remaining player `[C-2]`.
 - Text input: trimmed, 1–N chars, control characters stripped, HTML never rendered. Nicknames 2–20 chars.
 - Rematch: in `RESULTS`, players vote; the host voting yes, or every connected member voting yes, returns the room to `WAITING` with the same members, host, game and settings `[C-3]`. Details and the other engine-level rules are below.
@@ -212,6 +212,98 @@ Albums are reconstructed from `game_submission` by `(session_id, chain_index, st
 
 ---
 
+## Game 3 — Dino Impostor (`dino-impostor`)
+
+Players: **4–10**; `minActivePlayers` 3 (`[C-1]`); scored. Every round one player, the **impostor**, does not know the secret word; the others (**artists**) do. Players add one stroke at a time to one shared canvas, then vote for whoever they think is the impostor. Plan and decisions: `docs/dino-impostor-plan.md`, D50–D62 (`decisions-and-risks.md` §9; approved rows marked there, the rest **proposed**); contract: `api-contracts.md` §3.11. Rules marked *(shared)* also apply to Game 4 (Sketchy Saurus), which shares their code.
+
+### Settings (host, in WAITING only)
+
+| Setting | Default | Bounds |
+|---|---|---|
+| `rounds` | 0 (auto) | 0 or 3–10; auto = the number of players when the roster freezes, clamped to 3–10 *(D59)* |
+| `laps` | 2 | 1–3 *(D54)* |
+| `turnSeconds` | 25 | 10–60 *(D54)* |
+| `voteSeconds` | 60 | 30–120 *(D57)* |
+| `guessSeconds` | 30 | 15–60 *(D58)* |
+| `difficulty` | `mixed` | `easy`, `medium`, `mixed` (= `EASY` ∪ `MEDIUM`) *(D60)* |
+
+Constants (not settings): role reveal 5 s, round end 8 s, vote early-close minimum 15 s, chat 1–120 characters, drawing limits of `[DG-14]`.
+
+### Rules
+
+1. **`[DI-1]` Players** *(shared)*. 4–10 connected players to start; the game continues while at least 3 roster members are not `LEFT` (`[C-1]`).
+2. **`[DI-2]` Rounds and words** *(shared)*. The effective round count `R` is resolved when the roster freezes. At host start `prepare` draws `R` distinct words from the built-in catalog in the room's locale at the set difficulty, each with its category; a pool that cannot supply them (Sketchy Saurus: plus decoys, `[SS-3]`) rejects the start with `WORD_POOL_TOO_SMALL` *(D60)*. Words are drawn with the injected `RandomSource`, never the session seed.
+3. **`[DI-3]` Impostor rotation** *(shared)*. At each round start exactly one impostor is chosen among the roster members not `LEFT` who have been impostor the fewest times so far, uniformly at random among them (`RandomSource`) *(D52)*. Over `R = k·n` rounds with nobody leaving, everyone is impostor exactly `k` times; in general everyone's count differs by at most 1.
+4. **`[DI-4]` Roles and secrecy** *(shared)*. At `ROLE_REVEAL` every player not `LEFT` privately receives `IMPOSTOR_ROLE` in the same transition: artists `{role:ARTIST, category, word}`, the impostor `{role:IMPOSTOR, category, word:null}` (Sketchy Saurus exception: `[SS-3]`). The word and the decoy are in no public event before `IMPOSTOR_ROUND_ENDED`; the impostor's identity in none before the vote result (`IMPOSTOR_VOTE_CLOSED`, which names them only when caught) or `IMPOSTOR_ROUND_ENDED`; and none of them is ever in another viewer's snapshot, an error or a log line. Spectators and outsiders get no role and see the category only at the reveal.
+5. **`[DI-5]` Seat order.** Each round the seat order is a fresh shuffle of the players not `LEFT` (session random source); if the impostor lands in seat 0 they are moved to seat 1 and the others keep their order *(D55)*. The order is public.
+6. **`[DI-6]` Turns and strokes.** A round has `laps × n` turns in seat order (`n` = seated players); each turn is its own `DRAWING` phase with a fresh `phaseId`. Only the player whose turn it is may draw (`NOT_DRAWER` otherwise); they draw **one** stroke: `PENCIL` only, in their own session colour (`VALIDATION_FAILED` otherwise), within the `[DG-14]` limits; a second stroke in the same turn is `ALREADY_SUBMITTED`. There is no undo or clear. Every accepted batch is published live with its author *(D54, D56)*. A batch carrying an earlier turn's `phaseId` is `STALE_ACTION`.
+7. **`[DI-7]` Turn end.** A turn ends when the drawer's stroke receives its `final` batch, or at the turn deadline (`turnSeconds`; an open stroke is closed as it is, no stroke = an empty turn). A drawer who is `DISCONNECTED` keeps the turn until its deadline; one who is `LEFT` is skipped at once. `[C-6]` applies to every turn deadline.
+8. **`[DI-8]` Chat** *(shared)*. `IMPOSTOR_CHAT` only in the voting phase (`VOTE`, Sketchy Saurus `GALLERY`); public; text 1–120 code points after stripping `Cc`/`Cf` and trimming; 5 per 10 s per player; rendered as text, never HTML. No chat in any other phase *(D57)*.
+9. **`[DI-9]` Voting** *(shared)*. In the voting phase (`voteSeconds`) every player not `LEFT` may vote for one other player not `LEFT`; self-votes are `VALIDATION_FAILED`. A vote can be changed or withdrawn (`target:null`) until the phase ends. Others see only who has voted, never for whom. The phase ends at its deadline, or early when every player not `LEFT` has a vote in **and** at least 15 s of the phase have passed (checked on each vote and by a deadline at the 15 s mark). A player who becomes `LEFT` loses their vote and every vote for them is dropped *(D57)*. When the phase ends, every vote is published, with the accused player (strict top) and, if caught, the impostor.
+10. **`[DI-10]` Caught or escaped** *(shared)*. The impostor is **caught** when they have strictly more votes than any other player; a tie at the top, or no votes at all, means they **escaped**.
+11. **`[DI-11]` Guess** *(shared)*. A caught impostor who knew their role gets `GUESS` (`guessSeconds`) and one `IMPOSTOR_GUESS`. It is correct when it equals the word after the shared normalization (the Draw & Guess matcher's rules, moved to `words`); "close" counts as wrong; no guess by the deadline is wrong *(D58)*. Sketchy Saurus: `[SS-3]`.
+12. **`[DI-12]` Scoring** *(shared)*. Per round: escaped → impostor +2; caught and guessed right → impostor +2; caught and wrong (or no guess allowed) → every artist +1, plus +1 for each artist whose final vote was the impostor. Nobody else scores. Totals and ranking are the engine's (`[C-8]`; display tie-break: seat order of the last round) *(D59)*.
+13. **`[DI-13]` Leaving and disconnects** *(shared)*. `DISCONNECTED` inside the grace changes nothing. If the **impostor** becomes `LEFT` during a round, the round ends at once with outcome `IMPOSTOR_LEFT`, no points, and the reveal. Others who leave are dropped from the seating, votes and chat; fewer than 3 not `LEFT` ends the game per `[C-1]` (results if at least one round completed) *(D61)*.
+14. **`[DI-14]` Reveal** *(shared)*. `ROUND_END` (8 s) publishes `IMPOSTOR_ROUND_ENDED` with the impostor, word, category, decoy (Sketchy Saurus, else `null`), every final vote, the guess and the points; snapshots in `ROUND_END` carry the same. Then the next round's `ROLE_REVEAL`, or after round `R` the game finishes (`[C-10]`). Rematch per `[C-3]`; rotation counts start again.
+
+### Phase flow
+
+| Phase | Duration | Ends early when |
+|---|---|---|
+| `ROLE_REVEAL` | 5 s | — |
+| `DRAWING` (one phase per turn) | `turnSeconds` | the drawer's stroke receives its `final` batch, or the drawer is `LEFT` |
+| `VOTE` | `voteSeconds` | everyone voted and ≥ 15 s passed |
+| `GUESS` | `guessSeconds` | the guess arrives |
+| `ROUND_END` | 8 s | — |
+
+### Dino Impostor edge cases
+
+| Case | Behavior |
+|---|---|
+| Stroke from a player whose turn it is not | `NOT_DRAWER`; canvas unchanged. |
+| Second stroke in a turn | `ALREADY_SUBMITTED`. |
+| `ERASER`, or a colour other than the sender's | `VALIDATION_FAILED`. |
+| Batch after the turn deadline | `STALE_ACTION` (`[C-6]`); the stroke was closed as it stood. |
+| Drawer leaves mid-turn | Their stroke so far stays; the next turn starts at once. |
+| Impostor leaves | `IMPOSTOR_LEFT`, no points, reveal, next round. |
+| Vote for self / for a player who left | `VALIDATION_FAILED`. |
+| Tie at the top of the vote | Escaped (`[DI-10]`). |
+| Reconnect in any phase | Snapshot: own role, strokes with authors, turn, own vote, voted list, chat, reveal. |
+
+---
+
+## Game 4 — Sketchy Saurus (`sketchy-saurus`)
+
+Players: **4–10**; `minActivePlayers` 3; scored. The same family as Game 3 — `[DI-1]`–`[DI-4]` and `[DI-8]`–`[DI-14]` apply unchanged — but everyone draws at the same time on their own hidden canvas, and the voting happens over a gallery of all drawings. Decisions D50–D64; contract `api-contracts.md` §3.12.
+
+### Settings (host, in WAITING only)
+
+| Setting | Default | Bounds |
+|---|---|---|
+| `rounds`, `voteSeconds`, `guessSeconds`, `difficulty` | as Game 3 | as Game 3 |
+| `sketchSeconds` | 60 | 30–120 |
+| `impostorKnows` | `true` | bool *(D63)* |
+| `unawareGuess` | `false` | bool; ignored when `impostorKnows` is `true` *(D63)* |
+
+### Rules
+
+1. **`[SS-1]` Phases.** `ROLE_REVEAL` (5 s) → `SKETCH` (`sketchSeconds`) → `GALLERY` (the voting phase of `[DI-9]`, `voteSeconds`) → `GUESS` when `[DI-11]`/`[SS-3]` allow it → `ROUND_END` (8 s).
+2. **`[SS-2]` Sketching.** In `SKETCH` every player not `LEFT` draws on their own private canvas with `SKETCHY_DRAW_STROKE`/`UNDO`/`CLEAR` (full toolset, any colour) within ≤ 1 500 live points and 100 strokes per drawing (other `[DG-14]` limits unchanged) *(D64)*. Nothing of a drawing reaches anyone else before `GALLERY`; batches are not echoed. `SKETCHY_SUBMIT` makes the drawing final (`ALREADY_SUBMITTED` for further input). The phase ends at its deadline or when every player not `LEFT` has submitted; at the deadline each unsubmitted draft becomes that player's drawing as it stands; an empty drawing is shown as "no drawing". `GALLERY` publishes every drawing with its artist.
+3. **`[SS-3]` Impostor awareness** *(D63)*. With `impostorKnows = true` the impostor is told their role (`[DI-4]`) and a caught impostor guesses (`[DI-11]`). With `impostorKnows = false` the impostor receives `{role:ARTIST, category, word:<decoy>}` — the decoy is a different catalog word of the same category and difficulty (different after normalization, used nowhere else in the session) — and their events, snapshot and screens have exactly the shape of an artist's. If caught: with `unawareGuess = true` they privately receive `IMPOSTOR_GUESS_OPEN` (which first tells them their role) and guess per `[DI-11]`; otherwise there is no `GUESS` phase and the round scores as caught and wrong (`[DI-12]`).
+
+### Sketchy Saurus edge cases
+
+| Case | Behavior |
+|---|---|
+| Drawing command after submitting | `ALREADY_SUBMITTED`. |
+| Budget exhausted | Whole batch rejected `PAYLOAD_TOO_LARGE`; draft unchanged. |
+| Player disconnects in `SKETCH` | Draft kept on the server; restored from the snapshot on return; becomes their drawing at the deadline. |
+| Player `LEFT` in `SKETCH` | No drawing for them in the gallery; the early end is re-evaluated. |
+| Reconnect in `GALLERY` | Snapshot carries the whole gallery. |
+| Unaware impostor caught, `unawareGuess = false` | Straight to `ROUND_END`; artists score. |
+
+---
+
 ## Rule IDs and tests
 
-Every `[XX-n]` rule has at least one unit test whose name includes the ID (e.g. `DG12_guesserPoints_decayWithTime`). Property tests cover `[TP-1]` for n ∈ 3…12 and every E ≤ n; Telephone rules are `[TP-1]…[TP-14]`.
+Every `[XX-n]` rule has at least one unit test whose name includes the ID (e.g. `DG12_guesserPoints_decayWithTime`). Property tests cover `[TP-1]` for n ∈ 3…12 and every E ≤ n; Telephone rules are `[TP-1]…[TP-14]`. Dino Impostor rules are `[DI-1]…[DI-14]` (the ones marked *shared* are tested in both impostor games) and Sketchy Saurus rules `[SS-1]…[SS-3]`; a property test covers `[DI-3]` for n ∈ 4…10 and R ∈ 3…10.
