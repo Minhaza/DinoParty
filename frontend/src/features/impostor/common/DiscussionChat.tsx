@@ -45,6 +45,8 @@ export function DiscussionChat({
     return () => {
       clearTimeout(start)
       clearTimeout(stop)
+      // The error changed or cleared before the rest ended: never leave Send disabled for good.
+      setResting(false)
     }
   }, [error])
 

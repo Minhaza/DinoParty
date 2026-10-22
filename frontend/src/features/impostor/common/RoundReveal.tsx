@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { Drama } from 'lucide-react'
 
 import { DinoAvatar } from '@/components/DinoAvatar'
@@ -30,6 +31,7 @@ export function RoundReveal({
   deadlineAt,
   totalRounds,
 }: RoundRevealProps) {
+  const titleId = React.useId()
   const byId = new Map(players.map((p) => [p.guestId, p]))
   const name = (id: string | null | undefined) =>
     id && id === currentGuestId ? 'You' : playerName(byId, id)
@@ -46,7 +48,7 @@ export function RoundReveal({
 
   return (
     <section
-      aria-labelledby="impostor-reveal-title"
+      aria-labelledby={titleId}
       className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-xs animate-in fade-in duration-300 motion-reduce:animate-none"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -55,7 +57,7 @@ export function RoundReveal({
             Round {roundEnd.round}
             {totalRounds ? ` of ${totalRounds}` : ''}
           </p>
-          <h2 id="impostor-reveal-title" className="font-fredoka text-2xl font-semibold">
+          <h2 id={titleId} className="font-fredoka text-2xl font-semibold">
             {copy.headline}
           </h2>
           <p className="text-sm text-muted-foreground">{copy.detail}</p>

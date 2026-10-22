@@ -178,6 +178,10 @@ describe('dinoImpostorStore', () => {
     expect(store().applyCommandError(err('RATE_LIMITED', 'c-1'))).toBe('handled')
     expect(store().chatError).toMatch(/moment/i)
     expect(store().applyCommandError(err('RATE_LIMITED', 'someone-else'))).toBe('unhandled')
+
+    // The next send clears it, so a second RATE_LIMITED is a fresh error the chat rests on again.
+    store().trackCommand('c-2', { type: 'IMPOSTOR_CHAT' })
+    expect(store().chatError).toBeNull()
   })
 
   it('keeps the role phase id so a late PHASE_STARTED does not drop the role', () => {

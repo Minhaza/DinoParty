@@ -235,6 +235,8 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
     trackedCommands.set(actionId, command)
     if (command.type === 'IMPOSTOR_VOTE') set(withVoteSent(get(), command.target ?? null))
     else if (command.type === 'IMPOSTOR_GUESS') set({ guessError: null })
+    // A repeated RATE_LIMITED has the same text; clearing it lets the chat's cooldown fire again.
+    else if (command.type === 'IMPOSTOR_CHAT') set({ chatError: null })
   },
 
   applyActionAck: (actionId) => {
