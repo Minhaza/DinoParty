@@ -274,7 +274,8 @@ class DinoImpostorIT extends GameEngineSupport {
     id = actionId();
     r.send(ws0, phase0, stroke(strokeId, 1, color, 2, true), id);
     awaitAck(ws0, id);
-    JsonNode second = r.turn(host, 1);
+    // Not `host`: the reconnected viewer is a random seat and may be the host's socket.
+    JsonNode second = r.turn(ws0, 1);
     assertThat(second.get("drawerGuestId").asString()).isEqualTo(seats.get(1));
     assertThat(second.get("phaseId").asString()).isNotEqualTo(phase0);
 
