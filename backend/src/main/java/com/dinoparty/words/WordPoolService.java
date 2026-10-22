@@ -4,6 +4,7 @@ import com.dinoparty.common.DomainException;
 import com.dinoparty.common.ErrorCode;
 import com.dinoparty.words.CustomWordProvider.CustomWord;
 import com.dinoparty.words.WordCatalogTypes.CatalogWord;
+import com.dinoparty.words.WordCatalogTypes.CategorizedWord;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -74,6 +75,28 @@ public class WordPoolService {
           Map.of("required", minimum, "available", byKey.size()));
     }
     return new WordPool(List.copyOf(byKey.values()));
+  }
+
+  /**
+   * Every usable built-in word of every active category whose difficulty matches one of {@code
+   * difficulties}, with its category key and label, de-duplicated by {@link WordKey} (first
+   * occurrence wins, in filter order). For games whose clue is the category (D60); drawing from it
+   * is the game's.
+   */
+  public List<CategorizedWord> categorizedBuiltIn(List<DifficultyFilter> difficulties) {
+    List<String> active = builtIn.activeCategoryKeys();
+    Map<String, String> labels = builtIn.categoryLabels();
+    Map<String, CategorizedWord> byKey = new LinkedHashMap<>();
+    for (DifficultyFilter difficulty : difficulties) {
+      for (CatalogWord w : builtIn.words(active, difficulty)) {
+        String text = WordKey.usable(w.text());
+        if (text != null) {
+          String label = labels.getOrDefault(w.categoryKey(), w.categoryKey());
+          byKey.putIfAbsent(WordKey.of(text), new CategorizedWord(text, w.categoryKey(), label));
+        }
+      }
+    }
+    return List.copyOf(byKey.values());
   }
 
   private List<String> categories(WordSelection selection) {

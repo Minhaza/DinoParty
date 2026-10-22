@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /** In-memory word providers so the word pool and the game run without a database. */
@@ -46,6 +47,16 @@ public final class TestWords {
           .filter(w -> difficulty.difficulties().contains(w.difficulty()))
           .sorted((a, b) -> a.text().compareTo(b.text()))
           .toList();
+    }
+
+    /** Labels by category key; a category without one is labelled with its key. */
+    public final Map<String, String> labels = new ConcurrentHashMap<>();
+
+    @Override
+    public Map<String, String> categoryLabels() {
+      Map<String, String> result = new LinkedHashMap<>();
+      categories.forEach(c -> result.put(c, labels.getOrDefault(c, c)));
+      return result;
     }
   }
 
