@@ -279,6 +279,33 @@ class ArchitectureTest {
               "org.springframework.stereotype..",
               "java..");
 
+  /** The impostor games use the engine SPI, the drawing library, the word pool and common only. */
+  @ArchTest
+  static final ArchRule impostorUsesEngineDrawingWordsAndCommonOnly =
+      classes()
+          .that()
+          .resideInAPackage("com.dinoparty.games.impostor..")
+          .should()
+          .onlyDependOnClassesThat()
+          .resideInAnyPackage(
+              "com.dinoparty.games.impostor..",
+              "com.dinoparty.engine..",
+              "com.dinoparty.drawing..",
+              "com.dinoparty.words",
+              "com.dinoparty.common..",
+              "org.springframework.stereotype..",
+              "java..");
+
+  /** Nothing outside the impostor package uses its internals (one module per game family). */
+  @ArchTest
+  static final ArchRule nothingOutsideImpostorUsesIt =
+      noClasses()
+          .that()
+          .resideOutsideOfPackage("com.dinoparty.games.impostor..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("com.dinoparty.games.impostor..");
+
   /** The session module talks to sockets and storage only through its ports. */
   @ArchTest
   static final ArchRule sessionUsesPortsOnly =

@@ -3,6 +3,7 @@ package com.dinoparty.architecture;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.dinoparty.games.drawguess.DrawGuessModule;
+import com.dinoparty.games.impostor.DinoImpostorModule;
 import com.dinoparty.games.telephone.TelephoneModule;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -33,7 +34,7 @@ class GameKeyLiteralTest {
 
   @Test
   void noPlatformCodeNamesAGame() throws IOException {
-    List<String> keys = List.of(DrawGuessModule.KEY, TelephoneModule.KEY);
+    List<String> keys = List.of(DrawGuessModule.KEY, TelephoneModule.KEY, DinoImpostorModule.KEY);
     List<String> offenders = new ArrayList<>();
     try (Stream<Path> files = Files.walk(SOURCES)) {
       for (Path file : files.filter(p -> p.toString().endsWith(".java")).toList()) {
