@@ -1,12 +1,18 @@
 package com.dinoparty.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.dinoparty.ApiTestSupport;
+import com.dinoparty.ApiTestSupport.TestGuest;
 import com.dinoparty.IntegrationTest;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -18,6 +24,7 @@ import tools.jackson.databind.json.JsonMapper;
 class ImpostorCatalogIT {
 
   @Autowired JdbcTemplate jdbc;
+  @Autowired MockMvc mvc;
 
   private Map<String, Object> row(String key) {
     return jdbc.queryForMap(
@@ -69,5 +76,36 @@ class ImpostorCatalogIT {
                 "sketchSeconds", 60,
                 "impostorKnows", true,
                 "unawareGuess", false));
+  }
+
+  /** The module owns the defaults; the catalog row keeps a copy that must not drift. */
+  @Test
+  void dinoImpostorIsListedDisabledAndItsModuleDefaultsEqualTheRow() throws Exception {
+    mvc.perform(get("/api/v1/games/dino-impostor"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.enabled").value(false))
+        .andExpect(jsonPath("$.defaultSettings.rounds").value(0))
+        .andExpect(jsonPath("$.defaultSettings.laps").value(2))
+        .andExpect(jsonPath("$.defaultSettings.turnSeconds").value(25))
+        .andExpect(jsonPath("$.defaultSettings.voteSeconds").value(60))
+        .andExpect(jsonPath("$.defaultSettings.guessSeconds").value(30))
+        .andExpect(jsonPath("$.defaultSettings.difficulty").value("mixed"));
+    // Same values as the row, key for key.
+    mvc.perform(get("/api/v1/games/dino-impostor"))
+        .andExpect(
+            jsonPath("$.defaultSettings.length()").value(settings(row("dino-impostor")).size()));
+  }
+
+  @Test
+  void aDisabledImpostorGameCannotHostARoom() throws Exception {
+    ApiTestSupport api = new ApiTestSupport(mvc);
+    TestGuest host = api.createGuest(ApiTestSupport.unique("Imp"));
+    api.request(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/api/v1/rooms"),
+            host,
+            "{\"gameKey\":\"dino-impostor\"}")
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("GAME_NOT_FOUND"));
   }
 }
