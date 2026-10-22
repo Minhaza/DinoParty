@@ -20,7 +20,7 @@ Health:    curl -fsS http://localhost:8080/api/v1/health
 ## Dependency graph
 
 ```
-P1 ──► P2 ──► P3 ──► P4 ──► P5 ──► P7 ──► P8
+P1 ──► P2 ──► P3 ──► P4 ──► P5 ──► P7 ──► P8 ──► P9
                        └────► P6 ──┘
 ```
 P5 and P6 may run in parallel after P4 (both depend on the engine and the shared drawing module); the Phase 6 design (P6-01) is merged, implementation starts at P6-02. P7 starts incrementally from P2 on the frontend side but its exit gate is after P5+P6.
@@ -176,6 +176,21 @@ Exit: four browsers play a complete game (prompts, alternating draw/describe, wa
 | 8.3 | CI: images build/push, E2E job | CC | Green pipeline |
 | 8.4 | `docs/deployment.md` for Oracle ARM64 VM + Cloudflare Pages; backups | CC (+AG for Pages) | Dry-run on a fresh VM or documented as unverified |
 | 8.5 | Final acceptance walkthrough vs. `MASTER_PROMPT` §19 | Lead | Checklist signed off |
+
+## Phase 9 — Impostor games: Dino Impostor and Sketchy Saurus (post-MVP)
+
+Plan: `docs/dino-impostor-plan.md` (tasks, owners and acceptance criteria in its §9); decisions D50–D64 (`decisions-and-risks.md` §9); rules `game-rules.md` `[DI-*]`, `[SS-*]`; contract `api-contracts.md` §3.11–§3.12. Two games on one backend package (`games.impostor`) and one frontend folder; no engine or `drawing` change. **P9-01 (rules, contract, decisions) is written and awaits approval**; P9-02 starts after it merges. Dino Impostor can launch before Sketchy Saurus.
+
+| ID | Task | Owner |
+|---|---|---|
+| P9-01 | Rules, contract, decisions, originality checklist | CC |
+| P9-02 | Backend shared code + Dino Impostor drawing (`GuessMatcher` → `words`, `V11` rows disabled) | CC |
+| P9-03 | Backend voting, guess, scoring, wind-down | CC |
+| P9-04 | Backend Sketchy Saurus | CC |
+| P9-05 | Frontend shared pieces + Dino Impostor screens (fixtures) | AG |
+| P9-06 | Frontend Sketchy Saurus screens (fixtures) | AG |
+| P9-07 | Live wiring of both games | AG |
+| P9-08 | E2E, accessibility, enabling migrations | AG + CC |
 
 ---
 

@@ -1,6 +1,6 @@
 # Proposal — Fake Artist Online as a Third Game
 
-Status: **proposal only**. Nothing here is a final rule. Not part of the MVP; do not implement until decisions in §4 are answered and the originality review (D10) is done.
+Status: **superseded** by `docs/dino-impostor-plan.md` (Phase 9): the idea became two games, Dino Impostor and Sketchy Saurus; §4's questions are answered there and in `decisions-and-risks.md` §9 (D50–D64). Kept as the record of the original proposal.
 
 ## 1. What is known
 
