@@ -132,6 +132,13 @@ describe('VotePanel', () => {
     await user.click(screen.getByRole('radio', { name: /trixie/i }))
     expect(onVote).not.toHaveBeenCalled()
   })
+
+  it('tells a viewer outside the round that only players vote, not that voting is still to come', () => {
+    renderPanel({ enabled: false })
+    expect(screen.getByText(/only dinos playing this round can vote/i)).toBeInTheDocument()
+    expect(screen.queryByText(/voting opens/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/you have not voted/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('DiscussionChat', () => {
@@ -203,6 +210,40 @@ describe('DiscussionChat', () => {
     expect(screen.getByRole('button', { name: /send/i })).toBeDisabled()
     act(() => vi.advanceTimersByTime(CHAT_ERROR_COOLDOWN_MS))
     expect(screen.getByRole('button', { name: /send/i })).toBeEnabled()
+  })
+
+  it('DI8_rests again on a repeated RATE_LIMITED and never stays stuck when the error clears', () => {
+    vi.useFakeTimers()
+    const { rerender, onSend } = renderChat()
+    fireEvent.change(screen.getByRole('textbox', { name: /message/i }), {
+      target: { value: 'hello' },
+    })
+    const withError = (error: string | null) =>
+      rerender(
+        <DiscussionChat
+          messages={[]}
+          playersById={playersById}
+          currentGuestId="me"
+          enabled
+          error={error}
+          onSend={onSend}
+        />,
+      )
+    const send = () => screen.getByRole('button', { name: /send/i })
+    const limited = 'Easy there — wait a moment before sending another message.'
+
+    withError(limited)
+    act(() => vi.advanceTimersByTime(1))
+    expect(send()).toBeDisabled()
+    // The error clears mid-rest (e.g. a late ACK): Send comes back instead of staying disabled.
+    withError(null)
+    expect(send()).toBeEnabled()
+    act(() => vi.advanceTimersByTime(CHAT_ERROR_COOLDOWN_MS))
+    expect(send()).toBeEnabled()
+    // The next send cleared the error, so the same text again is a new rest.
+    withError(limited)
+    act(() => vi.advanceTimersByTime(1))
+    expect(send()).toBeDisabled()
   })
 })
 

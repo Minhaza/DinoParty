@@ -60,7 +60,7 @@ export function VotePanel({
       <p id={hintId} className="text-sm text-muted-foreground">
         {enabled
           ? 'Your vote is secret — others only see that you voted. You can change it until time runs out.'
-          : 'Voting opens after the drawing laps.'}
+          : 'Only dinos playing this round can vote — watch the tally fill up.'}
       </p>
 
       <ul className="flex flex-col gap-1.5">
@@ -112,9 +112,9 @@ export function VotePanel({
             <>
               You voted for <strong>{selectedName}</strong>.
             </>
-          ) : (
+          ) : enabled ? (
             <span className="text-muted-foreground">You have not voted.</span>
-          )}
+          ) : null}
         </p>
         <Button
           type="button"
