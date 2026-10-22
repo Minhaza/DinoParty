@@ -41,7 +41,7 @@ export function useImpostorCommands(trackCommand: TrackImpostorCommand): Imposto
       } catch {
         return false
       }
-      trackCommand(actionId, tracked)
+      trackCommand(actionId, { ...tracked, phaseId })
       return true
     },
     [client, phaseId, trackCommand],

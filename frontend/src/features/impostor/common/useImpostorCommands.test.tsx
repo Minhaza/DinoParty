@@ -69,8 +69,16 @@ describe('useImpostorCommands', () => {
 
     // Each send is tracked under the same actionId it went out with.
     expect(track.mock.calls.map((c) => c[0])).toEqual(sent.map((c) => c.actionId))
-    expect(track.mock.calls[1][1]).toEqual({ type: 'IMPOSTOR_VOTE', target: 'guest-2' })
-    expect(track.mock.calls[4][1]).toEqual({ type: 'IMPOSTOR_DRAW_STROKE', strokeId: 's-1' })
+    expect(track.mock.calls[1][1]).toEqual({
+      type: 'IMPOSTOR_VOTE',
+      target: 'guest-2',
+      phaseId: 'phase-vote-1',
+    })
+    expect(track.mock.calls[4][1]).toEqual({
+      type: 'IMPOSTOR_DRAW_STROKE',
+      strokeId: 's-1',
+      phaseId: 'phase-vote-1',
+    })
   })
 
   it('refuses invalid text without sending', () => {

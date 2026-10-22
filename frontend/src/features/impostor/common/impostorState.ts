@@ -180,6 +180,8 @@ export function canGuess(
 
 export interface TrackedImpostorCommand {
   type: string
+  /** Phase the command was sent in. */
+  phaseId?: string
   strokeId?: string
   /** `IMPOSTOR_VOTE` target (`null` = withdraw). */
   target?: string | null
