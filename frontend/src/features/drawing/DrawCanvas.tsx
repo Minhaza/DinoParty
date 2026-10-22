@@ -29,6 +29,14 @@ export interface DrawCanvasProps {
   onLocalPoints?: (strokeId: string, points: [number, number][], isFinal: boolean) => void
   /** Accessible name; defaults to a generic one per mode. */
   ariaLabel?: string
+  /**
+   * One gesture is at most one server stroke (Dino Impostor, [DI-6]): it is closed at the per-stroke
+   * cap instead of continuing in a new one, a failed or rejected batch ends it instead of restarting,
+   * and the canvas then stays locked until `strokeLockKey` changes. Off by default.
+   */
+  singleStroke?: boolean
+  /** Changing it (e.g. the turn's `phaseId`) re-arms a `singleStroke` canvas. */
+  strokeLockKey?: string | null
 }
 
 const noop = () => {}
@@ -75,6 +83,8 @@ export function DrawCanvas({
   onLocalStrokeStart = noop,
   onLocalPoints = noop,
   ariaLabel,
+  singleStroke = false,
+  strokeLockKey = null,
 }: DrawCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
@@ -85,6 +95,9 @@ export function DrawCanvas({
   })
 
   const activeStrokeRef = React.useRef<ActiveStroke | null>(null)
+  // The lock key a `singleStroke` canvas used its stroke under; it re-arms when the key changes.
+  const [usedUnderKey, setUsedUnderKey] = React.useState<{ key: string | null } | null>(null)
+  const strokeLocked = singleStroke && usedUnderKey !== null && usedUnderKey.key === strokeLockKey
   // Every strokeId the current gesture has used, so a late rejection of an earlier one still counts.
   const gestureStrokeIdsRef = React.useRef<Set<string>>(new Set())
 
@@ -200,6 +213,19 @@ export function DrawCanvas({
     [send, addLocalStroke],
   )
 
+  /** Ends a `singleStroke` gesture for good: the preview is closed and later points are dropped. */
+  const endSingleStroke = React.useCallback(
+    (active: ActiveStroke) => {
+      if (active.intervalId) clearInterval(active.intervalId)
+      active.intervalId = null
+      active.bufferedPoints = []
+      appendLocalPoints(active.strokeId, [], true)
+      if (activeStrokeRef.current === active) activeStrokeRef.current = null
+      gestureStrokeIdsRef.current = new Set()
+    },
+    [appendLocalPoints],
+  )
+
   /** Sends at most one batch of the active stroke; returns whether one was sent. */
   const flushOnce = React.useCallback(
     (active: ActiveStroke, isFinal: boolean): boolean => {
@@ -238,6 +264,11 @@ export function DrawCanvas({
       }
 
       if (!send(batch)) {
+        if (singleStroke) {
+          // A fresh strokeId would be a second stroke; the turn deadline closes this one ([DI-7]).
+          endSingleStroke(active)
+          return false
+        }
         // The socket is down: keep the points and continue in a fresh stroke once it is back,
         // because the server may or may not have seen earlier batches of this one.
         active.needsRestart = true
@@ -250,12 +281,16 @@ export function DrawCanvas({
       active.bufferedPoints = rest
 
       if (strokeIsFull) {
+        if (singleStroke) {
+          endSingleStroke(active)
+          return true
+        }
         appendLocalPoints(active.strokeId, [], true)
         active.needsRestart = true
       }
       return true
     },
-    [send, restartStroke, appendLocalPoints],
+    [send, restartStroke, appendLocalPoints, singleStroke, endSingleStroke],
   )
 
   const flushBatch = React.useCallback(
@@ -279,7 +314,7 @@ export function DrawCanvas({
     gestureStrokeIdsRef.current = new Set()
   }, [])
 
-  const canDraw = isDrawer && isDrawingPhase && !canvasFull
+  const canDraw = isDrawer && isDrawingPhase && !canvasFull && !strokeLocked
 
   // A batch of the ongoing gesture was rejected (api-contracts §3.9): continue in a new stroke, or
   // close the stroke and stop when the canvas budget is exhausted.
@@ -302,9 +337,10 @@ export function DrawCanvas({
       }
       stopActiveStroke()
     } else if (strokeRejection.strokeId === active.strokeId) {
-      active.needsRestart = true
+      if (singleStroke) endSingleStroke(active)
+      else active.needsRestart = true
     }
-  }, [strokeRejection, send, stopActiveStroke])
+  }, [strokeRejection, send, stopActiveStroke, singleStroke, endSingleStroke])
 
   // The phase ended (or the role changed) mid-gesture: further batches would be STALE_ACTION.
   React.useEffect(() => {
@@ -342,6 +378,7 @@ export function DrawCanvas({
     }
     addLocalStroke(localStroke)
     gestureStrokeIdsRef.current = new Set([strokeId])
+    if (singleStroke) setUsedUnderKey({ key: strokeLockKey })
 
     activeStrokeRef.current = {
       strokeId,
