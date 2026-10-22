@@ -68,7 +68,7 @@ export function DinoImpostorStage({ players, currentGuestId }: DinoImpostorStage
   const candidates: VoteCandidate[] = seatPlayers.filter((p) => !leftIds.has(p.guestId))
 
   const canvas = (
-    <div className="flex min-h-[260px] flex-1 items-center justify-center rounded-2xl border border-border bg-card p-2 shadow-xs">
+    <div className="rounded-2xl border border-border bg-card p-2 shadow-xs">
       <SharedCanvas
         strokes={game.strokes}
         colors={game.colors}
@@ -125,7 +125,7 @@ export function DinoImpostorStage({ players, currentGuestId }: DinoImpostorStage
           )}
         </div>
       ) : (
-        <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="flex min-h-0 flex-col gap-3">
             {isDrawing && (
               <TurnStrip

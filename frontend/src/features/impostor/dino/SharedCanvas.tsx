@@ -88,8 +88,8 @@ export function SharedCanvas({
         : null
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-2">
-      <div className="flex-1 min-h-[220px]">
+    <div className="flex w-full flex-col gap-2">
+      <div className="aspect-[16/10] w-full">
         <DrawCanvas
           isDrawer={canDraw}
           isDrawingPhase={drawingPhase}
