@@ -25,9 +25,10 @@ class GameApiIT {
   @Autowired MockMvc mvc;
   @Autowired JdbcTemplate jdbc;
 
+  /** Restores only the row a test switched off: unreleased games (V11) must stay disabled. */
   @AfterEach
-  void enableEveryGame() {
-    jdbc.update("UPDATE game_definition SET enabled = true");
+  void enableTelephoneAgain() {
+    jdbc.update("UPDATE game_definition SET enabled = true WHERE key = 'telephone'");
   }
 
   @Test
