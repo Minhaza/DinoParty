@@ -20,6 +20,11 @@ class GameRegistryTest {
 
   private static GameModule moduleWith(
       String key, List<CommandSpec> commands, Set<String> publicEvents) {
+    return moduleWith(key, commands, publicEvents, Set.of());
+  }
+
+  private static GameModule moduleWith(
+      String key, List<CommandSpec> commands, Set<String> publicEvents, Set<String> privateEvents) {
     TestGameModule base = new TestGameModule(1000, 1);
     return new GameModuleDelegate(
         base,
@@ -31,7 +36,7 @@ class GameRegistryTest {
             true,
             commands,
             publicEvents,
-            Set.of(),
+            privateEvents,
             base.definition().metadata(),
             SettingsSchema.EMPTY));
   }
@@ -119,12 +124,74 @@ class GameRegistryTest {
   }
 
   @Test
-  void anEventDeclaredByTwoGamesFailsStartup() {
-    GameModule other = moduleWith("other-game", List.of(), Set.of("TEST_SCORED"));
+  void anEventWithADifferentAudienceInTwoGamesFailsStartup() {
+    GameModule other = moduleWith("other-game", List.of(), Set.of(), Set.of("TEST_SCORED"));
 
     assertThatThrownBy(() -> new GameRegistry(List.of(new TestGameModule(1000, 1), other)))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("TEST_SCORED");
+  }
+
+  private static CommandSpec shared(int bytes, double rate, int burst, String... phases) {
+    return new CommandSpec("SHARED_CMD", bytes, rate, burst, Set.of(phases));
+  }
+
+  private static GameRegistry registryOfTwo(CommandSpec a, CommandSpec b) {
+    return new GameRegistry(
+        List.of(
+            moduleWith("alpha-game", List.of(a), Set.of("ALPHA_EVENT")),
+            moduleWith("beta-game", List.of(b), Set.of("BETA_EVENT"))));
+  }
+
+  @Test
+  void d65_equalSpecsDeclaredByTwoGamesAreAccepted() {
+    GameRegistry registry =
+        registryOfTwo(shared(100, 1, 2, "VOTE", "GALLERY"), shared(100, 1, 2, "GALLERY", "VOTE"));
+
+    assertThat(registry.commandSpec("SHARED_CMD")).contains(shared(100, 1, 2, "VOTE", "GALLERY"));
+  }
+
+  @Test
+  void d65_specsWithDifferentLimitsAreRejected() {
+    assertThatThrownBy(() -> registryOfTwo(shared(100, 1, 2, "VOTE"), shared(200, 1, 2, "VOTE")))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("SHARED_CMD")
+        .hasMessageContaining("alpha-game")
+        .hasMessageContaining("beta-game");
+    assertThatThrownBy(() -> registryOfTwo(shared(100, 1, 2, "VOTE"), shared(100, 2, 2, "VOTE")))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> registryOfTwo(shared(100, 1, 2, "VOTE"), shared(100, 1, 3, "VOTE")))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void d65_specsWithDifferentPhasesAreRejected() {
+    assertThatThrownBy(
+            () -> registryOfTwo(shared(100, 1, 2, "VOTE"), shared(100, 1, 2, "VOTE", "GALLERY")))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("SHARED_CMD");
+  }
+
+  @Test
+  void d65_anEventWithTheSameAudienceInTwoGamesIsAccepted() {
+    GameModule a =
+        moduleWith("alpha-game", List.of(), Set.of("SHARED_PUBLIC"), Set.of("SHARED_PRIVATE"));
+    GameModule b =
+        moduleWith("beta-game", List.of(), Set.of("SHARED_PUBLIC"), Set.of("SHARED_PRIVATE"));
+
+    assertThat(new GameRegistry(List.of(a, b)).definitions()).hasSize(2);
+  }
+
+  @Test
+  void d65_anEventPublicInOneGameAndPrivateInAnotherIsRejected() {
+    GameModule a = moduleWith("alpha-game", List.of(), Set.of("SHARED_EVENT"));
+    GameModule b = moduleWith("beta-game", List.of(), Set.of(), Set.of("SHARED_EVENT"));
+
+    assertThatThrownBy(() -> new GameRegistry(List.of(a, b)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("SHARED_EVENT")
+        .hasMessageContaining("public")
+        .hasMessageContaining("private");
   }
 
   @Test
