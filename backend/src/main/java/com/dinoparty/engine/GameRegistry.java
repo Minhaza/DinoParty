@@ -41,6 +41,9 @@ public class GameRegistry {
       for (CommandSpec spec : definition.commands()) {
         Declared<CommandSpec> previous =
             commandOwners.putIfAbsent(spec.type(), new Declared<>(key, spec));
+        if (previous != null && previous.owner().equals(key)) {
+          throw new IllegalStateException("Command " + spec.type() + " declared twice by " + key);
+        }
         if (previous != null && !previous.what().equals(spec)) {
           throw new IllegalStateException(
               "Command "

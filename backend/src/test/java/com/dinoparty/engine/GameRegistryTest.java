@@ -132,6 +132,16 @@ class GameRegistryTest {
         .hasMessageContaining("TEST_SCORED");
   }
 
+  @Test
+  void aCommandDeclaredTwiceByOneGameFailsStartup() {
+    CommandSpec spec = new CommandSpec("TWICE_CMD", 10, 1, 1, Set.of());
+    GameModule twice = moduleWith("twice-game", List.of(spec, spec), Set.of("TWICE_EVENT"));
+
+    assertThatThrownBy(() -> new GameRegistry(List.of(twice)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("TWICE_CMD declared twice by twice-game");
+  }
+
   private static CommandSpec shared(int bytes, double rate, int burst, String... phases) {
     return new CommandSpec("SHARED_CMD", bytes, rate, burst, Set.of(phases));
   }
