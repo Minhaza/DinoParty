@@ -69,18 +69,24 @@ export function SketchySaurusStage({ players, currentGuestId }: SketchySaurusSta
     roster.some((rp) => rp.guestId === p.guestId && rp.status !== 'LEFT'),
   )
 
-  const roundRevealPlayers = activePlayers.map((p) => ({
-    guestId: p.guestId,
-    nickname: playerName(playersById, p.guestId),
-    avatarKey: p.avatarKey,
-  }))
-
   // Artists who left are still in the gallery: name them from the snapshot nicknames (G2).
   const galleryPlayers = (game.gallery ?? []).map((d) => ({
     guestId: d.guestId,
     nickname: playerName(playersById, d.guestId),
     avatarKey: players.find((p) => p.guestId === d.guestId)?.avatarKey,
   }))
+
+  // Gallery (seat) order first so an impostor or voter who left keeps their name in the reveal.
+  const roundRevealPlayers = [
+    ...galleryPlayers,
+    ...activePlayers
+      .filter((p) => !galleryPlayers.some((g) => g.guestId === p.guestId))
+      .map((p) => ({
+        guestId: p.guestId,
+        nickname: playerName(playersById, p.guestId),
+        avatarKey: p.avatarKey,
+      })),
+  ]
 
   return (
     <div

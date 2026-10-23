@@ -21,6 +21,13 @@ describe('rosterNames', () => {
     expect(map.get('p5')).toBeUndefined()
   })
 
+  it('keeps the active player object, so avatarKey survives', () => {
+    const map = rosterNames([{ guestId: 'p1', nickname: 'Rexy', avatarKey: 'trex' }], {
+      p1: 'Rexy',
+    })
+    expect(map.get('p1')).toEqual({ guestId: 'p1', nickname: 'Rexy', avatarKey: 'trex' })
+  })
+
   it('handles empty players and undefined nicknames', () => {
     const map = rosterNames([])
     expect(map.size).toBe(0)

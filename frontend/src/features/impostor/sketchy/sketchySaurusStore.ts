@@ -309,15 +309,12 @@ export const useSketchySaurusStore = create<SketchySaurusState>((set, get) => ({
   },
 
   undoLocalStroke: () => {
-    set((state) => ({
-      strokes: state.strokes.slice(0, -1),
-    }))
+    // Undo frees budget, so a full canvas becomes drawable again (as Telephone's draft).
+    set((state) => ({ strokes: state.strokes.slice(0, -1), canvasFull: false }))
   },
 
   clearLocalStrokes: () => {
-    set({
-      strokes: [],
-    })
+    set({ strokes: [], canvasFull: false })
   },
 
   rememberNicknames: (players) => {

@@ -159,6 +159,9 @@ describe('SketchCanvas', () => {
     )
 
     expect(screen.getByText(/Drawing budget full/i)).toBeInTheDocument()
+    // The banner tells the player to undo or clear, so both must stay enabled.
+    expect(screen.getByRole('button', { name: 'Undo last stroke' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Clear all drawing' })).toBeEnabled()
   })
 })
 

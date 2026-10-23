@@ -160,6 +160,27 @@ describe('SketchySaurusStage', () => {
     expect(screen.queryByText(/Unknown Dino/i)).toBeNull()
   })
 
+  it('G2 names an impostor who left in the round reveal', () => {
+    const snapshot = sketchySnapshot('ROUND_END', ARTIST_ROLE)
+    useGameSessionStore.getState().applySnapshot({
+      ...snapshot,
+      gameKey: 'sketchy-saurus',
+      players: SS_ROSTER,
+    } as unknown as GameSnapshot)
+    useSketchySaurusStore.getState().applySnapshot(snapshot)
+    const impostor = SS_PLAYERS.find((p) => p.guestId === VIEWER_IMPOSTOR)!
+    render(
+      <RealtimeContext.Provider value={{ sendCommand } as unknown as RealtimeClient}>
+        <SketchySaurusStage
+          players={SS_PLAYERS.filter((p) => p.guestId !== VIEWER_IMPOSTOR)}
+          currentGuestId={VIEWER_ARTIST}
+        />
+      </RealtimeContext.Provider>,
+    )
+    expect(screen.getAllByText(impostor.nickname).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/A dino who left/i)).toBeNull()
+  })
+
   it('SS3_GALLERY_MAX renders a full 10-drawing gallery, the last one empty', () => {
     const snapshot = sketchySnapshot('GALLERY', ARTIST_ROLE, {
       gallery: maxGallery,

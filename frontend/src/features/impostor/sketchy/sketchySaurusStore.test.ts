@@ -118,6 +118,17 @@ describe('sketchySaurusStore', () => {
     expect(store().strokeRejection?.kind).toBe('FULL')
   })
 
+  it('SS2_undo or clear frees a full canvas', () => {
+    store().applyPhaseStarted(sketchStarted)
+    useSketchySaurusStore.setState({ canvasFull: true })
+    store().undoLocalStroke()
+    expect(store().canvasFull).toBe(false)
+
+    useSketchySaurusStore.setState({ canvasFull: true })
+    store().clearLocalStrokes()
+    expect(store().canvasFull).toBe(false)
+  })
+
   it('SS3_opens GALLERY and populates drawings on SKETCHY_GALLERY_OPENED', () => {
     store().applyPhaseStarted(galleryStarted)
     store().applyGalleryOpened(sketchyGalleryOpened)

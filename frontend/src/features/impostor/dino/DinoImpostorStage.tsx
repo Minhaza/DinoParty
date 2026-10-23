@@ -72,7 +72,7 @@ export function DinoImpostorStage({ players, currentGuestId }: DinoImpostorStage
   const seatPlayers = game.seatOrder.map((id) => ({
     guestId: id,
     nickname: name(id),
-    avatarKey: (playersById.get(id) as PlayerDto | undefined)?.avatarKey ?? null,
+    avatarKey: players.find((p) => p.guestId === id)?.avatarKey ?? null,
   }))
   const candidates: VoteCandidate[] = seatPlayers.filter((p) => !leftIds.has(p.guestId))
 

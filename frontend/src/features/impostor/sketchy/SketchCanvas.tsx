@@ -121,7 +121,8 @@ export function SketchCanvas({
         tool={tool}
         color={color}
         size={size}
-        canDraw={!submitted && !canvasFull}
+        // Undo/clear must stay usable on a full canvas: they are the way out of it.
+        canDraw={!submitted}
         hasStrokes={strokes.length > 0}
         onSelectTool={setTool}
         onSelectColor={setColor}
