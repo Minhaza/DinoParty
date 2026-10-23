@@ -374,7 +374,7 @@ Private stream (`/user/queue/rooms/{code}`):
 
 ### 3.6 Extension rule for new games
 
-New games add command and event `type` values with a game prefix (e.g. `FAKEARTIST_*`) and a `GameSnapshot` variant; they must not change the envelope, common events, or existing game payloads. (Draw & Guess and Telephone keep their unprefixed names from §3.3/§3.4; they are the reference games.) A **family** of games built on shared code may share one prefix for the types they have in common (Dino Impostor and Sketchy Saurus: `IMPOSTOR_*`, §3.11) and use their own prefix for the rest (`SKETCHY_*`, §3.12); a shared type has one payload in every game of the family.
+New games add command and event `type` values with a game prefix (e.g. `FAKEARTIST_*`) and a `GameSnapshot` variant; they must not change the envelope, common events, or existing game payloads. (Draw & Guess and Telephone keep their unprefixed names from §3.3/§3.4; they are the reference games.) A **family** of games built on shared code may share one prefix for the types they have in common (Dino Impostor and Sketchy Saurus: `IMPOSTOR_*`, §3.11) and use their own prefix for the rest (`SKETCHY_*`, §3.12); a shared type has one payload in every game of the family. **Registry rule (D65):** the same command `type` may be declared by more than one game only if the `CommandSpec`s are equal (payload cap, rate, burst, legal phases), and the same event `type` only on the same audience (public or private) in each; any difference is a startup failure as before. The legal phases of a shared command are the union over the family (for example `VOTE` and `GALLERY`), and each module rejects the ones its own game never enters.
 
 ### 3.7 Game session lifecycle events (Phase 4)
 
@@ -493,7 +493,7 @@ Rejections leave state unchanged; `ACTION_ACK` follows accepted commands. Roles,
 
 | `type` | Stream | Payload |
 |---|---|---|
-| `PHASE_STARTED` | public | common fields plus `round`, `totalRounds`; `DRAWING`: `lap` (1-based, 1…`laps`), `laps`, `turn` (0-based), `totalTurns`, `drawerGuestId`, `seatOrder:[guestId]`; `GUESS`: `impostorGuestId` |
+| `PHASE_STARTED` | public | common fields plus `round`, `totalRounds`; `ROLE_REVEAL`: `seatOrder:[guestId]`, `colors:{guestId:"#RRGGBB"}` (P9 contract fix G1: a client that was in the room at the start never gets a snapshot, so it learns the round's seats and the session colours here); `DRAWING`: `lap` (1-based, 1…`laps`), `laps`, `turn` (0-based), `totalTurns`, `drawerGuestId`, `seatOrder:[guestId]`; `GUESS`: `impostorGuestId` |
 | `IMPOSTOR_ROLE` *(shared)* | private, every roster member not `LEFT`, in the `ROLE_REVEAL` transition | `{phaseId, round, role:"ARTIST"\|"IMPOSTOR", category:{key, label}, word:string\|null}` — same shape for everyone; see §3.12 for the unaware impostor |
 | `IMPOSTOR_DRAWING_UPDATED` | public | `{kind:"STROKE", authorGuestId, strokeId, batchNo, tool, color, size, points, final}` — each accepted batch unchanged plus its author; the drawer's client ignores its own echo |
 | `IMPOSTOR_CHAT_MESSAGE` *(shared)* | public | `{guestId, text, ts}` |
@@ -506,11 +506,15 @@ Rejections leave state unchanged; `ACTION_ACK` follows accepted commands. Roles,
 
 **Turns (Dino Impostor).** The round's `seatOrder` and `totalTurns` (= `laps × n`, `n` = seated players) are fixed when the round starts; turn `t` belongs to `seatOrder[t mod n]` in lap `⌊t / n⌋ + 1`. A seat whose player is `LEFT` is skipped, so `turn` may jump. Session colours in `colors` are uppercase `#RRGGBB`; a batch's `color` must equal the sender's, compared case-insensitively. When a turn ends with the drawer's stroke still open (deadline, drawer `LEFT`), the server closes it as it stands without publishing a batch: clients close an open stroke when the next `PHASE_STARTED` arrives, and snapshots show it with `closed:true`.
 
+**Names and reconnecting drawers.** `nicknames` is taken from the roster frozen at start (`PlayerInfo`, as Telephone's `authorNickname`), so strokes, seats, votes and the reveal can be labelled after a player left; clients prefer the live room roster and fall back to this map. A drawer who reconnects mid-turn finds their stroke in `turnStroke`: if it is open (`closed:false`) they may continue it with `strokeId` and `nextBatchNo`; if it exists and is closed, the turn's stroke is used and the canvas stays locked (`ALREADY_SUBMITTED` for anything more); `null` means no stroke has been started yet.
+
 **`DinoImpostorSnapshot`** (common header first, §2.1):
 
 ```
 DinoImpostorSnapshot { round, totalRounds, laps, seatOrder:[guestId], colors:{guestId:"#RRGGBB"},
+                       nicknames:{guestId:string} /* every member of the frozen session roster, incl. those who left (G2) */,
                        lap|null, turn|null, totalTurns, drawerGuestId|null /* DRAWING only */,
+                       turnStroke:{strokeId, nextBatchNo:int, closed:boolean}|null /* DRAWING only: the drawer's one stroke of this turn if it was started (G4); public */,
                        role:{role, category:{key, label}, word|null}|null /* viewer only; null for spectators */,
                        strokes:ImpostorStroke[] /* the shared canvas in drawing order */,
                        canvasBudget:{points, maxPoints:12000, strokes, maxStrokes:300},
@@ -547,7 +551,7 @@ Rules: `docs/game-rules.md` (`[SS-1]…[SS-3]` plus the shared `[DI-*]`). Game k
 **`SketchySaurusSnapshot`**:
 
 ```
-SketchySaurusSnapshot { round, totalRounds,
+SketchySaurusSnapshot { round, totalRounds, nicknames:{guestId:string} /* as DinoImpostorSnapshot */,
                         role:{role, category:{key, label}, word|null}|null /* viewer only */,
                         draft:{strokes:Stroke[], canvasBudget:{points, maxPoints:1500, strokes, maxStrokes:100}}|null /* SKETCH: viewer's own */,
                         submitted:boolean, submittedGuestIds:[guestId],
@@ -617,4 +621,6 @@ Everything below is additive unless stated.
 | §3.6 | Family prefix for types shared by games built on shared code |
 | §3.11 | New: shared impostor commands/events (`IMPOSTOR_*`), Dino Impostor commands, events, secrets, snapshot, results |
 | §3.12 | New: Sketchy Saurus commands/events (`SKETCHY_*`), unaware impostor, snapshot and size bound |
+| §3.11 (P9-fix) | Contract requests G1–G4 of P9-05 resolved: `ROLE_REVEAL` `PHASE_STARTED` carries `seatOrder` and `colors` (G1); snapshots carry `nicknames` (G2, also in `SketchySaurusSnapshot`); `lap` is 1-based, as written in P9-02 (G3; the P9-05 client assumed 0-based and must be fixed); `DinoImpostorSnapshot.turnStroke` (G4); stroke `size` stays 1–4 (G5: the client's fixed size 2 is valid, the "1 to 32" in the request was wrong) |
+| §3.6, `game-engine.md` §1.2 (P9-fix) | Registry: a command or event type may be declared by several modules of one family if every declaration is identical (D65) |
 | §3.11 (P9-02) | Clarified: `lap` is 1-based; fixed seat order per round with `LEFT` seats skipped; colours uppercase and compared case-insensitively; an open stroke closed at the turn's end gets no event |

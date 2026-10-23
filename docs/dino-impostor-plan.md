@@ -130,7 +130,11 @@ Where the build differs from the design above:
 - **Locale.** Rooms carry no locale; words and category labels come from the catalog's default locale, as for Draw & Guess.
 - **Colour palette:** Okabe-Ito without its yellow plus three colours of Paul Tol's muted scheme (comment in `DinoImpostorModule.PALETTE`).
 
-**Known risk for P9-04.** `GameRegistry` refuses a command or event type declared by two modules, and Sketchy Saurus must declare the shared `IMPOSTOR_*` types as well. P9-04 needs a rule for family-shared types (or one module owning the shared declarations) before its module can register; that is a registry change outside the engine SPI.
+**Known risk for P9-04, resolved in the contract fix (D65).** `GameRegistry` refused a command or event type declared by two modules, and Sketchy Saurus must declare the shared `IMPOSTOR_*` types too. Rule: duplicates are accepted when the `CommandSpec`s are equal (event types: same audience), with the union of phases in the shared specs. The registry change itself (small, outside the engine SPI) is part of P9-03 or P9-04, whichever first needs it, and is covered by a registry unit test.
+
+### P9 contract fix (after P9-02 and P9-05)
+
+P9-05's contract requests G1–G4 are resolved in `api-contracts.md` §3.11 (see `docs/contract-requests.md`): `ROLE_REVEAL` carries `seatOrder` and `colors` (G1); snapshots carry `nicknames` (G2); `lap` is 1-based (G3, a **frontend fix**: P9-05 shows `lap + 1`); `turnStroke` in the Dino Impostor snapshot (G4). **Backend work added to P9-03:** the three additions above, from `DinoImpostorViews`/`DinoImpostorModule`, with unit tests (colours reach a client that never takes a snapshot; a reconnecting drawer sees the right `turnStroke`). **Frontend work added to P9-06/P9-07:** use `colors`/`seatOrder` from `ROLE_REVEAL`, `nicknames` as a fallback, `turnStroke` on reconnect, and the `lap` fix.
 
 ## 10. Tests that matter most
 
