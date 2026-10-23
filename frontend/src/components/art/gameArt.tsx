@@ -56,6 +56,74 @@ export function PencilBadge({ className }: { className?: string }) {
   )
 }
 
+/**
+ * Compact icon (interface icon, not artwork) for the Dino Impostor card header: a cracked dino egg
+ * with one eye peeking out and a single drawn stroke, the game's one-line-at-a-time bluff.
+ */
+export function PeekingEggBadge({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 64 64" className={className} fill="none">
+      <path
+        d="M32 5 C19 5 10 25 10 38 c0 13 10 21 22 21 s22-8 22-21 C54 25 45 5 32 5 Z"
+        fill="#e7e1ff"
+        stroke={INK}
+        strokeWidth="3"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13 31 l7 5 6-6 6 6 6-6 6 6 7-5"
+        stroke={INK}
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <ellipse cx="32" cy="22" rx="8" ry="6" fill="#fff" stroke={INK} strokeWidth="2.5" />
+      <circle cx="34" cy="22" r="3" fill={INK} />
+      <path d="M19 47 q7-6 13 0 t13 0" stroke="#7565e8" strokeWidth="3.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/**
+ * Compact icon (interface icon, not artwork) for the Sketchy Saurus card header: a long-necked
+ * dino doodled in loose lines, with a pencil finishing its tail.
+ */
+export function DoodleSaurusBadge({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 64 64" className={className} fill="none">
+      <rect x="4" y="6" width="56" height="52" rx="8" fill="#fff3dc" stroke={INK} strokeWidth="3" />
+      <path
+        d="M14 44 c2-8 10-12 18-11 l4-13 c1-4 6-5 8-2 l1 2 -4 1 -4 15 c5 2 7 6 7 9"
+        stroke="#11956b"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray="7 3"
+      />
+      <path d="M20 44 v6 M38 46 v4" stroke="#11956b" strokeWidth="3.5" strokeLinecap="round" />
+      <g transform="rotate(-35 48 46)">
+        <rect
+          x="44"
+          y="34"
+          width="7"
+          height="18"
+          rx="1.5"
+          fill="#f5b335"
+          stroke={INK}
+          strokeWidth="2.5"
+        />
+        <path
+          d="M44 52 l3.5 6 3.5-6 Z"
+          fill="#ffe0b0"
+          stroke={INK}
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+        />
+      </g>
+    </svg>
+  )
+}
+
 /** Neutral dino-egg icon for a game this client has no artwork for yet. */
 export function EggBadge({ className }: { className?: string }) {
   return (

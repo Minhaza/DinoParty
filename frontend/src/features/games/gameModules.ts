@@ -1,7 +1,13 @@
 import type { ComponentType } from 'react'
 
 import type { AssetSlot } from '@/assets'
-import { EggBadge, PaletteBadge, PencilBadge } from '@/components/art/gameArt'
+import {
+  DoodleSaurusBadge,
+  EggBadge,
+  PaletteBadge,
+  PeekingEggBadge,
+  PencilBadge,
+} from '@/components/art/gameArt'
 
 /**
  * Frontend-only knowledge about games: artwork, colour tone, and whether this client has screens
@@ -9,7 +15,7 @@ import { EggBadge, PaletteBadge, PencilBadge } from '@/components/art/gameArt'
  * must not be added here.
  */
 
-export type GameTone = 'draw' | 'phone' | 'neutral'
+export type GameTone = 'draw' | 'phone' | 'impostor' | 'neutral'
 
 export interface GameVisual {
   Badge: ComponentType<{ className?: string }>
@@ -21,6 +27,9 @@ export interface GameVisual {
 const VISUALS: Record<string, GameVisual> = {
   'draw-guess': { Badge: PaletteBadge, bannerSlot: 'games/draw-guess', tone: 'draw' },
   telephone: { Badge: PencilBadge, bannerSlot: 'games/telephone', tone: 'phone' },
+  // No painted banners yet: the banner falls back to the badge.
+  'dino-impostor': { Badge: PeekingEggBadge, bannerSlot: null, tone: 'impostor' },
+  'sketchy-saurus': { Badge: DoodleSaurusBadge, bannerSlot: null, tone: 'impostor' },
 }
 
 const FALLBACK_VISUAL: GameVisual = { Badge: EggBadge, bannerSlot: null, tone: 'neutral' }
@@ -46,6 +55,8 @@ const MODULES: Record<string, GameModule> = {
     lobbyPanelFields: ['difficulty', 'wordSource', 'wordCategories', 'wordPackIds'],
   },
   telephone: { playable: true, lobbyPanelFields: [] },
+  // Sketchy Saurus becomes playable with its screens (P9-06).
+  'dino-impostor': { playable: true, lobbyPanelFields: [] },
 }
 
 /** `null` for a game the server knows but this client cannot play yet. */
@@ -60,5 +71,9 @@ export const TONE_STYLES: Record<
 > = {
   draw: { variant: 'default', selected: 'border-game-draw bg-game-draw/10 ring-game-draw/40' },
   phone: { variant: 'accent', selected: 'border-game-phone bg-game-phone/10 ring-game-phone/40' },
+  impostor: {
+    variant: 'secondary',
+    selected: 'border-game-impostor bg-game-impostor/10 ring-game-impostor/40',
+  },
   neutral: { variant: 'secondary', selected: 'border-primary bg-primary/10 ring-primary/40' },
 }

@@ -41,6 +41,7 @@
   --game-draw-alt: #f36b36;
   --game-phone: #f36b36;
   --game-phone-alt: #7565e8;
+  --game-impostor: #7565e8;
 
   /* Dinosaur archetype colors */
   --dino-rex: #22b07d;
@@ -127,6 +128,7 @@
   --color-game-draw-alt: var(--game-draw-alt);
   --color-game-phone: var(--game-phone);
   --color-game-phone-alt: var(--game-phone-alt);
+  --color-game-impostor: var(--game-impostor);
   --color-dino-rex: var(--dino-rex);
   --color-dino-tricera: var(--dino-tricera);
   --color-dino-ptera: var(--dino-ptera);

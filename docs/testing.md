@@ -657,3 +657,42 @@ The first full run failed `DinoImpostorIT`: the reconnecting viewer is a random 
 - Voting, chat, guess, scoring, `ROUND_END`, round records and results detail do not exist yet (P9-03). Until then `VOTE` accepts no command and moves on without scores.
 - `GET /games` does not list `sketchy-saurus` (no module before P9-04); its row is checked in the database only.
 - `DinoImpostorIT` enables the game in the catalog for the test and disables it afterwards; a crash between the two would leave it enabled in that test database only.
+## P9-05 verification record (Impostor shared UI + Dino Impostor screens against fixtures)
+
+Scope: `features/impostor/common/` (types, command hook, `RoleCard`, `VotePanel`, `DiscussionChat`, `ImpostorGuessInput`, `RoundReveal`), `features/impostor/dino/` (`dinoImpostorStore`, `DinoImpostorStage`, `TurnStrip`, `SharedCanvas`, `StrokeLegend`, fixtures), `DrawCanvas` single-stroke mode, registry badges (`SneakyEggBadge`, `SketchSaurusBadge`), `roomStore` wiring, and DEV-only fixture preview page (`__dev/impostor`).
+
+### Automated tests executed (Windows 11, Node 22)
+
+| Check | Result |
+|---|---|
+| `npm --prefix frontend run format:check` | clean |
+| `npm --prefix frontend run lint` | clean |
+| `npm --prefix frontend run typecheck` | clean (`tsc -b`) |
+| `npm --prefix frontend run test` | 68 passed (68 files, 467 tests, 0 failures, 0 skipped) |
+| `npm --prefix frontend run build` | success (`tsc -b && vite build`) |
+
+### Production bundle isolation (fixture exclusion check)
+
+- Production bundle inspection of `frontend/dist`: a script searched all HTML, JS, and CSS chunks for fixture tokens (`phase-di-`, `__dev/impostor`, `ImpostorPreviewPage`, `impostor-fixtures`).
+- Result: 0 matches found. The dev preview route is tree-shaken and completely omitted in production builds via `import.meta.env.DEV` route guarding.
+
+### Browser verification
+
+- Tested in browser via dev-only fixture route `/__dev/impostor` at 1280px desktop width and 390px mobile viewport:
+  - Role card presentation matches layout and DOM hierarchy for both artists and impostors to prevent visual snooping.
+  - Turn strip clearly marks current drawer, shows drawer colour and initial, and updates polite `aria-live` region.
+  - DrawCanvas in `singleStroke` mode locks after one stroke and enforces point cap without auto-splitting.
+  - Vote panel radio group supports keyboard arrows/Space, changing votes, and withdrawing votes.
+  - Discussion chat enforces 120-code-point limit, live counter, and text-only rendering.
+  - Impostor guess input presents guess form to caught impostors only.
+  - Round reveal displays accurate outcome summary and breakdown across all four endgame variants.
+
+### Contract gaps & notes
+
+- Documented in `docs/contract-requests.md`: G1 (`colors` in snapshot only, requires resync on initial start), G2 (no author nicknames in strokes/seat order for departed players), G3 (`lap` 0-indexing clarification), G4 (mid-turn reconnect stroke status), G5 (fixed pencil size 2).
+
+### Not verified / limitations
+
+- Real backend integration is deferred to P9-07 (built against fixtures).
+- E2E Playwright specs and axe accessibility automated audit are deferred to P9-08.
+
