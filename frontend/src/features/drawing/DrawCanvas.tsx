@@ -37,6 +37,10 @@ export interface DrawCanvasProps {
   singleStroke?: boolean
   /** Changing it (e.g. the turn's `phaseId`) re-arms a `singleStroke` canvas. */
   strokeLockKey?: string | null
+  /**
+   * For singleStroke mode: reconnecting drawer continues an existing open stroke (G4).
+   */
+  resumeStroke?: { strokeId: string; nextBatchNo: number; pointCount: number } | null
 }
 
 const noop = () => {}
@@ -85,6 +89,7 @@ export function DrawCanvas({
   ariaLabel,
   singleStroke = false,
   strokeLockKey = null,
+  resumeStroke = null,
 }: DrawCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
@@ -365,26 +370,34 @@ export function DrawCanvas({
 
     const rect = canvas.getBoundingClientRect()
     const pt = clientToVirtualCoord(e.clientX, e.clientY, rect)
-    const strokeId = generateUUID()
 
-    // Add local stroke to store immediately for preview
-    const localStroke: Stroke = {
-      strokeId,
-      tool,
-      color,
-      size,
-      points: [pt],
-      closed: false,
+    const resuming = singleStroke && Boolean(resumeStroke)
+    const strokeId = resuming && resumeStroke ? resumeStroke.strokeId : generateUUID()
+    const initialBatchNo = resuming && resumeStroke ? resumeStroke.nextBatchNo : 0
+    const initialSentPoints = resuming && resumeStroke ? resumeStroke.pointCount : 0
+
+    if (resuming) {
+      appendLocalPoints(strokeId, [pt], false)
+    } else {
+      // Add local stroke to store immediately for preview
+      const localStroke: Stroke = {
+        strokeId,
+        tool,
+        color,
+        size,
+        points: [pt],
+        closed: false,
+      }
+      addLocalStroke(localStroke)
     }
-    addLocalStroke(localStroke)
     gestureStrokeIdsRef.current = new Set([strokeId])
     if (singleStroke) setUsedUnderKey({ key: strokeLockKey })
 
     activeStrokeRef.current = {
       strokeId,
       pointerId: e.pointerId,
-      batchNo: 0,
-      sentPoints: 0,
+      batchNo: initialBatchNo,
+      sentPoints: initialSentPoints,
       tool,
       color,
       size,

@@ -26,6 +26,7 @@ export interface SharedCanvasProps {
   onSend: (payload: ImpostorDrawStrokePayload) => boolean
   onLocalStrokeStart: (stroke: ImpostorStroke) => void
   onLocalPoints: (strokeId: string, points: [number, number][], isFinal: boolean) => void
+  resumeStroke?: { strokeId: string; nextBatchNo: number; pointCount: number } | null
 }
 
 /**
@@ -46,6 +47,7 @@ export function SharedCanvas({
   onSend,
   onLocalStrokeStart,
   onLocalPoints,
+  resumeStroke = null,
 }: SharedCanvasProps) {
   const myColor = currentGuestId ? (colors[currentGuestId] ?? null) : null
   // Turn in which this client started its stroke (UI only; the points live in the store).
@@ -74,6 +76,13 @@ export function SharedCanvas({
     },
     [currentGuestId, turnPhaseId, onLocalStrokeStart],
   )
+  const handleLocalPoints = React.useCallback(
+    (strokeId: string, points: [number, number][], isFinal: boolean) => {
+      if (turnPhaseId && points.length > 0) setPlacedInTurn(turnPhaseId)
+      onLocalPoints(strokeId, points, isFinal)
+    },
+    [turnPhaseId, onLocalPoints],
+  )
 
   const status = !drawingPhase
     ? null
@@ -101,9 +110,10 @@ export function SharedCanvas({
           strokeRejection={strokeRejection}
           onSendStrokeBatch={handleSend}
           onLocalStrokeStart={handleStart}
-          onLocalPoints={onLocalPoints}
+          onLocalPoints={handleLocalPoints}
           singleStroke
           strokeLockKey={turnPhaseId}
+          resumeStroke={isMyTurn ? resumeStroke : null}
           ariaLabel={
             canDraw && !placed
               ? 'Shared canvas — your turn, draw one stroke'

@@ -51,6 +51,7 @@ interface DinoImpostorData extends ImpostorCommonState {
   totalTurns: number
   seatOrder: string[]
   colors: Record<string, string>
+  nicknames: Record<string, string>
   drawerGuestId: string | null
   /** The shared canvas in drawing order; points live here, never in React state. */
   strokes: ImpostorStroke[]
@@ -61,6 +62,8 @@ interface DinoImpostorData extends ImpostorCommonState {
   /** Turn in which the server refused another stroke of ours (`ALREADY_SUBMITTED`/`NOT_DRAWER`). */
   lockedTurnPhaseId: string | null
   strokeRejection: StrokeRejection | null
+  /** Reconnecting drawer resumes an open stroke from snapshot (G4). */
+  resumeStroke: { strokeId: string; nextBatchNo: number; pointCount: number } | null
 }
 
 export interface DinoImpostorState extends DinoImpostorData {
@@ -79,6 +82,7 @@ export interface DinoImpostorState extends DinoImpostorData {
   applyCommandError: (payload: GameErrorPayload, actionId?: string | null) => CommandErrorOutcome
   addLocalStroke: (stroke: ImpostorStroke) => void
   appendLocalPoints: (strokeId: string, points: [number, number][], isFinal: boolean) => void
+  rememberNicknames: (players: readonly { guestId: string; nickname: string }[]) => void
   reset: () => void
 }
 
@@ -92,6 +96,7 @@ const initialData: DinoImpostorData = {
   totalTurns: 0,
   seatOrder: [],
   colors: {},
+  nicknames: {},
   drawerGuestId: null,
   strokes: [],
   canvasFull: false,
@@ -99,6 +104,7 @@ const initialData: DinoImpostorData = {
   lastProcessedBatch: {},
   lockedTurnPhaseId: null,
   strokeRejection: null,
+  resumeStroke: null,
 }
 
 let rejectionNonce = 0
@@ -113,6 +119,32 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
       return
     }
     const state = get()
+
+    let resumeStroke: { strokeId: string; nextBatchNo: number; pointCount: number } | null = null
+    let lockedTurnPhaseId =
+      state.lockedTurnPhaseId === snapshot.phaseId ? state.lockedTurnPhaseId : null
+
+    if (snapshot.turnStroke) {
+      if (snapshot.turnStroke.closed) {
+        lockedTurnPhaseId = snapshot.phaseId
+      } else {
+        const matchingStroke = (snapshot.strokes ?? []).find(
+          (s) => s.strokeId === snapshot.turnStroke!.strokeId,
+        )
+        const pointCount = matchingStroke ? matchingStroke.points.length : 0
+        resumeStroke = {
+          strokeId: snapshot.turnStroke.strokeId,
+          nextBatchNo: snapshot.turnStroke.nextBatchNo,
+          pointCount,
+        }
+      }
+    }
+
+    const localStrokeIds =
+      snapshot.turnStroke && !snapshot.turnStroke.closed
+        ? Array.from(new Set([...state.localStrokeIds, snapshot.turnStroke.strokeId]))
+        : state.localStrokeIds
+
     set({
       ...initialData,
       ...commonFromSnapshot(snapshot),
@@ -124,13 +156,14 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
       totalTurns: snapshot.totalTurns,
       seatOrder: [...(snapshot.seatOrder ?? [])],
       colors: { ...(snapshot.colors ?? {}) },
+      nicknames: { ...state.nicknames, ...(snapshot.nicknames ?? {}) },
       drawerGuestId: snapshot.drawerGuestId ?? null,
       strokes: (snapshot.strokes ?? []).map((s) => ({ ...s, points: [...s.points] })),
       canvasFull: snapshot.canvasBudget ? isBudgetExhausted(snapshot.canvasBudget) : false,
       // Keep our own stroke ids: later echoes of a stroke still being drawn stay suppressed.
-      localStrokeIds: state.localStrokeIds,
-      lockedTurnPhaseId:
-        state.lockedTurnPhaseId === snapshot.phaseId ? state.lockedTurnPhaseId : null,
+      localStrokeIds,
+      lockedTurnPhaseId,
+      resumeStroke,
     })
   },
 
@@ -142,6 +175,14 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
         set({
           ...commonForNewRound(state, payload.phaseId),
           ...common,
+          seatOrder:
+            payload.seatOrder && payload.seatOrder.length > 0
+              ? [...payload.seatOrder]
+              : state.seatOrder,
+          colors:
+            payload.colors && Object.keys(payload.colors).length > 0
+              ? { ...payload.colors }
+              : state.colors,
           lap: null,
           turn: null,
           drawerGuestId: null,
@@ -151,6 +192,7 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
           lastProcessedBatch: {},
           lockedTurnPhaseId: null,
           strokeRejection: null,
+          resumeStroke: null,
         })
         return false
       case 'DRAWING':
@@ -162,6 +204,7 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
           totalTurns: payload.totalTurns,
           drawerGuestId: payload.drawerGuestId,
           seatOrder: [...payload.seatOrder],
+          resumeStroke: null,
         })
         // Colours only travel in snapshots (contract gap G1): without them nobody can draw.
         return Object.keys(state.colors).length === 0
@@ -316,6 +359,20 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
           : s,
       ),
     }))
+  },
+
+  rememberNicknames: (players) => {
+    const current = get().nicknames
+    let updated: Record<string, string> | null = null
+    for (const p of players) {
+      if (p.guestId && p.nickname && current[p.guestId] !== p.nickname) {
+        if (!updated) updated = { ...current }
+        updated[p.guestId] = p.nickname
+      }
+    }
+    if (updated) {
+      set({ nicknames: updated })
+    }
   },
 
   reset: () => {

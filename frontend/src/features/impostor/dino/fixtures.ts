@@ -8,6 +8,7 @@ import type {
   DinoImpostorDrawingPhaseStarted,
   DinoImpostorGuessPhaseStarted,
   DinoImpostorOtherPhaseStarted,
+  DinoImpostorRoleRevealPhaseStarted,
   DinoImpostorSnapshot,
   ImpostorChatLine,
   ImpostorDrawingUpdatedPayload,
@@ -173,10 +174,12 @@ export function dinoSnapshot({
     laps: 2,
     seatOrder,
     colors,
+    nicknames: Object.fromEntries(players.map((p) => [p.guestId, p.nickname])),
     lap: null,
     turn: null,
     totalTurns: 2 * players.length,
     drawerGuestId: null,
+    turnStroke: null,
     role,
     strokes,
     canvasBudget: { points, maxPoints: 12000, strokes: strokes.length, maxStrokes: 300 },
@@ -192,7 +195,7 @@ export function dinoSnapshot({
 const drawingAt = (turn: number, players = DI_PLAYERS) => {
   const seatOrder = seatOrderFor(players)
   return {
-    lap: Math.floor(turn / players.length),
+    lap: Math.floor(turn / players.length) + 1,
     turn,
     drawerGuestId: seatOrder[turn % seatOrder.length],
   }
@@ -398,12 +401,14 @@ export const roundEndSnapshot = (
 
 // PHASE_STARTED payloads and events (one round as one viewer sees it)
 
-export const roleRevealStarted: DinoImpostorOtherPhaseStarted = {
+export const roleRevealStarted: DinoImpostorRoleRevealPhaseStarted = {
   phase: 'ROLE_REVEAL',
   phaseId: PHASE_DI_ROLE,
   round: 2,
   totalRounds: 10,
   deadlineAt: '2099-01-01T00:00:05.000Z',
+  seatOrder: seatOrderFor(DI_PLAYERS),
+  colors: colorsFor(DI_PLAYERS),
 }
 
 export function drawingStarted(

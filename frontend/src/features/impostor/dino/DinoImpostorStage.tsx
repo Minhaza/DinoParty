@@ -8,6 +8,7 @@ import { playerName } from '../common/copy'
 import { canGuess } from '../common/impostorState'
 import { DiscussionChat } from '../common/DiscussionChat'
 import { ImpostorGuessInput } from '../common/ImpostorGuessInput'
+import { rosterNames } from '../common/nicknames'
 import { RoleCard } from '../common/RoleCard'
 import { RoundReveal } from '../common/RoundReveal'
 import type { DinoImpostorPhase } from '../common/types'
@@ -45,7 +46,15 @@ export function DinoImpostorStage({ players, currentGuestId }: DinoImpostorStage
   const game = useDinoImpostorStore()
   const commands = useImpostorCommands(game.trackCommand)
 
-  const playersById = React.useMemo(() => new Map(players.map((p) => [p.guestId, p])), [players])
+  const rememberNicknames = game.rememberNicknames
+  React.useEffect(() => {
+    rememberNicknames(players)
+  }, [players, rememberNicknames])
+
+  const playersById = React.useMemo(
+    () => rosterNames(players, game.nicknames),
+    [players, game.nicknames],
+  )
   const leftIds = React.useMemo(
     () => new Set(roster.filter((p) => p.status === 'LEFT').map((p) => p.guestId)),
     [roster],
@@ -63,7 +72,7 @@ export function DinoImpostorStage({ players, currentGuestId }: DinoImpostorStage
   const seatPlayers = game.seatOrder.map((id) => ({
     guestId: id,
     nickname: name(id),
-    avatarKey: playersById.get(id)?.avatarKey ?? null,
+    avatarKey: (playersById.get(id) as PlayerDto | undefined)?.avatarKey ?? null,
   }))
   const candidates: VoteCandidate[] = seatPlayers.filter((p) => !leftIds.has(p.guestId))
 
@@ -80,6 +89,7 @@ export function DinoImpostorStage({ players, currentGuestId }: DinoImpostorStage
         canvasFull={game.canvasFull}
         strokeRejection={game.strokeRejection}
         drawerName={game.drawerGuestId ? name(game.drawerGuestId) : null}
+        resumeStroke={isMyTurn && inGame ? game.resumeStroke : null}
         onSend={commands.drawStroke}
         onLocalStrokeStart={game.addLocalStroke}
         onLocalPoints={game.appendLocalPoints}
