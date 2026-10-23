@@ -17,6 +17,8 @@ export interface SketchWaitingProps {
   submittedGuestIds: string[]
   players: WaitingPlayer[]
   deadlineAt: string | null
+  /** A spectator has no sketch of their own: no "submitted" banner and no preview. */
+  spectating?: boolean
 }
 
 export function SketchWaiting({
@@ -24,6 +26,7 @@ export function SketchWaiting({
   submittedGuestIds,
   players,
   deadlineAt,
+  spectating = false,
 }: SketchWaitingProps) {
   const submittedSet = new Set(submittedGuestIds)
   const submittedCount = players.filter((p) => submittedSet.has(p.guestId)).length
@@ -37,9 +40,13 @@ export function SketchWaiting({
             <CheckCircle2 className="size-6" aria-hidden="true" />
           </div>
           <div>
-            <h2 className="font-fredoka text-xl font-bold">Sketch submitted!</h2>
+            <h2 className="font-fredoka text-xl font-bold">
+              {spectating ? 'The dinos are sketching' : 'Sketch submitted!'}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Waiting for other dinos to finish their masterpieces...
+              {spectating
+                ? 'Every drawing appears in the gallery once the time is up.'
+                : 'Waiting for other dinos to finish their masterpieces...'}
             </p>
           </div>
         </div>
@@ -47,22 +54,24 @@ export function SketchWaiting({
       </div>
 
       {/* Drawing preview */}
-      <div className="flex flex-col gap-2 p-4 rounded-2xl border border-border bg-card shadow-xs">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Your Drawing Preview
-        </span>
-        <div className="relative w-full rounded-xl overflow-hidden border border-border/80 bg-white">
-          <DrawCanvas
-            isDrawer={false}
-            isDrawingPhase={false}
-            tool="PENCIL"
-            color="#2563EB"
-            size={3}
-            strokes={strokes}
-            ariaLabel="Preview of your submitted sketch"
-          />
+      {!spectating && (
+        <div className="flex flex-col gap-2 p-4 rounded-2xl border border-border bg-card shadow-xs">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Your Drawing Preview
+          </span>
+          <div className="relative w-full rounded-xl overflow-hidden border border-border/80 bg-white">
+            <DrawCanvas
+              isDrawer={false}
+              isDrawingPhase={false}
+              tool="PENCIL"
+              color="#2563EB"
+              size={3}
+              strokes={strokes}
+              ariaLabel="Preview of your submitted sketch"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Progress status */}
       <div className="flex flex-col gap-3 p-4 rounded-2xl border border-border bg-card shadow-xs">

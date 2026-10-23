@@ -144,6 +144,7 @@ export function SketchySaurusStage({ players, currentGuestId }: SketchySaurusSta
           submittedGuestIds={game.submittedGuestIds}
           players={activePlayers}
           deadlineAt={deadlineAt}
+          spectating
         />
       )}
 

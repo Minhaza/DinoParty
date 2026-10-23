@@ -182,6 +182,23 @@ describe('SketchWaiting', () => {
     expect(screen.getAllByText('Ready')).toHaveLength(2)
     expect(screen.getAllByText('Drawing...')).toHaveLength(3)
   })
+
+  it('tells a spectator the dinos are sketching, without a submitted banner or preview', () => {
+    render(
+      <SketchWaiting
+        strokes={[]}
+        submittedGuestIds={['ss-g1']}
+        players={SS_PLAYERS}
+        deadlineAt="2099-01-01T00:00:25.000Z"
+        spectating
+      />,
+    )
+
+    expect(screen.getByText('The dinos are sketching')).toBeInTheDocument()
+    expect(screen.queryByText('Sketch submitted!')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Preview of your submitted sketch')).not.toBeInTheDocument()
+    expect(screen.getByText(/Progress \(1 of 5 ready\)/i)).toBeInTheDocument()
+  })
 })
 
 describe('GalleryGrid', () => {

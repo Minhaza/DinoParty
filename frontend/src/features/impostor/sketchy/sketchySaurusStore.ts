@@ -52,7 +52,6 @@ interface SketchySaurusData extends ImpostorCommonState {
   strokes: Stroke[]
   canvasFull: boolean
   strokeRejection: StrokeRejection | null
-  localStrokeIds: string[]
   submitted: boolean
   submittedGuestIds: string[]
   gallery: SketchyDrawing[] | null
@@ -89,7 +88,6 @@ const initialData: SketchySaurusData = {
   strokes: [],
   canvasFull: false,
   strokeRejection: null,
-  localStrokeIds: [],
   submitted: false,
   submittedGuestIds: [],
   gallery: null,
@@ -123,7 +121,6 @@ export const useSketchySaurusStore = create<SketchySaurusState>((set, get) => ({
       gallery: snapshot.gallery
         ? snapshot.gallery.map((d) => ({ ...d, strokes: [...d.strokes] }))
         : null,
-      localStrokeIds: state.localStrokeIds,
       strokeRejection: null,
       submitError: null,
     })
@@ -140,7 +137,6 @@ export const useSketchySaurusStore = create<SketchySaurusState>((set, get) => ({
           strokes: [],
           canvasFull: false,
           strokeRejection: null,
-          localStrokeIds: [],
           submitted: false,
           submittedGuestIds: [],
           gallery: null,
@@ -288,10 +284,7 @@ export const useSketchySaurusStore = create<SketchySaurusState>((set, get) => ({
   },
 
   addLocalStroke: (stroke) => {
-    set((state) => ({
-      strokes: [...state.strokes, stroke],
-      localStrokeIds: [...state.localStrokeIds, stroke.strokeId],
-    }))
+    set((state) => ({ strokes: [...state.strokes, stroke] }))
   },
 
   appendLocalPoints: (strokeId, points, isFinal) => {
