@@ -237,6 +237,22 @@ Run on Windows 11, Node 22.
 | `npm --prefix frontend run build` | passed: Vite production build succeeded |
 
 
+## Phase 9 Frontend verification record (P9-06, Sketchy Saurus screens & P9-05 contract fixes)
+
+Run 2026-10-23 on Windows 11, Node 22. Fixtures only; no live backend (P9-07).
+
+**Built:** G1–G4 fixes in the Dino Impostor client (1-based `lap`, `colors`/`seatOrder` from `ROLE_REVEAL`, `nicknames` fallback, `turnStroke` resume via `DrawCanvas.resumeStroke`); shared `commandTracker`/`nicknames` helpers; Sketchy Saurus types, store, commands hook, `SketchCanvas`, `SketchWaiting`, `GalleryGrid` (voting from the gallery), `UnawareRoleReveal`, `SketchySaurusStage`; `roomStore` routing by `gameKey`; `gameModules`/`GameStage` wiring; 14 Sketchy scenarios in `/__dev/impostor`.
+
+| Check | Result |
+|---|---|
+| `format:check`, `lint`, `typecheck` | passed |
+| `npm --prefix frontend run test` | passed: 78 files, 524 tests, 0 failed, 0 skipped |
+| `npm --prefix frontend run build` | passed (chunk-size warning only); `grep` of `dist/` for fixture strings (`Trilobite`, `ss-g1`, `session-ss-fixture`, `__dev/impostor`, `Rexy`): no matches |
+
+**Browser check** (Chromium via Playwright against `vite` dev, `/__dev/impostor`): all 14 Sketchy scenarios at 375 px and 1280 px; `scrollWidth - clientWidth` was 0 in every one. Screenshots viewed: phone max gallery, phone unaware guess, desktop sketch; the rest were taken but not individually inspected. Not run: real-phone touch input, Firefox/WebKit, axe (P9-08).
+
+**Not covered:** the settings form cannot hide `unawareGuess` while `impostorKnows` is on (accepted; the server ignores it then); live backend (P9-07); E2E (P9-08).
+
 ## Phase 5 integration verification record (P5-04, Draw & Guess multiplayer)
 
 Run 2026-10-14 on Windows 11, JDK 21.0.3, Node 22, Docker Desktop 29.8, on `main` (P5-02 + P5-03 merged) plus this branch. No backend or contract change was needed; the integration defects were all on the client side.
