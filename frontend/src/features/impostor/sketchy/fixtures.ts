@@ -223,6 +223,12 @@ export const roundEndedEscaped: ImpostorRoundEndedPayload = {
   guess: null,
 }
 
+/** Caught with `unawareGuess = false`: `GALLERY` goes straight to `ROUND_END`, so there is no guess. */
+export const roundEndedCaughtNoGuess: ImpostorRoundEndedPayload = {
+  ...roundEndedCaughtWrongGuess,
+  guess: null,
+}
+
 export const sampleChat: ImpostorChatLine[] = [
   { guestId: 'ss-g1', text: 'Drawing 2 looks very suspicious!', ts: '2099-01-01T00:00:10.000Z' },
   { guestId: 'ss-g2', text: 'Hey, I drew a fossil too!', ts: '2099-01-01T00:00:15.000Z' },

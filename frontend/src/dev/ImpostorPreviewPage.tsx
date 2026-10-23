@@ -173,6 +173,14 @@ const SCENARIOS: Scenario[] = [
     players: sfx.SS_PLAYERS,
   },
   {
+    id: 'ss-role-spectator',
+    label: 'SS · Role reveal · spectator',
+    gameKey: 'sketchy-saurus',
+    snapshot: sfx.sketchySnapshot('ROLE_REVEAL', null),
+    viewer: 'ss-spectator',
+    players: sfx.SS_PLAYERS,
+  },
+  {
     id: 'ss-sketch-artist',
     label: 'SS · Sketch · artist drafting',
     gameKey: 'sketchy-saurus',
@@ -200,6 +208,35 @@ const SCENARIOS: Scenario[] = [
     players: sfx.SS_PLAYERS,
   },
   {
+    id: 'ss-sketch-aware-impostor',
+    label: 'SS · Sketch · aware impostor',
+    gameKey: 'sketchy-saurus',
+    snapshot: sfx.sketchySnapshot('SKETCH', sfx.AWARE_IMPOSTOR_ROLE),
+    viewer: sfx.VIEWER_IMPOSTOR,
+    players: sfx.SS_PLAYERS,
+  },
+  {
+    id: 'ss-sketch-full',
+    label: 'SS · Sketch · canvas full (1 500 points)',
+    gameKey: 'sketchy-saurus',
+    snapshot: sfx.sketchySnapshot('SKETCH', sfx.ARTIST_ROLE, {
+      draft: {
+        strokes: sfx.maxDrawing(sfx.VIEWER_ARTIST, 1).strokes,
+        canvasBudget: { points: 1500, maxPoints: 1500, strokes: 100, maxStrokes: 100 },
+      },
+    }),
+    viewer: sfx.VIEWER_ARTIST,
+    players: sfx.SS_PLAYERS,
+  },
+  {
+    id: 'ss-sketch-spectator',
+    label: 'SS · Sketch · spectator',
+    gameKey: 'sketchy-saurus',
+    snapshot: sfx.sketchySnapshot('SKETCH', null, { draft: null }),
+    viewer: 'ss-spectator',
+    players: sfx.SS_PLAYERS,
+  },
+  {
     id: 'ss-gallery',
     label: 'SS · Gallery · vote & chat',
     gameKey: 'sketchy-saurus',
@@ -213,6 +250,14 @@ const SCENARIOS: Scenario[] = [
     gameKey: 'sketchy-saurus',
     snapshot: sfx.sketchySnapshot('GUESS', sfx.AWARE_IMPOSTOR_ROLE),
     viewer: sfx.VIEWER_IMPOSTOR,
+    players: sfx.SS_PLAYERS,
+  },
+  {
+    id: 'ss-guess-artist',
+    label: 'SS · Guess · artist watching',
+    gameKey: 'sketchy-saurus',
+    snapshot: sfx.sketchySnapshot('GUESS', sfx.ARTIST_ROLE),
+    viewer: sfx.VIEWER_ARTIST,
     players: sfx.SS_PLAYERS,
   },
   {
@@ -233,7 +278,7 @@ const SCENARIOS: Scenario[] = [
   },
   {
     id: 'ss-gallery-max',
-    label: 'SS · Gallery · 10 full drawings + 1 empty',
+    label: 'SS · Gallery · 10 artists: 9 full drawings + 1 empty',
     gameKey: 'sketchy-saurus',
     snapshot: sfx.sketchySnapshot('GALLERY', sfx.ARTIST_ROLE, {
       gallery: sfx.maxGallery,
@@ -256,7 +301,9 @@ const SCENARIOS: Scenario[] = [
     id: 'ss-end-unaware-no-guess',
     label: 'SS · Round end · unaware impostor caught, no guess',
     gameKey: 'sketchy-saurus',
-    snapshot: sfx.sketchySnapshot('ROUND_END', sfx.UNAWARE_IMPOSTOR_ROLE),
+    snapshot: sfx.sketchySnapshot('ROUND_END', sfx.UNAWARE_IMPOSTOR_ROLE, {
+      roundEnd: sfx.roundEndedCaughtNoGuess,
+    }),
     viewer: sfx.VIEWER_IMPOSTOR,
     players: sfx.SS_PLAYERS,
   },
@@ -406,7 +453,8 @@ export function Component() {
         )}
         <section aria-label="Sent commands" className="text-xs">
           <h2 className="font-semibold">Sent commands</h2>
-          <ol className="mt-1 flex flex-col gap-1 break-all font-mono">
+          {/* Fixed height: a growing log would push the canvas down in the middle of a stroke on phones. */}
+          <ol className="mt-1 flex h-28 flex-col gap-1 overflow-y-auto break-all font-mono">
             {log.map((line, i) => (
               <li key={`${i}-${line}`}>{line}</li>
             ))}

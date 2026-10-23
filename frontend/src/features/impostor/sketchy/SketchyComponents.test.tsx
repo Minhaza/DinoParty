@@ -158,7 +158,8 @@ describe('SketchCanvas', () => {
       />,
     )
 
-    expect(screen.getByText(/Drawing budget full/i)).toBeInTheDocument()
+    // One notice only: the shared canvas-full handling of DrawCanvas.
+    expect(screen.getByText(/Canvas full/i)).toBeInTheDocument()
     // The banner tells the player to undo or clear, so both must stay enabled.
     expect(screen.getByRole('button', { name: 'Undo last stroke' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Clear all drawing' })).toBeEnabled()
@@ -220,6 +221,9 @@ describe('GalleryGrid', () => {
 
     expect(screen.getByText('The Gallery · Spot the Impostor!')).toBeInTheDocument()
     expect(screen.getByText('No drawing submitted')).toBeInTheDocument()
+    // Each drawing is a read-only, fixed 16:10 picture that scales with its card (never cropped).
+    const trixie = screen.getByRole('img', { name: 'Drawing by Trixie' })
+    expect(trixie.parentElement).toHaveClass('aspect-[16/10]')
 
     // Own card shows (You) and cannot vote for self
     expect(screen.getByText('(You)')).toBeInTheDocument()
@@ -298,5 +302,23 @@ describe('GalleryGrid', () => {
     radios[0].focus()
     await userEvent.keyboard('{ArrowDown}')
     expect(onVote).toHaveBeenCalledWith(radios[1].getAttribute('value'))
+  })
+  it('gives a spectator no vote controls at all', () => {
+    render(
+      <GalleryGrid
+        drawings={sampleDrawings}
+        players={SS_PLAYERS}
+        currentGuestId="ss-spectator"
+        myVote={null}
+        pendingVote={null}
+        votedGuestIds={[]}
+        enabled={false}
+        onVote={vi.fn()}
+        deadlineAt="2099-01-01T00:00:25.000Z"
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /Withdraw my vote/i })).toBeNull()
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled()
   })
 })

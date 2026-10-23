@@ -1,8 +1,8 @@
 import { CheckCircle2, Clock } from 'lucide-react'
 
 import { DinoAvatar } from '@/components/DinoAvatar'
-import { DrawCanvas } from '@/features/drawing/DrawCanvas'
 import { ServerCountdown } from '@/features/session/ServerCountdown'
+import { TelephoneDrawingView } from '@/features/telephone/reveal/TelephoneDrawingView'
 import type { Stroke } from '@/features/drawing/types'
 import { cn } from '@/lib/utils'
 
@@ -59,17 +59,11 @@ export function SketchWaiting({
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Your Drawing Preview
           </span>
-          <div className="relative w-full rounded-xl overflow-hidden border border-border/80 bg-white">
-            <DrawCanvas
-              isDrawer={false}
-              isDrawingPhase={false}
-              tool="PENCIL"
-              color="#2563EB"
-              size={3}
-              strokes={strokes}
-              ariaLabel="Preview of your submitted sketch"
-            />
-          </div>
+          <TelephoneDrawingView
+            strokes={strokes}
+            label="Preview of your submitted sketch"
+            compact
+          />
         </div>
       )}
 

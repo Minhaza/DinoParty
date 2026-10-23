@@ -12,6 +12,7 @@ import {
   AWARE_IMPOSTOR_ROLE,
   DECOY_WORD,
   maxGallery,
+  roundEndedCaughtNoGuess,
   SECRET_WORD,
   sketchySnapshot,
   SS_PLAYERS,
@@ -133,10 +134,14 @@ describe('SketchySaurusStage', () => {
   })
 
   it('SS3_UNAWARE_NO_GUESS goes from GALLERY straight to the reveal, with no guess input', () => {
-    show(sketchySnapshot('ROUND_END', UNAWARE_IMPOSTOR_ROLE), VIEWER_IMPOSTOR)
+    show(
+      sketchySnapshot('ROUND_END', UNAWARE_IMPOSTOR_ROLE, { roundEnd: roundEndedCaughtNoGuess }),
+      VIEWER_IMPOSTOR,
+    )
     expect(screen.queryByLabelText(/Your guess/i)).toBeNull()
     expect(screen.queryByRole('heading', { name: /you were the impostor/i })).toBeNull()
-    expect(screen.getByText('Impostor caught!')).toBeInTheDocument()
+    expect(screen.getAllByText('Impostor caught!').length).toBeGreaterThan(0)
+    expect(screen.getByText('No guess')).toBeInTheDocument()
   })
 
   it('G2 names a gallery artist who left from the snapshot nicknames', () => {

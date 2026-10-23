@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AlertCircle, Check, Loader2, Sparkles } from 'lucide-react'
+import { Check, Loader2, Sparkles } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { DrawCanvas } from '@/features/drawing/DrawCanvas'
@@ -152,13 +152,6 @@ export function SketchCanvas({
           onLocalPoints={onLocalPoints}
           ariaLabel="Your sketch canvas"
         />
-
-        {canvasFull && (
-          <div className="absolute top-2 left-2 right-2 flex items-center justify-center gap-1.5 p-2 rounded-lg bg-amber-500/90 text-white text-xs font-semibold shadow-xs">
-            <AlertCircle className="size-4" />
-            Drawing budget full. Undo or clear strokes to keep drawing.
-          </div>
-        )}
       </div>
 
       {submitError && (

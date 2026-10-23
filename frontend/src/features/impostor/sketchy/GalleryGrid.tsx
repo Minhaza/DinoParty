@@ -3,8 +3,8 @@ import { CheckCircle2, ImageOff, Loader2, UserCheck, Vote } from 'lucide-react'
 
 import { DinoAvatar } from '@/components/DinoAvatar'
 import { Button } from '@/components/ui/button'
-import { DrawCanvas } from '@/features/drawing/DrawCanvas'
 import { ServerCountdown } from '@/features/session/ServerCountdown'
+import { TelephoneDrawingView } from '@/features/telephone/reveal/TelephoneDrawingView'
 import { cn } from '@/lib/utils'
 
 import type { SketchyDrawing } from './types'
@@ -128,25 +128,20 @@ export function GalleryGrid({
                 </div>
               </div>
 
-              {/* Drawing Preview or Empty placeholder */}
-              <div className="relative aspect-video w-full bg-white flex items-center justify-center overflow-hidden">
-                {d.empty || d.strokes.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center gap-1.5 p-4 text-center text-muted-foreground">
-                    <ImageOff className="size-8 stroke-1" aria-hidden="true" />
-                    <span className="text-xs font-medium">No drawing submitted</span>
-                  </div>
-                ) : (
-                  <DrawCanvas
-                    isDrawer={false}
-                    isDrawingPhase={false}
-                    tool="PENCIL"
-                    color="#000000"
-                    size={3}
-                    strokes={d.strokes}
-                    ariaLabel={`Drawing by ${author?.nickname ?? 'player'}`}
-                  />
-                )}
-              </div>
+              {/* Drawing Preview or Empty placeholder: a fixed 16:10 view that scales with the card */}
+              {d.empty || d.strokes.length === 0 ? (
+                <div className="flex aspect-[16/10] w-full flex-col items-center justify-center gap-1.5 bg-white p-4 text-center text-muted-foreground">
+                  <ImageOff className="size-8 stroke-1" aria-hidden="true" />
+                  <span className="text-xs font-medium">No drawing submitted</span>
+                </div>
+              ) : (
+                <TelephoneDrawingView
+                  strokes={d.strokes}
+                  label={`Drawing by ${author?.nickname ?? 'player'}`}
+                  compact
+                  className="rounded-none ring-0"
+                />
+              )}
             </label>
           )
         })}
@@ -172,15 +167,17 @@ export function GalleryGrid({
           ) : null}
         </p>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!enabled || selected === null}
-          onClick={() => onVote(null)}
-        >
-          Withdraw my vote
-        </Button>
+        {enabled && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={selected === null}
+            onClick={() => onVote(null)}
+          >
+            Withdraw my vote
+          </Button>
+        )}
       </div>
 
       {error && (
