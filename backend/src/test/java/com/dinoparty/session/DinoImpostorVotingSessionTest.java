@@ -97,13 +97,14 @@ class DinoImpostorVotingSessionTest {
     start5();
     d.toVote();
     d.advance(Duration.ofSeconds(20));
-    List<UUID> seated = d.seated();
-    for (int i = 0; i < 4; i++) {
-      d.vote(seated.get(i), seated.get(4));
+    UUID accused = artist(0);
+    List<UUID> others = d.seated().stream().filter(p -> !p.equals(accused)).toList();
+    for (UUID p : others) {
+      d.vote(p, accused);
     }
-    assertThat(d.phase()).isEqualTo("VOTE");
+    assertThat(d.phase()).isEqualTo("VOTE"); // the accused has not voted yet
 
-    d.vote(seated.get(4), seated.get(0));
+    d.vote(accused, artist(1));
 
     assertThat(d.phase()).isEqualTo("ROUND_END");
     assertThat(f.sink.ofType("IMPOSTOR_VOTE_CLOSED")).hasSize(1);
