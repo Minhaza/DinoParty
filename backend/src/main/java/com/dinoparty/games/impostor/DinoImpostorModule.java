@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.stereotype.Component;
 
 /**
@@ -41,8 +43,9 @@ import org.springframework.stereotype.Component;
  * docs/game-rules.md [DI-1]..[DI-14]; wire format: api-contracts.md §3.11; plan:
  * docs/dino-impostor-plan.md.
  *
- * <p>Built up to the end of the drawing turns (P9-02). Until P9-03 the {@code VOTE} phase accepts
- * no command and its deadline moves on to the next round, or finishes the game, without scores.
+ * <p>The drawing turns are this class ([DI-5]..[DI-7]); everything after them (chat, votes, the
+ * guess, the reveal, scoring, an impostor who leaves) is {@link ImpostorVoting}, shared with
+ * Sketchy Saurus, which this class feeds with the {@link ImpostorRules} of its game.
  *
  * <p>Every rejection is thrown before any state changes. The word and the impostor only leave this
  * class in each player's own private {@code IMPOSTOR_ROLE} and their own {@link #view} ({@link
@@ -83,9 +86,13 @@ public class DinoImpostorModule implements GameModule {
           10,
           3,
           true,
-          List.of(new CommandSpec(DRAW_STROKE, 8 * 1024, 30, 40, Set.of(DRAWING))),
-          Set.of(DRAWING_UPDATED),
-          Set.of(ImpostorRound.ROLE_EVENT),
+          Stream.concat(
+                  ImpostorFamily.COMMANDS.stream(),
+                  Stream.of(new CommandSpec(DRAW_STROKE, 8 * 1024, 30, 40, Set.of(DRAWING))))
+              .toList(),
+          Stream.concat(ImpostorFamily.PUBLIC_EVENTS.stream(), Stream.of(DRAWING_UPDATED))
+              .collect(Collectors.toUnmodifiableSet()),
+          ImpostorFamily.PRIVATE_EVENTS,
           new GameMetadata(
               "Dino Impostor",
               "Bluff one stroke at a time",
@@ -146,8 +153,15 @@ public class DinoImpostorModule implements GameModule {
     for (int i = 0; i < ctx.order().size(); i++) {
       colors.put(ctx.order().get(i), PALETTE.get(i));
     }
+    Map<UUID, String> nicknames = new LinkedHashMap<>();
+    ctx.roster().forEach(p -> nicknames.put(p.guestId(), p.nickname()));
+    // [DI-11]: a caught impostor always gets a guess here; Sketchy Saurus decides by [SS-3].
+    ImpostorRules rules =
+        new ImpostorRules(
+            ImpostorFamily.VOTE_PHASE, settings.voteSeconds(), settings.guessSeconds(), () -> true);
     DinoImpostorState s =
-        new DinoImpostorState(settings, ctx.order(), colors, setup.words(), rounds);
+        new DinoImpostorState(
+            settings, ctx.order(), colors, setup.words(), nicknames, rules, rounds);
     return startRound(s, ctx);
   }
 
@@ -156,6 +170,9 @@ public class DinoImpostorModule implements GameModule {
     DinoImpostorState s = (DinoImpostorState) state;
     return switch (action.type()) {
       case DRAW_STROKE -> drawStroke(s, action, ctx);
+      case ImpostorFamily.CHAT -> s.voting.chat(s, action, ctx);
+      case ImpostorFamily.VOTE -> track(s, s.voting.vote(s, action, ctx));
+      case ImpostorFamily.GUESS -> track(s, s.voting.guess(s, action, ctx));
       default -> throw new ActionRejected(ErrorCode.INVALID_ACTION, "Unknown action.");
     };
   }
@@ -163,13 +180,16 @@ public class DinoImpostorModule implements GameModule {
   @Override
   public Transition onDeadline(GameState state, DeadlineFired deadline, GameContext ctx) {
     DinoImpostorState s = (DinoImpostorState) state;
+    if (ImpostorFamily.VOTE_MINIMUM_DEADLINE.equals(deadline.id())) {
+      return track(s, s.voting.onVoteMinimum(s, ctx));
+    }
     if (!PHASE_END.equals(deadline.id())) {
       return Transition.stay(s);
     }
     return switch (s.phase) {
       case ROLE_REVEAL, DRAWING -> nextTurn(s, ctx); // [DI-7] the deadline ends the turn
-      // P9-03 replaces this: voting, the guess and the reveal. Until then the vote is skipped.
-      case VOTE -> nextRoundOrFinish(s, ctx);
+      case VOTE, GUESS -> track(s, s.voting.onPhaseEnd(s, ctx));
+      case ROUND_END -> nextRoundOrFinish(s, ctx);
     };
   }
 
@@ -181,16 +201,18 @@ public class DinoImpostorModule implements GameModule {
       return Transition.stay(s);
     }
     UUID guest = change.guestId();
-    if (s.current != null && s.current.isImpostor(guest)) {
-      // [DI-13] the round ends at once with outcome IMPOSTOR_LEFT and no points.
-      // P9-03: IMPOSTOR_ROUND_ENDED{outcome: IMPOSTOR_LEFT} and the ROUND_END reveal go here.
+    if ((s.phase == Phase.ROLE_REVEAL || s.phase == Phase.DRAWING) && s.current.isImpostor(guest)) {
       closeOpenStroke(s);
-      return nextRoundOrFinish(s, ctx);
+    }
+    // [DI-13]: the impostor ends the round; anyone else loses their votes and may close the vote.
+    Transition left = s.voting.onLeft(s, guest, ctx);
+    if (left.phase().isPresent()) {
+      return track(s, left);
     }
     if (s.phase == Phase.DRAWING && guest.equals(s.drawer)) {
       return nextTurn(s, ctx); // their stroke so far stays; the next turn starts at once
     }
-    return Transition.stay(s); // later turns of their seat are skipped
+    return left; // later turns of their seat are skipped
   }
 
   @Override
@@ -198,20 +220,11 @@ public class DinoImpostorModule implements GameModule {
     return DinoImpostorViews.snapshot((DinoImpostorState) state, viewer);
   }
 
-  /** Standings detail of §3.11; P9-03 fills the voting counters, which stay 0 until then. */
+  /** Standings detail of §3.11. */
   @Override
   public GameOutcome outcome(GameState state, FinishReason reason, GameContext ctx) {
     DinoImpostorState s = (DinoImpostorState) state;
-    Map<UUID, Map<String, Object>> detail = new LinkedHashMap<>();
-    for (UUID g : s.order) {
-      Map<String, Object> d = new LinkedHashMap<>();
-      d.put("roundsAsImpostor", s.impostorCounts.getOrDefault(g, 0));
-      d.put("escapes", 0);
-      d.put("correctGuesses", 0);
-      d.put("impostorsFound", 0);
-      detail.put(g, d);
-    }
-    return new GameOutcome(detail);
+    return new GameOutcome(s.scoreboard.detail(s.order));
   }
 
   // ------------------------------------------------------------------ commands
@@ -232,7 +245,7 @@ public class DinoImpostorModule implements GameModule {
     if (!batch.color().equalsIgnoreCase(s.colors.get(drawer))) {
       throw invalid("payload.color", "must be your own colour");
     }
-    if (s.stroke != null && !s.stroke.id.equals(batch.strokeId())) {
+    if (s.stroke != null && (s.stroke.closed || !s.stroke.id.equals(batch.strokeId()))) {
       throw new ActionRejected(ErrorCode.ALREADY_SUBMITTED, "You already drew your stroke.");
     }
     s.canvas.append(batch); // validates order, style and budgets before it mutates
@@ -265,6 +278,9 @@ public class DinoImpostorModule implements GameModule {
     CategorizedWord word = s.words.get(s.round - 1);
     s.current = new ImpostorRound(s.round, impostor, word);
     s.seats = ImpostorRotation.seatOrder(seated, impostor, ctx.random());
+    s.voting =
+        new ImpostorVoting(
+            s.rules, s.current, s.seats, s.totalRounds, ctx.clock().instant(), null, s.scoreboard);
     s.totalTurns = s.settings.laps() * s.seats.size();
     s.turn = -1;
     s.drawer = null;
@@ -274,7 +290,7 @@ public class DinoImpostorModule implements GameModule {
     s.phase = Phase.ROLE_REVEAL;
     Instant deadline = ctx.clock().instant().plus(ROLE_REVEAL_TIME);
     return Transition.stay(s)
-        .withPhase(new PhaseChange(ROLE_REVEAL, deadline, DinoImpostorViews.roundData(s)))
+        .withPhase(new PhaseChange(ROLE_REVEAL, deadline, DinoImpostorViews.roleRevealData(s)))
         .withEvents(s.current.roleEvents(s.seats, ctx.nextPhaseId()).toArray(OutboundEvent[]::new));
   }
 
@@ -293,11 +309,7 @@ public class DinoImpostorModule implements GameModule {
     if (t >= s.totalTurns) {
       s.turn = s.totalTurns;
       s.drawer = null;
-      s.phase = Phase.VOTE;
-      return Transition.stay(s)
-          .withPhase(
-              new PhaseChange(
-                  VOTE, now.plusSeconds(s.settings.voteSeconds()), DinoImpostorViews.roundData(s)));
+      return track(s, s.voting.open(s, ctx, DinoImpostorViews.roundData(s)));
     }
     s.turn = t;
     s.drawer = s.seatOf(t);
@@ -306,6 +318,12 @@ public class DinoImpostorModule implements GameModule {
         .withPhase(
             new PhaseChange(
                 DRAWING, now.plusSeconds(s.settings.turnSeconds()), DinoImpostorViews.turnData(s)));
+  }
+
+  /** Keeps the state's phase in step with the phase a shared-voting transition starts. */
+  private static Transition track(DinoImpostorState s, Transition t) {
+    t.phase().ifPresent(change -> s.phase = Phase.valueOf(change.name()));
+    return t;
   }
 
   private Transition nextRoundOrFinish(DinoImpostorState s, GameContext ctx) {

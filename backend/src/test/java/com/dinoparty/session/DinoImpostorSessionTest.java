@@ -30,13 +30,14 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * Dino Impostor through the real engine with a manual clock (P9-02): roles, seats, turns, the
  * stroke policy and every rejection of [DI-6]/[DI-7], the edge cases of game-rules Game 3, leaving
- * and disconnecting, and the temporary vote that P9-03 replaces.
+ * and disconnecting. Voting, the guess and the reveal are in {@link DinoImpostorVotingSessionTest}.
  */
 class DinoImpostorSessionTest {
 
   private static final Duration TURN = Duration.ofSeconds(25);
   private static final Duration REVEAL = Duration.ofSeconds(5);
   private static final Duration VOTE = Duration.ofSeconds(60);
+  private static final Duration ROUND_END = Duration.ofSeconds(8);
 
   private SessionFixture f = fixture(new SeededRandomSource(11));
   private List<UUID> players;
@@ -167,6 +168,12 @@ class DinoImpostorSessionTest {
     throw new AssertionError("no such turn");
   }
 
+  /** Nobody votes: the vote times out (escaped), then the 8 s reveal passes. */
+  private void endRound() {
+    advance(VOTE);
+    advance(ROUND_END);
+  }
+
   private void leave(UUID guest) {
     f.room.removeMember(guest);
     f.sessions.onMemberLeft(CODE, guest);
@@ -183,14 +190,27 @@ class DinoImpostorSessionTest {
     assertThat(d.maxPlayers()).isEqualTo(10);
     assertThat(d.minActivePlayers()).isEqualTo(3);
     assertThat(d.scored()).isTrue();
-    assertThat(d.commandsByType()).containsOnlyKeys("IMPOSTOR_DRAW_STROKE");
+    assertThat(d.commandsByType())
+        .containsOnlyKeys(
+            "IMPOSTOR_DRAW_STROKE", "IMPOSTOR_CHAT", "IMPOSTOR_VOTE", "IMPOSTOR_GUESS");
     var spec = d.commandsByType().get("IMPOSTOR_DRAW_STROKE");
     assertThat(spec.maxPayloadBytes()).isEqualTo(8 * 1024);
     assertThat(spec.ratePerSecond()).isEqualTo(30.0);
     assertThat(spec.burst()).isEqualTo(40);
     assertThat(spec.phases()).containsExactly("DRAWING");
-    assertThat(d.publicEvents()).containsExactly("IMPOSTOR_DRAWING_UPDATED");
-    assertThat(d.privateEvents()).containsExactly("IMPOSTOR_ROLE");
+    assertThat(d.publicEvents())
+        .containsExactlyInAnyOrder(
+            "IMPOSTOR_DRAWING_UPDATED",
+            "IMPOSTOR_CHAT_MESSAGE",
+            "IMPOSTOR_VOTE_PROGRESS",
+            "IMPOSTOR_VOTE_CLOSED",
+            "IMPOSTOR_ROUND_ENDED");
+    assertThat(d.privateEvents()).containsExactlyInAnyOrder("IMPOSTOR_ROLE", "IMPOSTOR_GUESS_OPEN");
+    assertThat(d.commandsByType().get("IMPOSTOR_CHAT").phases())
+        .containsExactlyInAnyOrder("VOTE", "GALLERY");
+    assertThat(d.commandsByType().get("IMPOSTOR_VOTE").phases())
+        .containsExactlyInAnyOrder("VOTE", "GALLERY");
+    assertThat(d.commandsByType().get("IMPOSTOR_GUESS").phases()).containsExactly("GUESS");
     assertThat(d.metadata().iconKey()).isEqualTo("dino-impostor");
   }
 
@@ -282,7 +302,7 @@ class DinoImpostorSessionTest {
       while (!phase().equals("VOTE")) {
         advance(TURN);
       }
-      advance(VOTE);
+      endRound();
     }
     assertThat(seatOrders).hasSizeGreaterThan(1);
   }
@@ -297,7 +317,7 @@ class DinoImpostorSessionTest {
       while (!phase().equals("VOTE")) {
         advance(TURN);
       }
-      advance(VOTE);
+      endRound();
     }
     assertThat(counts).containsOnlyKeys(players).allSatisfy((g, c) -> assertThat(c).isEqualTo(1));
   }
@@ -318,7 +338,7 @@ class DinoImpostorSessionTest {
         while (!phase().equals("VOTE")) {
           advance(TURN);
         }
-        advance(VOTE);
+        endRound();
       }
       runs.add(run);
     }
@@ -628,6 +648,12 @@ class DinoImpostorSessionTest {
 
     leave(impostor);
 
+    // The round ends at once with the reveal; the next round starts when it has been shown.
+    assertThat(lastPhase()).containsEntry("phase", "ROUND_END").containsEntry("round", 1);
+    assertThat(f.sink.ofType("IMPOSTOR_ROUND_ENDED").getLast().payload())
+        .containsEntry("outcome", "IMPOSTOR_LEFT")
+        .containsEntry("impostorGuestId", impostor);
+    advance(ROUND_END);
     assertThat(lastPhase()).containsEntry("phase", "ROLE_REVEAL").containsEntry("round", 2);
     assertThat(roles()).hasSize(4).doesNotContainKey(impostor);
     assertThat(seats()).hasSize(4).doesNotContain(impostor);
@@ -643,12 +669,14 @@ class DinoImpostorSessionTest {
       while (!phase().equals("VOTE")) {
         advance(TURN);
       }
-      advance(VOTE);
+      endRound();
     }
     assertThat(lastPhase()).containsEntry("round", 3);
     advance(REVEAL);
 
     leave(impostor());
+    assertThat(f.sink.ofType("GAME_FINISHED")).isEmpty(); // the reveal is shown first
+    advance(ROUND_END);
 
     assertThat(f.sink.ofType("GAME_FINISHED")).hasSize(1);
   }
@@ -670,10 +698,10 @@ class DinoImpostorSessionTest {
     assertThat(drawers).hasSize(4).doesNotContain(artist);
   }
 
-  // ------------------------------------------------------------------ temporary vote (P9-03)
+  // ------------------------------------------------------------------ a game nobody votes in
 
   @Test
-  void theTemporaryVoteAcceptsNothingAndMovesOnWithoutScoresUntilTheGameFinishes() {
+  void DI10_DI12_aGameWhereNobodyVotesIsEscapesAndTheImpostorsScoreTwoEach() {
     start(4, Map.of("rounds", 3, "laps", 1));
     for (int round = 1; round <= 3; round++) {
       assertThat(lastPhase()).containsEntry("phase", "ROLE_REVEAL").containsEntry("round", round);
@@ -691,27 +719,29 @@ class DinoImpostorSessionTest {
                           f.phaseId(),
                           batch(UUID.randomUUID(), 0, "PENCIL", colorOf(someone), 2, true))))
           .isEqualTo(ErrorCode.INVALID_PHASE);
-      assertThat(
-              rejected(
-                  () -> f.sessions.submit(CODE, someone, "IMPOSTOR_VOTE", f.phaseId(), Map.of())))
-          .isEqualTo(ErrorCode.INVALID_ACTION);
-      advance(VOTE);
+      endRound();
     }
     assertThat(f.sink.ofType("GAME_FINISHED")).hasSize(1);
     @SuppressWarnings("unchecked")
     List<Map<String, Object>> standings =
         (List<Map<String, Object>>)
             f.sink.ofType("GAME_FINISHED").getLast().payload().get("standings");
-    assertThat(standings).hasSize(4).allSatisfy(s -> assertThat(s).containsEntry("score", 0));
+    assertThat(standings).hasSize(4);
     int asImpostor = 0;
+    int escapes = 0;
+    int score = 0;
     for (Map<String, Object> s : standings) {
       @SuppressWarnings("unchecked")
       Map<String, Object> detail = (Map<String, Object>) s.get("detail");
       assertThat(detail)
           .containsOnlyKeys("roundsAsImpostor", "escapes", "correctGuesses", "impostorsFound");
       asImpostor += (Integer) detail.get("roundsAsImpostor");
+      escapes += (Integer) detail.get("escapes");
+      score += (Integer) s.get("score");
     }
     assertThat(asImpostor).isEqualTo(3);
+    assertThat(escapes).isEqualTo(3);
+    assertThat(score).isEqualTo(6);
   }
 
   // ------------------------------------------------------------------ snapshot
