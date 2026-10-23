@@ -275,6 +275,27 @@ class DinoImpostorVotingSessionTest {
     assertThat(d.phase()).isIn("GUESS", "ROUND_END");
   }
 
+  @Test
+  void DI9_aLeaveBeforeTheMarkLeavesTheVoteOpenAndTheMarkThenClosesIt() {
+    start5();
+    d.toVote();
+    UUID waiting = artist(3);
+    for (UUID p : d.seated()) {
+      if (!p.equals(waiting)) {
+        d.vote(p, p.equals(artist(0)) ? artist(1) : artist(0));
+      }
+    }
+    d.advance(Duration.ofSeconds(5));
+
+    d.leave(waiting); // everyone left has voted, but only 5 s have passed
+    assertThat(d.phase()).isEqualTo("VOTE");
+    d.leave(waiting); // a repeated leave changes nothing
+    assertThat(d.phase()).isEqualTo("VOTE");
+
+    d.advance(Duration.ofSeconds(10));
+    assertThat(f.sink.ofType("IMPOSTOR_VOTE_CLOSED")).hasSize(1);
+  }
+
   // ------------------------------------------------------------------ chat
 
   @Test

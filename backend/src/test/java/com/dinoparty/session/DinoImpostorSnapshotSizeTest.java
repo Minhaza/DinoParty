@@ -65,6 +65,34 @@ class DinoImpostorSnapshotSizeTest {
             .getBytes(StandardCharsets.UTF_8)
             .length;
     assertThat(bytes).as("serialized snapshot bytes").isLessThan(LIMIT);
+
+    // P9-03: the same canvas in ROUND_END with a full chat (30 lines of 120 four-byte
+    // letters), every vote and the reveal.
+    assertThat(f.sink.ofType("PHASE_STARTED").getLast().payload()).containsEntry("phase", "VOTE");
+    String longLine = "𐐀".repeat(120);
+    for (int i = 0; i < 30; i++) {
+      f.sessions.submit(
+          CODE, players.get(i % 10), "IMPOSTOR_CHAT", f.phaseId(), Map.of("text", longLine));
+      if (i % 10 == 9) {
+        f.clock.advance(Duration.ofSeconds(10));
+      }
+    }
+    f.clock.advance(Duration.ofSeconds(15));
+    for (UUID p : players) {
+      UUID other = players.get((players.indexOf(p) + 1) % 10);
+      f.sessions.submit(
+          CODE, p, "IMPOSTOR_VOTE", f.phaseId(), Map.of("targetGuestId", other.toString()));
+    }
+    Map<String, Object> ended = f.sessions.gameSnapshot(CODE, players.get(3));
+    assertThat(ended.get("roundEnd")).isNotNull();
+    assertThat((List<?>) ended.get("recentChat")).hasSize(30);
+    int endBytes =
+        JsonMapper.builder()
+            .build()
+            .writeValueAsString(ended)
+            .getBytes(StandardCharsets.UTF_8)
+            .length;
+    assertThat(endBytes).as("ROUND_END snapshot bytes").isLessThan(LIMIT);
   }
 
   private static Map<String, Object> batch(UUID id, int no, String color, boolean last) {
