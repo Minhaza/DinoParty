@@ -276,6 +276,60 @@ class WordPoolServiceTest {
     assertThat(chosen).doesNotHaveDuplicates();
   }
 
+  // ------------------------------------------------------------------ categorized built-in words
+
+  @Test
+  void DI2_categorizedWordsCarryTheirCategoryLabelAndFollowTheDifficulties() {
+    catalog.labels.put("animals", "Animals");
+    catalog.labels.put("food-drinks", "Food & Drinks");
+
+    List<WordCatalogTypes.CategorizedWord> words =
+        service.categorizedBuiltIn(List.of(DifficultyFilter.EASY, DifficultyFilter.MEDIUM));
+
+    assertThat(words)
+        .extracting(WordCatalogTypes.CategorizedWord::text)
+        .containsExactlyInAnyOrder(
+            "cat", "dog", "apple", "chair", "lamp", "horse", "ice cream", "pizza", "umbrella");
+    assertThat(words)
+        .filteredOn(w -> w.text().equals("pizza"))
+        .singleElement()
+        .satisfies(
+            w -> {
+              assertThat(w.categoryKey()).isEqualTo("food-drinks");
+              assertThat(w.categoryLabel()).isEqualTo("Food & Drinks");
+            });
+    // A category without a label in the catalog falls back to its key.
+    assertThat(words)
+        .filteredOn(w -> w.text().equals("lamp"))
+        .singleElement()
+        .extracting(WordCatalogTypes.CategorizedWord::categoryLabel)
+        .isEqualTo("objects");
+    assertThat(service.categorizedBuiltIn(List.of(DifficultyFilter.HARD)))
+        .extracting(WordCatalogTypes.CategorizedWord::text)
+        .containsExactlyInAnyOrder("giraffe", "croissant", "telescope");
+  }
+
+  @Test
+  void categorizedWordsAreUsableAndDeduplicatedByWordKey() {
+    catalog
+        .add("Ice-Cream", "food-drinks", WordDifficulty.EASY)
+        .add("x", "objects", WordDifficulty.EASY);
+
+    List<String> texts =
+        service.categorizedBuiltIn(List.of(DifficultyFilter.EASY, DifficultyFilter.MEDIUM)).stream()
+            .map(WordCatalogTypes.CategorizedWord::text)
+            .toList();
+
+    assertThat(texts).doesNotContain("x");
+    assertThat(texts.stream().filter(t -> WordKey.of(t).equals("icecream"))).hasSize(1);
+  }
+
+  @Test
+  void aCategorizedWordNeverPrintsItsText() {
+    assertThat(new WordCatalogTypes.CategorizedWord("pizza", "food-drinks", "Food").toString())
+        .doesNotContain("pizza");
+  }
+
   @Test
   void wordSourceSettingKeys() {
     assertThat(WordSource.BUILT_IN.key()).isEqualTo("built-in");

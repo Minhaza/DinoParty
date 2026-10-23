@@ -35,6 +35,17 @@ public final class WordCatalogTypes {
       Map<WordDifficulty, Long> byDifficulty,
       List<CategoryCount> byCategory) {}
 
+  /**
+   * A built-in word with its category for games whose clue is the category (impostor games, D60).
+   * Holds a secret: {@link #toString()} prints no word.
+   */
+  public record CategorizedWord(String text, String categoryKey, String categoryLabel) {
+    @Override
+    public String toString() {
+      return "CategorizedWord[category=" + categoryKey + "]";
+    }
+  }
+
   /** A catalog word; server-side only, never served by the read-only metadata API. */
   public record CatalogWord(
       UUID id, String locale, String text, String categoryKey, WordDifficulty difficulty) {}

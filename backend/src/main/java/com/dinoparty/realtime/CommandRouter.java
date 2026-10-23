@@ -58,7 +58,15 @@ class CommandRouter {
           "TELEPHONE_DRAW_CLEAR",
           "TELEPHONE_SUBMIT_DRAWING",
           "REVEAL_NEXT",
-          "REVEAL_PREV");
+          "REVEAL_PREV",
+          "IMPOSTOR_DRAW_STROKE",
+          "IMPOSTOR_CHAT",
+          "IMPOSTOR_VOTE",
+          "IMPOSTOR_GUESS",
+          "SKETCHY_DRAW_STROKE",
+          "SKETCHY_DRAW_UNDO",
+          "SKETCHY_DRAW_CLEAR",
+          "SKETCHY_SUBMIT");
 
   /** Client-facing validation failure; the message is authored here and never echoes input. */
   private static final class InvalidCommand extends RuntimeException {

@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -129,6 +130,17 @@ public class WordCatalogService implements BuiltInWordProvider {
         .stream()
         .map(WordCatalogService::toWord)
         .toList();
+  }
+
+  /** Labels in the game words' locale ({@link CatalogLocales#DEFAULT}, as {@link #words}). */
+  @Override
+  public Map<String, String> categoryLabels() {
+    Map<String, String> labelByKey = labels(CatalogLocales.DEFAULT);
+    Map<String, String> result = new LinkedHashMap<>();
+    for (String key : activeCategoryKeys()) {
+      result.put(key, labelByKey.getOrDefault(key, key));
+    }
+    return result;
   }
 
   private String resolve(String requested) {

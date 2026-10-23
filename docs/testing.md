@@ -627,6 +627,36 @@ Scope: the existing three Playwright specs became a CI gate; no gameplay or prod
 - The disabled and unknown game paths remain component-test only: the real registry has no disabled game and no test-only endpoint was added.
 - Vite prints `ws proxy error` lines at teardown when the last sockets close; they do not fail the run.
 
+
+## P9-02 verification record (impostor shared code and Dino Impostor drawing, backend)
+
+Scope: `games.impostor`, `words.GuessNormalizer`, `V11`, `CommandRouter` reserved types. Voting, guess, scoring and the reveal are P9-03; Sketchy Saurus is P9-04. Both games are still `enabled = false`.
+
+### Automated tests (new)
+
+- `ImpostorRotationTest`: `[DI-3]` property over n = 4..10, R = 3..10 and 40 seeds (nobody leaving: every count is ⌊R/n⌋ or ⌈R/n⌉; players leaving: remaining counts differ by at most 1), uniform tie-break, `[DI-5]` seat 0 / seat 1 rule.
+- `ImpostorWordsTest`, `DinoImpostorSettingsTest`, `GuessNormalizerTest`, and `WordPoolServiceTest` additions (categorized words).
+- `DinoImpostorSessionTest` (engine + manual clock): roles, seats, turns, the `[DI-6]`/`[DI-7]` rejections (`NOT_DRAWER`, `ALREADY_SUBMITTED`, eraser/colour `VALIDATION_FAILED`, earlier-turn `phaseId`, batch at the deadline `[C-6]`), drawer leaving, disconnected drawer, impostor leaving in each phase, the temporary `VOTE`, snapshot fields.
+- `DinoImpostorSecrecyTest` (R35): word and impostor label in no public event or other viewer's snapshot over three rounds; roles contiguous after their `PHASE_STARTED`, one shape, one per player.
+- `DinoImpostorSnapshotSizeTest`: 10 players, 30 strokes, 12 000 points, below 262 144 bytes.
+- `ArchitectureTest` (2 rules), `GameKeyLiteralTest` (the new key), `ImpostorCatalogIT`, adjusted `GameApiIT`, `DinoImpostorIT` (real STOMP, 4 players).
+
+Mutation spot checks (each change made, test run, change reverted): the one-stroke rule, the colour rule, closing an open stroke, skipping `LEFT` seats, the impostor leaving, the fair pick and a leaked `impostorGuestId` each made at least one test fail.
+
+### Commands run (2026-10-22, Windows 11, JDK 21, Docker Desktop)
+
+`./mvnw -f backend spotless:apply`, then `./mvnw verify` in `backend/`: 452 unit tests and 271 integration tests, 0 failures, 0 errors, 0 skipped; spotless check passed.
+
+### Defect found and fixed
+
+The first full run failed `DinoImpostorIT`: the reconnecting viewer is a random seat and can be the host, so waiting on the host's original (dropped) socket timed out. A test bug; the IT now waits on the drawer's socket.
+
+### Not verified / limitations
+
+- No frontend or browser check: no frontend change.
+- Voting, chat, guess, scoring, `ROUND_END`, round records and results detail do not exist yet (P9-03). Until then `VOTE` accepts no command and moves on without scores.
+- `GET /games` does not list `sketchy-saurus` (no module before P9-04); its row is checked in the database only.
+- `DinoImpostorIT` enables the game in the catalog for the test and disables it afterwards; a crash between the two would leave it enabled in that test database only.
 ## P9-05 verification record (Impostor shared UI + Dino Impostor screens against fixtures)
 
 Scope: `features/impostor/common/` (types, command hook, `RoleCard`, `VotePanel`, `DiscussionChat`, `ImpostorGuessInput`, `RoundReveal`), `features/impostor/dino/` (`dinoImpostorStore`, `DinoImpostorStage`, `TurnStrip`, `SharedCanvas`, `StrokeLegend`, fixtures), `DrawCanvas` single-stroke mode, registry badges (`SneakyEggBadge`, `SketchSaurusBadge`), `roomStore` wiring, and DEV-only fixture preview page (`__dev/impostor`).
