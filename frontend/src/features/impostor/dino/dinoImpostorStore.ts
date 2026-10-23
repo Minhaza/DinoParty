@@ -3,6 +3,12 @@ import { create } from 'zustand'
 import type { GameErrorPayload } from '@/api/types'
 import { isBudgetExhausted, type StrokeRejection } from '@/features/drawing/types'
 
+import { createCommandTracker } from '../common/commandTracker'
+import type {
+  CommandErrorOutcome,
+  ImpostorCommonState,
+  TrackedImpostorCommand,
+} from '../common/impostorState'
 import {
   commonAck,
   commonError,
@@ -17,9 +23,6 @@ import {
   withVoteProgress,
   withVoteSent,
   withVoteStarted,
-  type CommandErrorOutcome,
-  type ImpostorCommonState,
-  type TrackedImpostorCommand,
 } from '../common/impostorState'
 import type {
   DinoImpostorPhaseStartedPayload,
@@ -36,11 +39,8 @@ import type {
 
 export type { CommandErrorOutcome }
 
-/** Bound for the in-flight command table (the server remembers 256 actionIds per guest). */
-const MAX_TRACKED_COMMANDS = 256
-
 // Not React state: only consulted when an ACK/error comes back, never rendered.
-const trackedCommands = new Map<string, TrackedImpostorCommand>()
+const commandTracker = createCommandTracker()
 
 interface DinoImpostorData extends ImpostorCommonState {
   round: number
@@ -114,7 +114,7 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
 
   applySnapshot: (snapshot) => {
     if (!snapshot) {
-      trackedCommands.clear()
+      commandTracker.clear()
       set(initialData)
       return
     }
@@ -271,11 +271,7 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
   applyRoundEnded: (payload) => set(withRoundEnded(get(), payload)),
 
   trackCommand: (actionId, command) => {
-    if (trackedCommands.size >= MAX_TRACKED_COMMANDS) {
-      const oldest = trackedCommands.keys().next().value
-      if (oldest !== undefined) trackedCommands.delete(oldest)
-    }
-    trackedCommands.set(actionId, command)
+    commandTracker.track(actionId, command)
     if (command.type === 'IMPOSTOR_VOTE') set(withVoteSent(get(), command.target ?? null))
     else if (command.type === 'IMPOSTOR_GUESS') set({ guessError: null })
     // A repeated RATE_LIMITED has the same text; clearing it lets the chat's cooldown fire again.
@@ -284,9 +280,8 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
 
   applyActionAck: (actionId) => {
     if (!actionId) return
-    const command = trackedCommands.get(actionId)
+    const command = commandTracker.take(actionId)
     if (!command) return
-    trackedCommands.delete(actionId)
     const patch = commonAck(get(), command)
     if (patch) set(patch)
   },
@@ -294,9 +289,8 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
   applyCommandError: (payload, envelopeActionId) => {
     const actionId = payload.actionId ?? envelopeActionId
     if (!actionId) return 'unhandled'
-    const command = trackedCommands.get(actionId)
+    const command = commandTracker.take(actionId)
     if (!command) return 'unhandled'
-    trackedCommands.delete(actionId)
 
     if (command.type === 'IMPOSTOR_DRAW_STROKE') {
       switch (payload.code) {
@@ -376,7 +370,7 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
   },
 
   reset: () => {
-    trackedCommands.clear()
+    commandTracker.clear()
     set(initialData)
   },
 }))

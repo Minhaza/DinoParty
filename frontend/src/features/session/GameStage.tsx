@@ -8,6 +8,7 @@ import { useGameSessionStore } from '@/stores/gameSessionStore'
 
 import { DrawGuessStage } from '@/features/drawguess/DrawGuessStage'
 import { DinoImpostorStage } from '@/features/impostor/dino/DinoImpostorStage'
+import { SketchySaurusStage } from '@/features/impostor/sketchy/SketchySaurusStage'
 import { TelephoneResultsScreen } from '@/features/telephone/reveal/TelephoneResultsScreen'
 import { TelephoneStage } from '@/features/telephone/TelephoneStage'
 import { GameStartingOverlay } from './GameStartingOverlay'
@@ -98,6 +99,8 @@ export function GameStage({
         <TelephoneStage players={players} currentGuestId={currentGuestId} isHost={isHost} />
       ) : gameKey === 'dino-impostor' ? (
         <DinoImpostorStage players={players} currentGuestId={currentGuestId} />
+      ) : gameKey === 'sketchy-saurus' ? (
+        <SketchySaurusStage players={players} currentGuestId={currentGuestId} />
       ) : (
         /* PLAYING Phase View */
         <Card className="flex-1 flex flex-col border-border/70 shadow-xs overflow-hidden">

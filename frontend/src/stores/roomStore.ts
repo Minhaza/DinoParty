@@ -46,6 +46,13 @@ import type {
   ImpostorVoteProgressPayload,
 } from '@/features/impostor/common/types'
 import { useDinoImpostorStore } from '@/features/impostor/dino/dinoImpostorStore'
+import { useSketchySaurusStore } from '@/features/impostor/sketchy/sketchySaurusStore'
+import type {
+  SketchyGalleryOpenedPayload,
+  SketchyProgressPayload,
+  SketchySaurusPhaseStartedPayload,
+  SketchySaurusSnapshot,
+} from '@/features/impostor/sketchy/types'
 import { useRevealStore } from '@/features/telephone/revealStore'
 import { useTelephoneStore, type CommandErrorOutcome } from '@/features/telephone/telephoneStore'
 import type {
@@ -106,6 +113,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       useDinoImpostorStore
         .getState()
         .applySnapshot(snapshot.game as unknown as DinoImpostorSnapshot | null)
+    }
+    if (snapshot.room.gameKey === 'sketchy-saurus' || snapshot.game?.gameKey === 'sketchy-saurus') {
+      useSketchySaurusStore
+        .getState()
+        .applySnapshot(snapshot.game as unknown as SketchySaurusSnapshot | null)
     }
 
     set({
@@ -217,6 +229,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     useTelephoneStore.getState().reset()
     useRevealStore.getState().reset()
     useDinoImpostorStore.getState().reset()
+    useSketchySaurusStore.getState().reset()
     set({
       room: null,
       serverNow: null,
@@ -240,6 +253,8 @@ function routeCommandError(
   if (outcome !== 'unhandled') return outcome
   const impostor = useDinoImpostorStore.getState().applyCommandError(payload, actionId)
   if (impostor !== 'unhandled') return impostor
+  const sketchy = useSketchySaurusStore.getState().applyCommandError(payload, actionId)
+  if (sketchy !== 'unhandled') return sketchy
   return useDrawGuessStore.getState().applyCommandError(payload, actionId)
 }
 
@@ -249,7 +264,10 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): boolean 
   const drawGuessStore = useDrawGuessStore.getState()
   const telephoneStore = useTelephoneStore.getState()
   const revealStore = useRevealStore.getState()
-  const impostorStore = useDinoImpostorStore.getState()
+  const dinoImpostorStore = useDinoImpostorStore.getState()
+  const sketchyStore = useSketchySaurusStore.getState()
+  const gameKey = sessionStore.gameKey ?? useRoomStore.getState().room?.gameKey
+  const activeImpostorStore = gameKey === 'sketchy-saurus' ? sketchyStore : dinoImpostorStore
   let resync = false
 
   switch (envelope.type) {
@@ -258,15 +276,19 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): boolean 
       drawGuessStore.reset()
       telephoneStore.reset()
       revealStore.reset()
-      impostorStore.reset()
+      dinoImpostorStore.reset()
+      sketchyStore.reset()
       break
     case 'PHASE_STARTED': {
       const payload = envelope.payload as DrawGuessPhaseStartedPayload
       sessionStore.applyPhaseStarted(payload, envelope.ts)
-      const gameKey = useGameSessionStore.getState().gameKey
       if (gameKey === 'dino-impostor') {
-        resync = impostorStore.applyPhaseStarted(
+        resync = dinoImpostorStore.applyPhaseStarted(
           envelope.payload as DinoImpostorPhaseStartedPayload,
+        )
+      } else if (gameKey === 'sketchy-saurus') {
+        resync = sketchyStore.applyPhaseStarted(
+          envelope.payload as SketchySaurusPhaseStartedPayload,
         )
       } else if (gameKey === 'telephone') {
         const telephonePhase = envelope.payload as TelephonePhaseStartedPayload
@@ -308,26 +330,32 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): boolean 
       drawGuessStore.applyGuesserChat(envelope.payload as GuesserChatPayload, envelope.ts)
       break
     case 'IMPOSTOR_ROLE':
-      impostorStore.applyRole(envelope.payload as ImpostorRolePayload)
+      activeImpostorStore.applyRole(envelope.payload as ImpostorRolePayload)
       break
     case 'IMPOSTOR_DRAWING_UPDATED':
-      impostorStore.applyDrawingUpdated(envelope.payload as ImpostorDrawingUpdatedPayload)
+      dinoImpostorStore.applyDrawingUpdated(envelope.payload as ImpostorDrawingUpdatedPayload)
+      break
+    case 'SKETCHY_PROGRESS':
+      sketchyStore.applyProgress(envelope.payload as SketchyProgressPayload)
+      break
+    case 'SKETCHY_GALLERY_OPENED':
+      sketchyStore.applyGalleryOpened(envelope.payload as SketchyGalleryOpenedPayload)
       break
     case 'IMPOSTOR_CHAT_MESSAGE':
-      impostorStore.applyChatMessage(envelope.payload as ImpostorChatMessagePayload)
+      activeImpostorStore.applyChatMessage(envelope.payload as ImpostorChatMessagePayload)
       break
     case 'IMPOSTOR_VOTE_PROGRESS':
-      impostorStore.applyVoteProgress(envelope.payload as ImpostorVoteProgressPayload)
+      activeImpostorStore.applyVoteProgress(envelope.payload as ImpostorVoteProgressPayload)
       break
     case 'IMPOSTOR_VOTE_CLOSED':
-      impostorStore.applyVoteClosed(envelope.payload as ImpostorVoteClosedPayload)
+      activeImpostorStore.applyVoteClosed(envelope.payload as ImpostorVoteClosedPayload)
       break
     case 'IMPOSTOR_GUESS_OPEN':
-      impostorStore.applyGuessOpen(envelope.payload as ImpostorGuessOpenPayload)
+      activeImpostorStore.applyGuessOpen(envelope.payload as ImpostorGuessOpenPayload)
       break
     case 'IMPOSTOR_ROUND_ENDED': {
       const payload = envelope.payload as ImpostorRoundEndedPayload
-      impostorStore.applyRoundEnded(payload)
+      activeImpostorStore.applyRoundEnded(payload)
       if (payload.scores) sessionStore.updateScores(payload.scores)
       break
     }
@@ -335,7 +363,8 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): boolean 
       drawGuessStore.applyActionAck(envelope.actionId)
       telephoneStore.applyActionAck(envelope.actionId)
       revealStore.applyActionAck(envelope.actionId)
-      impostorStore.applyActionAck(envelope.actionId)
+      dinoImpostorStore.applyActionAck(envelope.actionId)
+      sketchyStore.applyActionAck(envelope.actionId)
       break
     case 'ROUND_ENDED': {
       const payload = envelope.payload as RoundEndedPayload
@@ -360,13 +389,16 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): boolean 
       // The albums come from the album endpoints from now on, so the live copy is dropped.
       telephoneStore.reset()
       revealStore.reset()
+      dinoImpostorStore.reset()
+      sketchyStore.reset()
       break
     case 'GAME_ABORTED':
       sessionStore.applyGameAborted(envelope.payload as GameAbortedPayload)
       drawGuessStore.reset()
       telephoneStore.reset()
       revealStore.reset()
-      impostorStore.reset()
+      dinoImpostorStore.reset()
+      sketchyStore.reset()
       break
     case 'REMATCH_VOTES_UPDATED':
       sessionStore.applyRematchVotesUpdated(envelope.payload as RematchVotesUpdatedPayload)
@@ -378,7 +410,8 @@ function dispatchGameLifecycleEvents(envelope: EventEnvelope<unknown>): boolean 
         drawGuessStore.reset()
         telephoneStore.reset()
         revealStore.reset()
-        impostorStore.reset()
+        dinoImpostorStore.reset()
+        sketchyStore.reset()
       }
       break
     }

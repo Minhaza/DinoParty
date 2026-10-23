@@ -55,8 +55,8 @@ const MODULES: Record<string, GameModule> = {
     lobbyPanelFields: ['difficulty', 'wordSource', 'wordCategories', 'wordPackIds'],
   },
   telephone: { playable: true, lobbyPanelFields: [] },
-  // Sketchy Saurus becomes playable with its screens (P9-06).
   'dino-impostor': { playable: true, lobbyPanelFields: [] },
+  'sketchy-saurus': { playable: true, lobbyPanelFields: [] },
 }
 
 /** `null` for a game the server knows but this client cannot play yet. */
