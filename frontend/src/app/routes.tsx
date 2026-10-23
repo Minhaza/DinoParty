@@ -26,6 +26,11 @@ export const routes: RouteObject[] = [
       { path: 'rooms/:code/play', element: <GameSessionPage /> },
       { path: 'rooms/:code/results', element: <GameSessionPage /> },
       { path: 'settings', element: <SettingsPage /> },
+      // DEV-only fixture previews (P9-05): `import.meta.env.DEV` is a build-time `false` in production,
+      // so the route and its lazy chunk (with the fixtures) are dropped from the bundle.
+      ...(import.meta.env.DEV
+        ? [{ path: '__dev/impostor', lazy: () => import('@/dev/ImpostorPreviewPage') }]
+        : []),
       { path: '*', element: <NotFoundPage /> },
     ],
   },
