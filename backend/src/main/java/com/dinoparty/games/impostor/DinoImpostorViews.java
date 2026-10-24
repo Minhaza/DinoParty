@@ -24,6 +24,17 @@ final class DinoImpostorViews {
     return data;
   }
 
+  /**
+   * Public {@code PHASE_STARTED} data of {@code ROLE_REVEAL}: also the round's seats and the
+   * session colours, for a client that never takes a snapshot (G1).
+   */
+  static Map<String, Object> roleRevealData(DinoImpostorState s) {
+    Map<String, Object> data = roundData(s);
+    data.put("seatOrder", s.seats);
+    data.put("colors", orderedColors(s));
+    return data;
+  }
+
   /** Public {@code PHASE_STARTED} data of a {@code DRAWING} turn. */
   static Map<String, Object> turnData(DinoImpostorState s) {
     Map<String, Object> data = roundData(s);
@@ -60,10 +71,7 @@ final class DinoImpostorViews {
     return strokes;
   }
 
-  /**
-   * {@code DinoImpostorSnapshot} for {@code viewer}. The fields of voting, chat and the reveal
-   * (P9-03) are present with their empty values.
-   */
+  /** {@code DinoImpostorSnapshot} for {@code viewer} (api-contracts §3.11). */
   static Map<String, Object> snapshot(DinoImpostorState s, UUID viewer) {
     boolean drawing = s.phase == Phase.DRAWING;
     Map<String, Object> view = new LinkedHashMap<>();
@@ -72,22 +80,44 @@ final class DinoImpostorViews {
     view.put("laps", s.settings.laps());
     view.put("seatOrder", s.seats);
     view.put("colors", orderedColors(s));
+    view.put("nicknames", orderedNicknames(s));
     view.put("lap", drawing ? s.lapOf(s.turn) : null);
     view.put("turn", drawing ? s.turn : null);
     view.put("totalTurns", s.totalTurns);
     view.put("drawerGuestId", drawing ? s.drawer : null);
+    view.put("turnStroke", drawing ? turnStroke(s) : null);
     // [DI-4]: only a player seated this round has a role, and only their own.
     boolean seated = s.current != null && s.seats.contains(viewer);
     view.put("role", seated ? s.current.role(viewer) : null);
     view.put("strokes", strokes(s));
     view.put("canvasBudget", s.canvas.budget());
-    // P9-03: votes, chat and the reveal fill these.
-    view.put("votedGuestIds", List.of());
-    view.put("myVote", null);
-    view.put("recentChat", List.of());
-    view.put("voteClosed", null);
-    view.put("roundEnd", null);
+    ImpostorVoting voting = s.voting;
+    view.put("votedGuestIds", voting.votedGuestIds());
+    view.put("myVote", voting.myVote(viewer)); // the viewer's own vote, never another's (R35)
+    view.put("recentChat", voting.recentChat());
+    view.put("voteClosed", voting.voteClosed());
+    view.put("roundEnd", voting.roundEnd());
     return view;
+  }
+
+  /** G4: the drawer's one stroke of this turn if it was started, so a reconnect can continue it. */
+  private static Map<String, Object> turnStroke(DinoImpostorState s) {
+    if (s.stroke == null) {
+      return null;
+    }
+    Map<String, Object> stroke = new LinkedHashMap<>();
+    stroke.put("strokeId", s.stroke.id);
+    stroke.put("nextBatchNo", s.stroke.nextBatch);
+    stroke.put("closed", s.stroke.closed);
+    return stroke;
+  }
+
+  private static Map<UUID, String> orderedNicknames(DinoImpostorState s) {
+    Map<UUID, String> names = new LinkedHashMap<>();
+    for (UUID g : s.order) {
+      names.put(g, s.nicknames.get(g));
+    }
+    return names;
   }
 
   private static Map<UUID, String> orderedColors(DinoImpostorState s) {

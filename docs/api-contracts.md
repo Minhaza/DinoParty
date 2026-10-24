@@ -483,9 +483,11 @@ Rules: `docs/game-rules.md` (`[DI-1]…[DI-14]`); plan: `docs/dino-impostor-plan
 | `type` | Sender | Legal phase | Payload | Per-type limits | Effect | Errors (code — when) |
 |---|---|---|---|---|---|---|
 | `IMPOSTOR_DRAW_STROKE` | the turn's drawer | `DRAWING` | identical to `DRAW_STROKE` (§3.9) except `tool` must be `"PENCIL"` and `color` the sender's session colour | 8 KiB; 30/s, burst 40 | Appends the batch to the shared canvas (`drawing.CanvasBuffer`, `[DG-14]` limits) and publishes `IMPOSTOR_DRAWING_UPDATED`; the `final` batch ends the turn | `NOT_DRAWER` (not the drawer of this turn), `VALIDATION_FAILED` (schema; `ERASER`; wrong colour), `INVALID_ACTION` (batch order/style), `ALREADY_SUBMITTED` (a second stroke in the turn), `PAYLOAD_TOO_LARGE`, `STALE_ACTION` (an earlier turn's `phaseId`, or after the turn deadline), `INVALID_PHASE`, `RATE_LIMITED` |
-| `IMPOSTOR_CHAT` *(shared)* | roster member, not `LEFT` | `VOTE` / `GALLERY` | `{text}`: after stripping `Cc`/`Cf` and trimming, 1–120 code points | 1 KiB; 5 per 10 s | Publishes `IMPOSTOR_CHAT_MESSAGE` | `VALIDATION_FAILED`, `RATE_LIMITED`, `STALE_ACTION`, `INVALID_PHASE`, `NOT_IN_ROOM` |
-| `IMPOSTOR_VOTE` *(shared)* | roster member, not `LEFT` | `VOTE` / `GALLERY` | `{targetGuestId:uuid\|null}` — `null` withdraws the vote | 256 B; 10 per 10 s | Records/replaces/withdraws the sender's vote; publishes `IMPOSTOR_VOTE_PROGRESS`; may close the phase early (`[DI-9]`) | `VALIDATION_FAILED` (not a uuid; self; not a roster member; a member who is `LEFT`), `STALE_ACTION`, `INVALID_PHASE`, `NOT_IN_ROOM` |
+| `IMPOSTOR_CHAT` *(shared)* | roster member, not `LEFT` | `VOTE` / `GALLERY` | `{text}`: after stripping `Cc`/`Cf` and trimming, 1–120 code points | 1 KiB; 5 per 10 s | Publishes `IMPOSTOR_CHAT_MESSAGE`. The module enforces the exact limit as a sliding 10 s window per player (`RATE_LIMITED`, nothing changes); the transport limit (0.5/s, burst 5) is only a per-second backstop | `VALIDATION_FAILED`, `RATE_LIMITED`, `STALE_ACTION`, `INVALID_PHASE`, `NOT_IN_ROOM` |
+| `IMPOSTOR_VOTE` *(shared)* | roster member, not `LEFT` | `VOTE` / `GALLERY` | `{targetGuestId:uuid\|null}` — `null` withdraws the vote | 256 B; 10 per 10 s | Records/replaces/withdraws the sender's vote; publishes `IMPOSTOR_VOTE_PROGRESS`; may close the phase early (`[DI-9]`). Same 10 s sliding window in the module (10 votes); transport backstop 1/s, burst 10 | `VALIDATION_FAILED` (not a uuid; self; not a roster member; a member who is `LEFT`), `STALE_ACTION`, `INVALID_PHASE`, `NOT_IN_ROOM` |
 | `IMPOSTOR_GUESS` *(shared)* | the caught impostor | `GUESS` | `{text}`: 1–80 code points after trim (as `SUBMIT_GUESS`) | 1 KiB; 2/s, burst 3 | Final guess; ends `GUESS` | `FORBIDDEN` (anyone else), `VALIDATION_FAILED`, `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` |
+
+A second guess, or a stroke after the turn's `turnStroke` is `closed`, ends in practice with `STALE_ACTION`: the final batch ends the turn and a guess ends `GUESS` in the same transition, so the `phaseId` is already old (or the phase is `INVALID_PHASE`). `ALREADY_SUBMITTED` stays as a defensive check in the module.
 
 Rejections leave state unchanged; `ACTION_ACK` follows accepted commands. Roles, turns and targets are checked against the authenticated principal; the payload never names the sender.
 
@@ -497,10 +499,10 @@ Rejections leave state unchanged; `ACTION_ACK` follows accepted commands. Roles,
 | `IMPOSTOR_ROLE` *(shared)* | private, every roster member not `LEFT`, in the `ROLE_REVEAL` transition | `{phaseId, round, role:"ARTIST"\|"IMPOSTOR", category:{key, label}, word:string\|null}` — same shape for everyone; see §3.12 for the unaware impostor |
 | `IMPOSTOR_DRAWING_UPDATED` | public | `{kind:"STROKE", authorGuestId, strokeId, batchNo, tool, color, size, points, final}` — each accepted batch unchanged plus its author; the drawer's client ignores its own echo |
 | `IMPOSTOR_CHAT_MESSAGE` *(shared)* | public | `{guestId, text, ts}` |
-| `IMPOSTOR_VOTE_PROGRESS` *(shared)* | public | `{phaseId, votedGuestIds:[guestId]}` — who has a vote in, never the targets |
+| `IMPOSTOR_VOTE_PROGRESS` *(shared)* | public | `{phaseId, votedGuestIds:[guestId]}` — who has a vote in, never the targets. Sent once with `[]` when voting opens, after every accepted vote, and when a player becoming `LEFT` changes the voted list |
 | `IMPOSTOR_VOTE_CLOSED` *(shared)* | public, closing event of `VOTE`/`GALLERY` | `{round, votes:{voterGuestId:targetGuestId}, accusedGuestId:guestId\|null /* strict top, else null */, caught:boolean, impostorGuestId:guestId\|null /* only when caught */}` |
 | `IMPOSTOR_GUESS_OPEN` *(shared)* | private, the caught impostor | `{phaseId, round, category:{key, label}, deadlineAt}` |
-| `IMPOSTOR_ROUND_ENDED` *(shared)* | public, closing event of the round | `{round, outcome:"ESCAPED"\|"GUESSED"\|"CAUGHT"\|"IMPOSTOR_LEFT", impostorGuestId, category:{key, label}, word, decoyWord:string\|null, votes:{voter:target}, guess:string\|null, scoreDeltas:{guestId:int}, scores:{guestId:int}}` — `CAUGHT` = caught and wrong or no guess |
+| `IMPOSTOR_ROUND_ENDED` *(shared)* | public, closing event of the round | `{round, outcome:"ESCAPED"\|"GUESSED"\|"CAUGHT"\|"IMPOSTOR_LEFT", impostorGuestId, category:{key, label}, word, decoyWord:string\|null, votes:{voter:target}, guess:string\|null, scoreDeltas:{guestId:int}, scores:{guestId:int}}` — `CAUGHT` = caught and wrong or no guess. `scoreDeltas` has every player seated this round (0 included). With `IMPOSTOR_LEFT`, `votes` holds the votes still standing after the leaver's votes and the votes for them were dropped, and nobody scores. `ScoreDelta` reasons: `IMPOSTOR_ESCAPED`, `IMPOSTOR_GUESSED`, `ARTIST_CAUGHT`, `ARTIST_VOTE` |
 
 **Secrets.** The word and the decoy appear in no public event before `IMPOSTOR_ROUND_ENDED`; the impostor's identity in none before `IMPOSTOR_VOTE_CLOSED` (when caught) or `IMPOSTOR_ROUND_ENDED`; vote targets in none before `IMPOSTOR_VOTE_CLOSED`. None of them appear in another viewer's snapshot, a `GAME_ERROR` or a log line. Every `IMPOSTOR_ROLE` of a round is sent in the same transition and serializes to the same set of fields.
 
@@ -518,14 +520,14 @@ DinoImpostorSnapshot { round, totalRounds, laps, seatOrder:[guestId], colors:{gu
                        role:{role, category:{key, label}, word|null}|null /* viewer only; null for spectators */,
                        strokes:ImpostorStroke[] /* the shared canvas in drawing order */,
                        canvasBudget:{points, maxPoints:12000, strokes, maxStrokes:300},
-                       votedGuestIds:[guestId], myVote:guestId|null /* VOTE: viewer only */,
+                       votedGuestIds:[guestId] /* VOTE…ROUND_END; empty before, cleared at the next ROLE_REVEAL */, myVote:guestId|null /* VOTE…ROUND_END: the viewer's own vote only */,
                        recentChat:[{guestId, text, ts}] /* ≤ 30, oldest first; empty outside VOTE…ROUND_END */,
                        voteClosed:IMPOSTOR_VOTE_CLOSED payload|null /* GUESS, ROUND_END */,
                        roundEnd:IMPOSTOR_ROUND_ENDED payload|null /* ROUND_END */ }
 ImpostorStroke       { …Stroke (§2.1), closed:boolean, authorGuestId }
 ```
 
-**Results.** `standings[].detail`: `{roundsAsImpostor, escapes, correctGuesses, impostorsFound}` (`impostorsFound` = rounds the player voted for a caught impostor). `ResultsDto.rounds[].meta`: `{impostorGuestId, word, category, decoyWord|null, outcome, accusedGuestId|null}`; `endReason` = `outcome`.
+**Results.** `standings[].detail`: `{roundsAsImpostor, escapes, correctGuesses, impostorsFound}` (`impostorsFound` = rounds the player voted for a caught impostor). All four count recorded rounds only; `roundsAsImpostor` includes an `IMPOSTOR_LEFT` round. `ResultsDto.rounds[].meta`: `{impostorGuestId, word, category, decoyWord|null, outcome, accusedGuestId|null}`; `endReason` = `outcome`.
 
 ### 3.12 Sketchy Saurus (Phase 9 — design only)
 
@@ -623,4 +625,5 @@ Everything below is additive unless stated.
 | §3.12 | New: Sketchy Saurus commands/events (`SKETCHY_*`), unaware impostor, snapshot and size bound |
 | §3.11 (P9-fix) | Contract requests G1–G4 of P9-05 resolved: `ROLE_REVEAL` `PHASE_STARTED` carries `seatOrder` and `colors` (G1); snapshots carry `nicknames` (G2, also in `SketchySaurusSnapshot`); `lap` is 1-based, as written in P9-02 (G3; the P9-05 client assumed 0-based and must be fixed); `DinoImpostorSnapshot.turnStroke` (G4); stroke `size` stays 1–4 (G5: the client's fixed size 2 is valid, the "1 to 32" in the request was wrong) |
 | §3.6, `game-engine.md` §1.2 (P9-fix) | Registry: a command or event type may be declared by several modules of one family if every declaration is identical (D65) |
+| §3.11 (P9-03) | Clarified: module-enforced 10 s sliding window for chat and vote; `IMPOSTOR_VOTE_PROGRESS` also on opening and on a leave; `IMPOSTOR_LEFT` round-end `votes`; snapshot field lifetimes; second guess / closed stroke are in practice `STALE_ACTION`; stats count recorded rounds; `ScoreDelta` reasons |
 | §3.11 (P9-02) | Clarified: `lap` is 1-based; fixed seat order per round with `LEFT` seats skipped; colours uppercase and compared case-insensitively; an open stroke closed at the turn's end gets no event |

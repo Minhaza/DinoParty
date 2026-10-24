@@ -17,7 +17,7 @@ import java.util.UUID;
  */
 record ImpostorRound(int round, UUID impostor, CategorizedWord word) {
 
-  static final String ROLE_EVENT = "IMPOSTOR_ROLE";
+  static final String ROLE_EVENT = ImpostorFamily.ROLE_EVENT;
   static final String ARTIST = "ARTIST";
   static final String IMPOSTOR = "IMPOSTOR";
 
@@ -51,7 +51,7 @@ record ImpostorRound(int round, UUID impostor, CategorizedWord word) {
     return events;
   }
 
-  private Map<String, Object> category() {
+  Map<String, Object> category() {
     Map<String, Object> category = new LinkedHashMap<>();
     category.put("key", word.categoryKey());
     category.put("label", word.categoryLabel());

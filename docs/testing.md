@@ -657,6 +657,38 @@ The first full run failed `DinoImpostorIT`: the reconnecting viewer is a random 
 - Voting, chat, guess, scoring, `ROUND_END`, round records and results detail do not exist yet (P9-03). Until then `VOTE` accepts no command and moves on without scores.
 - `GET /games` does not list `sketchy-saurus` (no module before P9-04); its row is checked in the database only.
 - `DinoImpostorIT` enables the game in the catalog for the test and disables it afterwards; a crash between the two would leave it enabled in that test database only.
+## P9-03 verification record (impostor voting, guess, scoring and round end, backend)
+
+Scope: `games.impostor` (`ImpostorFamily`, `ImpostorVotes`, `ImpostorChat`, `RateWindow`, `ImpostorScoring`, `ImpostorScoreboard`, `ImpostorVoting`, `ImpostorRules`, the Dino Impostor wiring, G1/G2/G4) and the D65 rule in `engine.GameRegistry`. Dino Impostor is still `enabled = false`; Sketchy Saurus is P9-04.
+
+### Automated tests (new or changed)
+
+- `GameRegistryTest` (D65): equal specs accepted, differing limits and phases rejected, an event public in one game and private in another rejected, the same private/public event accepted, duplicate keys still rejected. The old "event declared twice" test now uses a differing audience.
+- `ImpostorVotesTest` (`[DI-9]`, `[DI-10]`), `ImpostorScoringTest` (`[DI-12]`), `ImpostorChatTest` (`[DI-8]`, including the sliding 10 s window).
+- `DinoImpostorVotingSessionTest` (engine + manual clock, 47 tests): vote timing (15 s mark, early close, deadline, `[C-6]` at the deadline and 1 ms before), chat, votes (hidden targets, own vote only, validation, rate), guess (`[DI-11]`), scoring, the reveal and `RoundRecord`s, results detail, the impostor leaving in `ROLE_REVEAL`/`DRAWING`/`VOTE`/`GUESS`/`ROUND_END`, an artist leaving in every phase, `[C-1]` (abort before any round, finish after), G1, G2, G4, rematch with the rotation counts at zero.
+- `DinoImpostorModuleTest`: the module called directly for the checks the engine makes unreachable (`ALREADY_SUBMITTED` for a second guess and for a stroke after a closed `turnStroke`, chat/vote before the voting phase).
+- `DinoImpostorSecrecyTest` (R35), rebuilt for whole games: escaped, guessed, caught-wrong, impostor leaving in `VOTE` and in `GUESS`. For every public event and every viewer's snapshot at every step it checks the word and category label until `IMPOSTOR_ROUND_ENDED`, the impostor until the caught `IMPOSTOR_VOTE_CLOSED` or the round end, vote targets until `IMPOSTOR_VOTE_CLOSED` (and that `myVote` is only the viewer's own), plus the messages of rejected commands.
+- `DinoImpostorSessionTest`: the temporary-vote test is replaced by a no-vote game; the loops that waited on `VOTE` now pass through the round end; the definition test lists the new commands and events.
+- `DinoImpostorIT` (real STOMP and PostgreSQL, 5 tests): a 5-player game from start to results, REST results and rematch with reconnects in `ROLE_REVEAL`, `DRAWING` (open stroke continued), `VOTE`, `GUESS` and `ROUND_END`, and a leak check over every socket's traffic; the impostor leaving in `DRAWING` and `GUESS`, an artist leaving in `VOTE`, then fewer than 3; unauthorized commands (`NOT_DRAWER`, `INVALID_PHASE`, another room's member, a player who left); two rooms at the same time.
+
+Mutation spot check: always publishing `impostorGuestId` in `IMPOSTOR_VOTE_CLOSED` makes `DinoImpostorSecrecyTest` fail; the change was reverted.
+
+### Commands run (2026-10-23, Windows 11, JDK 21, Docker Desktop)
+
+`./mvnw -f backend spotless:apply`, then `./mvnw -f backend verify`: 533 unit tests and 275 integration tests, 0 failures, 0 errors, 0 skipped; spotless check passed.
+
+### Defects found and fixed while testing
+
+- The first full `verify` failed `DI9_everyoneVotingAfter15sClosesOnTheLastVote`: the test assumed the fifth seat was an artist, but seat order of a `HashMap` of random ids is not fixed. The test now accuses an artist explicitly.
+- The first IT run failed on my own assertions: a player who left does not receive `GAME_FINISHED`, and a socket created by a reconnect has no earlier `PHASE_STARTED`. Both assertions were corrected in the tests; no production change.
+
+### Not verified / limitations
+
+- No frontend or browser check: no frontend change. Neither game is enabled (P9-08).
+- Sketchy Saurus (P9-04): only the shared code and the registry rule are ready for it.
+- `ImpostorVoting` has no stand-alone unit test; it is covered through the engine by the session, secrecy and module tests.
+- The ITs run in real time (about 3.5 minutes for the class); the exhaustive leave/reconnect cases are in the manual-clock session tests.
+
 ## P9-05 verification record (Impostor shared UI + Dino Impostor screens against fixtures)
 
 Scope: `features/impostor/common/` (types, command hook, `RoleCard`, `VotePanel`, `DiscussionChat`, `ImpostorGuessInput`, `RoundReveal`), `features/impostor/dino/` (`dinoImpostorStore`, `DinoImpostorStage`, `TurnStrip`, `SharedCanvas`, `StrokeLegend`, fixtures), `DrawCanvas` single-stroke mode, registry badges (`SneakyEggBadge`, `SketchSaurusBadge`), `roomStore` wiring, and DEV-only fixture preview page (`__dev/impostor`).

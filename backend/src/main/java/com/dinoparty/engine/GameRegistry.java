@@ -3,7 +3,6 @@ package com.dinoparty.engine;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,9 +13,11 @@ import org.springframework.stereotype.Component;
 /**
  * All registered game modules, in key order; the one authority for which games exist and for their
  * metadata, bounds, settings schema and commands. Adding a game means registering a module (and its
- * {@code game_definition} availability row), nothing else. Construction fails on duplicate keys and
- * on a command or event type declared by two modules, so a clash is found at startup and not in the
- * middle of a game.
+ * {@code game_definition} availability row), nothing else. Construction fails on duplicate keys, so
+ * a clash is found at startup and not in the middle of a game. A command or event type may be
+ * declared by several modules only when they share it on purpose (D65, games of one family): the
+ * {@link CommandSpec}s must be equal and the event's audience (public or private) the same; any
+ * difference fails startup.
  */
 @Component
 public class GameRegistry {
@@ -25,33 +26,71 @@ public class GameRegistry {
   private final Map<String, CommandSpec> commandSpecs = new HashMap<>();
 
   public GameRegistry(List<GameModule> registered) {
-    Map<String, String> commandOwners = new HashMap<>();
-    Map<String, String> eventOwners = new HashMap<>();
+    Map<String, Declared<CommandSpec>> commandOwners = new HashMap<>();
+    Map<String, Declared<Boolean>> eventOwners = new HashMap<>();
     List<GameModule> ordered =
         registered.stream()
             .sorted(Comparator.comparing((GameModule m) -> m.definition().key()))
             .toList();
     for (GameModule module : ordered) {
       GameDefinition definition = module.definition();
-      if (modules.putIfAbsent(definition.key(), module) != null) {
-        throw new IllegalStateException("Duplicate game key: " + definition.key());
+      String key = definition.key();
+      if (modules.putIfAbsent(key, module) != null) {
+        throw new IllegalStateException("Duplicate game key: " + key);
       }
       for (CommandSpec spec : definition.commands()) {
-        String previous = commandOwners.putIfAbsent(spec.type(), definition.key());
-        if (previous != null) {
+        Declared<CommandSpec> previous =
+            commandOwners.putIfAbsent(spec.type(), new Declared<>(key, spec));
+        if (previous != null && previous.owner().equals(key)) {
+          throw new IllegalStateException("Command " + spec.type() + " declared twice by " + key);
+        }
+        if (previous != null && !previous.what().equals(spec)) {
           throw new IllegalStateException(
-              "Command " + spec.type() + " declared by " + previous + " and " + definition.key());
+              "Command "
+                  + spec.type()
+                  + " declared by "
+                  + previous.owner()
+                  + " and "
+                  + key
+                  + " with different specs ("
+                  + previous.what()
+                  + " vs "
+                  + spec
+                  + ")");
         }
         commandSpecs.put(spec.type(), spec);
       }
-      Set<String> events = new HashSet<>(definition.publicEvents());
-      events.addAll(definition.privateEvents());
-      for (String event : events) {
-        String previous = eventOwners.putIfAbsent(event, definition.key());
-        if (previous != null) {
-          throw new IllegalStateException(
-              "Event " + event + " declared by " + previous + " and " + definition.key());
-        }
+      declareEvents(eventOwners, key, definition.publicEvents(), true);
+      declareEvents(eventOwners, key, definition.privateEvents(), false);
+    }
+  }
+
+  /** A type with the game that declared it first, to name both games in a clash. */
+  private record Declared<T>(String owner, T what) {}
+
+  /** D65: the same event type may come from several games of a family if its audience is equal. */
+  private static void declareEvents(
+      Map<String, Declared<Boolean>> owners, String key, Set<String> events, boolean isPublic) {
+    for (String event : events) {
+      Declared<Boolean> previous = owners.putIfAbsent(event, new Declared<>(key, isPublic));
+      if (previous == null) {
+        continue;
+      }
+      if (previous.what() != isPublic) {
+        throw new IllegalStateException(
+            "Event "
+                + event
+                + " is "
+                + (previous.what() ? "public" : "private")
+                + " in "
+                + previous.owner()
+                + " and "
+                + (isPublic ? "public" : "private")
+                + " in "
+                + key);
+      }
+      if (previous.owner().equals(key)) {
+        throw new IllegalStateException("Event " + event + " declared twice by " + key);
       }
     }
   }
