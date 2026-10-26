@@ -162,6 +162,10 @@ Where the build differs from the design above:
 
 Built against fixtures (no live backend): G1–G4 fixes in the Dino Impostor client, and the Sketchy Saurus screens in `frontend/src/features/impostor/sketchy/` with `roomStore`/`GameStage`/`gameModules` wiring. Checked in a browser at 375 px and desktop via `/__dev/impostor`; see `docs/testing.md`. New contract requests G6–G8 are in `docs/contract-requests.md`. This section was edited by the frontend lane, outside its paths.
 
+### P9 contract fix 2 (after P9-06)
+
+P9-06's requests G6–G8 are resolved in `api-contracts.md` §3.11–§3.12 (see `docs/contract-requests.md`). **Backend work added to P9-04:** Sketchy's `draft` keeps the submitted drawing until `SKETCH` ends (G6); `nicknames` in the `ROLE_REVEAL` `PHASE_STARTED` of **both** games (G8, a small change to `DinoImpostorViews` as well). G7 needs no change. **Frontend work added to P9-07:** read `nicknames` from `ROLE_REVEAL` and drop the remembered-roster workaround.
+
 ## 10. Tests that matter most
 
 - **Secrecy** (highest risk): one harness that records every frame each client receives over a full game of each and checks that before `ROUND_END` the word never reaches the impostor or spectators, and the impostor's ID never reaches anyone. SS: no other player gets your strokes while sketching; with `impostorKnows = false` the impostor's role event and snapshot can't be told apart from an artist's except by the word itself.
