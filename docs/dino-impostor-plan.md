@@ -189,8 +189,7 @@ Built and verified by the Antigravity frontend lane against live Spring Boot bac
 - **Live play test matrix (12 browser scenarios):**
   - Dino Impostor: full game (caught guesses right), caught impostor guesses wrong, escape on a tie, mid-turn / mid-vote refresh, impostor leaving mid-round, room falling below 3 players.
   - Sketchy Saurus: full game (`impostorKnows: true`), unaware impostor without guess (`impostorKnows: false, unawareGuess: false`), unaware impostor with guess on tie (`unawareGuess: true`), mid-sketch refresh, player leaving mid-sketch, canvas budget exhaustion (60 strokes / 1 000 points).
-- **Screenshots:** 23 full-page screenshots captured at desktop (1280x800) and mobile (375x667, reduced motion, touch) saved in `frontend/play-test-screenshots/`.
-- **Real payload test suite:** 32 Vitest tests fed by live recorded Spring Boot payloads (`dinoRealPayloads.test.ts` and `sketchyRealPayloads.test.ts`).
+- **Real payload test suite:** 30 Vitest tests fed by live recorded Spring Boot payloads (`dinoRealPayloads.test.ts` and `sketchyRealPayloads.test.ts`).
 - **Game-feel observations:**
   - *Dino Impostor turns:* Releasing the pointer implicitly closes the single-stroke turn. This keeps 4+ player rounds brisk and responsive.
   - *15-second voting window:* The `[DI-9]` minimum 15-second voting rule prevents accidental instant resolution when players vote quickly, leaving time for discussion in chat.

@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { useSketchySaurusStore } from './sketchySaurusStore'
 import { REAL_SKETCHY_SAURUS_PAYLOADS } from './realPayloads.fixture'
 import type {
@@ -48,7 +48,7 @@ describe('Sketchy Saurus with Real Recorded Backend Payloads', () => {
       useSketchySaurusStore.getState().applySnapshot(snap)
 
       const state = useSketchySaurusStore.getState()
-      expect(state.gallery).toBeDefined()
+      expect(state.gallery).not.toBeNull()
       expect(state.votedGuestIds).toEqual(snap.votedGuestIds)
     })
 
@@ -57,7 +57,8 @@ describe('Sketchy Saurus with Real Recorded Backend Payloads', () => {
       useSketchySaurusStore.getState().applySnapshot(snap)
 
       const state = useSketchySaurusStore.getState()
-      expect(state.guessOpen).toBeDefined()
+      // guessOpen arrives only on the private IMPOSTOR_GUESS_OPEN event, never in a snapshot
+      expect(state.guessOpen).toBeNull()
     })
 
     it('processes real ROUND_END snapshot correctly', () => {
@@ -181,7 +182,7 @@ describe('Sketchy Saurus with Real Recorded Backend Payloads', () => {
     })
   })
 
-  describe('Regressions', () => {
+  describe('Store handling of a synthetic budget error', () => {
     it('handles budget rejection PAYLOAD_TOO_LARGE and blocks further drawing', () => {
       const actionId = crypto.randomUUID()
       useSketchySaurusStore

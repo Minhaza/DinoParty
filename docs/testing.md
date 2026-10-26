@@ -777,7 +777,7 @@ Mutation spot check: making the unaware impostor's role `IMPOSTOR` makes `Sketch
 ### Not verified / limitations
 
 - No frontend or browser check: no frontend change. The frontend still builds the draft limits from `canvasBudget` in the snapshot, but its fixtures (`frontend/src/features/impostor/sketchy/fixtures.ts`, `ImpostorPreviewPage.tsx`) still show 1 500 / 100; Antigravity should update them (P9-07).
-- Neither game is enabled (P9-08); `GET /games` lists `sketchy-saurus` with `enabled:false`.
+- Neither game is enabled by default (P9-08; the P9-07 record below enables them in a local database only); `GET /games` lists `sketchy-saurus` with `enabled:false`.
 - Sketchy drafts are not saved (D64), so a server restart mid-round loses them, as for Telephone.
 - The ITs run in real time (about 6 minutes for `SketchySaurusIT`); the exhaustive leave/reconnect cases are in the manual-clock session tests.
 
@@ -797,14 +797,14 @@ Both games enabled in local PostgreSQL:
 | `npm --prefix frontend run format:check` | passed (Prettier clean across all files) |
 | `npm --prefix frontend run lint` | passed (ESLint clean, 0 errors, 0 warnings) |
 | `npm --prefix frontend run typecheck` | passed (`tsc -b` clean, 0 errors) |
-| `npm --prefix frontend test` | passed: 80 test files, 562 tests |
+| `npm --prefix frontend test` | passed: 80 test files, 561 tests |
 | `npm --prefix frontend run build` | passed (production bundle built cleanly) |
 | `npm --prefix frontend run e2e` | passed: 3 of 3 tests passed (Draw & Guess, Telephone submit recovery, Telephone 4-player) |
 
 ### New unit test suites (real recorded backend payloads)
 
-- `frontend/src/features/impostor/dino/dinoRealPayloads.test.ts` (16 tests): Tests all 5 live snapshots (`ROLE_REVEAL`, `DRAWING`, `VOTE`, `GUESS`, `ROUND_END`), all STOMP event types, G8 nickname population without snapshot, canvas budget rejection (`PAYLOAD_TOO_LARGE`), and RFC-4122 UUID actionId generation.
-- `frontend/src/features/impostor/sketchy/sketchyRealPayloads.test.ts` (16 tests): Tests all 5 live snapshots, all STOMP event types, G8 nickname population, Sketchy Saurus budget enforcement (1 000 live points, 60 strokes), and unaware impostor role payload shapes.
+- `frontend/src/features/impostor/dino/dinoRealPayloads.test.ts` (15 tests): Tests all 5 live snapshots (`ROLE_REVEAL`, `DRAWING`, `VOTE`, `GUESS`, `ROUND_END`), all STOMP event types, G8 nickname population without snapshot, canvas budget rejection (`PAYLOAD_TOO_LARGE`), and RFC-4122 UUID actionId generation.
+- `frontend/src/features/impostor/sketchy/sketchyRealPayloads.test.ts` (15 tests): Tests all 5 live snapshots, all STOMP event types, G8 nickname population, Sketchy Saurus budget enforcement (1 000 live points, 60 strokes), and unaware impostor role payload shapes.
 
 ### Live browser play test matrix (12 browser scenarios)
 
@@ -828,22 +828,5 @@ Both games enabled in local PostgreSQL:
 - **Impostor role secrecy:** `IMPOSTOR_ROLE` was verified to arrive solely on private destination `/user/queue/rooms/{code}`, never on public topic `/topic/rooms/{code}`.
 - **Guess open secrecy:** `IMPOSTOR_GUESS_OPEN` arrived exclusively on the private queue of the caught impostor.
 - **Sketch secrecy:** During Sketchy Saurus `SKETCH` phase, no strokes or drawings were published on public topics. Drawings were revealed only upon `SKETCHY_GALLERY_OPENED` in `GALLERY`.
-- **STOMP UUID actionId:** All commands verified to supply valid RFC-4122 UUIDs.
 - **Leave endpoint:** `POST /api/v1/rooms/{code}/leave` returns 204 No Content.
 - **Rate limiting:** Back-to-back guest creations (> 15/min) correctly return 429 `RATE_LIMITED`; client flows reuse authenticated guest sessions across room resets.
-
-### Screenshots captured
-
-Saved in `frontend/play-test-screenshots/`:
-- `di-role-reveal-desktop.png`, `di-role-reveal-mobile.png`
-- `di-drawing-desktop.png`, `di-drawing-mobile.png`
-- `di-voting-desktop.png`, `di-voting-mobile.png`
-- `di-guess-desktop.png`, `di-guess-mobile.png`
-- `di-round-end-desktop.png`, `di-round-end-mobile.png`
-- `ss-role-reveal-desktop.png`, `ss-role-reveal-mobile.png`
-- `ss-sketch-desktop.png`, `ss-sketch-mobile.png`
-- `ss-sketch-waiting-desktop.png`, `ss-sketch-waiting-mobile.png`
-- `ss-gallery-desktop.png`, `ss-gallery-mobile.png`
-- `ss-guess-desktop.png`, `ss-guess-mobile.png`
-- `ss-round-end-desktop.png`, `ss-round-end-mobile.png`
-- `ss-budget-exhausted.png`

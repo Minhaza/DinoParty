@@ -133,10 +133,7 @@ export const useSketchySaurusStore = create<SketchySaurusState>((set, get) => ({
         set({
           ...commonForNewRound(state, payload.phaseId),
           ...common,
-          nicknames:
-            payload.nicknames && Object.keys(payload.nicknames).length > 0
-              ? { ...state.nicknames, ...payload.nicknames }
-              : state.nicknames,
+          nicknames: { ...state.nicknames, ...payload.nicknames },
           strokes: [],
           canvasFull: false,
           strokeRejection: null,

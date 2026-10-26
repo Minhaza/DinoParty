@@ -182,10 +182,7 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
             payload.colors && Object.keys(payload.colors).length > 0
               ? { ...payload.colors }
               : state.colors,
-          nicknames:
-            payload.nicknames && Object.keys(payload.nicknames).length > 0
-              ? { ...state.nicknames, ...payload.nicknames }
-              : state.nicknames,
+          nicknames: { ...state.nicknames, ...payload.nicknames },
           lap: null,
           turn: null,
           drawerGuestId: null,

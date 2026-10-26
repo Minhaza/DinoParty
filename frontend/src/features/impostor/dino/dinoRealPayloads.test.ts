@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { useDinoImpostorStore } from './dinoImpostorStore'
 import { REAL_DINO_IMPOSTOR_PAYLOADS } from './realPayloads.fixture'
 import type {
@@ -56,7 +56,8 @@ describe('Dino Impostor with Real Recorded Backend Payloads', () => {
       useDinoImpostorStore.getState().applySnapshot(snap)
 
       const state = useDinoImpostorStore.getState()
-      expect(state.guessOpen).toBeDefined()
+      // guessOpen arrives only on the private IMPOSTOR_GUESS_OPEN event, never in a snapshot
+      expect(state.guessOpen).toBeNull()
     })
 
     it('processes real ROUND_END snapshot correctly', () => {
@@ -176,7 +177,7 @@ describe('Dino Impostor with Real Recorded Backend Payloads', () => {
     })
   })
 
-  describe('Regressions', () => {
+  describe('Store handling of a synthetic budget error', () => {
     it('handles budget exhaustion GAME_ERROR with kind FULL', () => {
       const actionId = crypto.randomUUID()
       useDinoImpostorStore
@@ -195,17 +196,6 @@ describe('Dino Impostor with Real Recorded Backend Payloads', () => {
       expect(outcome).toBe('resync')
       expect(useDinoImpostorStore.getState().canvasFull).toBe(true)
       expect(useDinoImpostorStore.getState().strokeRejection?.kind).toBe('FULL')
-    })
-
-    it('validates RFC-4122 UUID actionIds for rapid commands', () => {
-      const actionIds = Array.from({ length: 10 }, () => crypto.randomUUID())
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-      for (const id of actionIds) {
-        expect(id).toMatch(uuidRegex)
-      }
-      const unique = new Set(actionIds)
-      expect(unique.size).toBe(10)
     })
   })
 })

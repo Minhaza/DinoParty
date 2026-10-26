@@ -68,13 +68,12 @@ A client that never takes a snapshot gets no `nicknames`; the client remembers l
 
 **Resolution:** accepted. `ROLE_REVEAL`'s `PHASE_STARTED` carries `nicknames` in both games (§3.11, §3.12). The client can drop the remembered-roster workaround once P9-04 sends it (Dino Impostor's backend gains it in P9-04 too).
 
-
 ---
 
-## P9-07 ?" Live wiring and play test (Antigravity)
+## P9-07 — Live wiring and play test (Antigravity)
 
 - **Verification:** Both games (`dino-impostor` and `sketchy-saurus`) wired to live Spring Boot backend.
 - **G8 Resolution Confirmed:** `nicknames` on `ROLE_REVEAL` `PHASE_STARTED` is delivered on live backend in both games, enabling name resolution for departed players without requiring a snapshot.
 - **Budget Enforced:** Sketchy Saurus canvas budget (1 000 live points, 60 strokes) confirmed on backend and frontend; `PAYLOAD_TOO_LARGE` handles rejection and blocks subsequent input until undo/clear.
 - **Endpoint Contracts:** `POST /api/v1/rooms/{code}/leave` returns 204 No Content as specified.
-- **Contract Gaps:** None. Both games conform fully to `docs/api-contracts.md` §§ 3.11–3.12 and `docs/game-rules.md`.
+- **Contract Gaps:** None found against live behavior. The client's own fixtures and the dev preview page still used the pre-D64 Sketchy budget (1 500 points / 100 strokes); they now match §3.12 (1 000 points / 60 strokes).
