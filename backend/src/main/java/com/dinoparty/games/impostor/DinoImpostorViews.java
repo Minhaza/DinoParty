@@ -26,12 +26,13 @@ final class DinoImpostorViews {
 
   /**
    * Public {@code PHASE_STARTED} data of {@code ROLE_REVEAL}: also the round's seats and the
-   * session colours, for a client that never takes a snapshot (G1).
+   * session colours (G1) and the roster's nicknames (G8), for a client that never takes a snapshot.
    */
   static Map<String, Object> roleRevealData(DinoImpostorState s) {
     Map<String, Object> data = roundData(s);
     data.put("seatOrder", s.seats);
     data.put("colors", orderedColors(s));
+    data.put("nicknames", orderedNicknames(s));
     return data;
   }
 
