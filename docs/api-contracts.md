@@ -537,7 +537,7 @@ Rules: `docs/game-rules.md` (`[SS-1]…[SS-3]` plus the shared `[DI-*]`). Game k
 
 | `type` | Sender | Legal phase | Payload | Per-type limits | Effect | Errors |
 |---|---|---|---|---|---|---|
-| `SKETCHY_DRAW_STROKE` | roster member, not `LEFT` | `SKETCH` | identical to `DRAW_STROKE` (§3.9) | 8 KiB; 30/s, burst 40 | Appends to the sender's private draft (≤ 1 500 live points, 100 strokes per drawing, other `[DG-14]` limits); **not published** | as `TELEPHONE_DRAW_STROKE` (§3.10) |
+| `SKETCHY_DRAW_STROKE` | roster member, not `LEFT` | `SKETCH` | identical to `DRAW_STROKE` (§3.9) | 8 KiB; 30/s, burst 40 | Appends to the sender's private draft (≤ 1 000 live points, 60 strokes per drawing, other `[DG-14]` limits); **not published** | as `TELEPHONE_DRAW_STROKE` (§3.10) |
 | `SKETCHY_DRAW_UNDO` / `SKETCHY_DRAW_CLEAR` | same | `SKETCH` | `{}` | as `TELEPHONE_DRAW_UNDO`/`CLEAR` | On the sender's draft | `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` |
 | `SKETCHY_SUBMIT` | same | `SKETCH` | `{}` | 128 B; 2/s, burst 3 | Makes the draft (possibly empty) final; `SKETCHY_PROGRESS`; ends `SKETCH` if it was the last | `ALREADY_SUBMITTED`, `STALE_ACTION`, `INVALID_PHASE` |
 
@@ -559,13 +559,13 @@ Rules: `docs/game-rules.md` (`[SS-1]…[SS-3]` plus the shared `[DI-*]`). Game k
 ```
 SketchySaurusSnapshot { round, totalRounds, nicknames:{guestId:string} /* as DinoImpostorSnapshot */,
                         role:{role, category:{key, label}, word|null}|null /* viewer only */,
-                        draft:{strokes:Stroke[], canvasBudget:{points, maxPoints:1500, strokes, maxStrokes:100}}|null /* SKETCH: viewer's own; after submitting it holds the submitted drawing until SKETCH ends (G6) */,
+                        draft:{strokes:Stroke[], canvasBudget:{points, maxPoints:1000, strokes, maxStrokes:60}}|null /* SKETCH: viewer's own; after submitting it holds the submitted drawing until SKETCH ends (G6) */,
                         submitted:boolean, submittedGuestIds:[guestId],
                         gallery:[{guestId, strokes:Stroke[], empty}]|null /* GALLERY onward */,
                         votedGuestIds, myVote, recentChat, voteClosed, roundEnd /* as DinoImpostorSnapshot */ }
 ```
 
-Size: with the D64 budget the maximal `GALLERY` snapshot (10 full drawings + 30 chat lines) must serialize to `< 262 144` bytes; a test asserts it, and the per-drawing budget is lowered if it does not.
+Size: with the D64 budget (1 000 live points, 60 strokes per drawing) the maximal `GALLERY` snapshot (10 full drawings + 30 chat lines) and the maximal `SKETCHY_GALLERY_OPENED` serialize to `< 262 144` bytes; tests assert both. A full drawing is about 121 bytes per stroke + 14 per point, so the first figure of 1 500 points and 100 strokes (about 33 KB each, 330 KB for ten) did not fit and was lowered.
 
 **Results** as §3.11.
 
