@@ -744,3 +744,39 @@ Scope: `features/impostor/common/` (types, command hook, `RoleCard`, `VotePanel`
 - Real backend integration is deferred to P9-07 (built against fixtures).
 - E2E Playwright specs and axe accessibility automated audit are deferred to P9-08.
 
+
+## P9-04 verification record (Sketchy Saurus, backend)
+
+Scope: `games.impostor` (`SketchySaurusModule`, `SketchySaurusSettings`, `SketchySaurusState`, `SketchySaurusViews`; decoy support in `ImpostorRound`, `ImpostorSetup`, `ImpostorWords`), G8 in `DinoImpostorViews`, the D64 budget correction in the docs. Both impostor games are still `enabled = false`; no frontend change.
+
+### Automated tests (new or changed)
+
+- `SketchySaurusSettingsTest` (6): defaults, inclusive bounds and 400-style rejections, `rounds` 0 = auto clamped 3–10, `unawareGuess` ignored when `impostorKnows` is on, unusable stored values fall back to defaults.
+- `ImpostorDecoysTest` (8, `[SS-3]`): same category, different after `GuessNormalizer`, unique across the session's words and decoys, a category without a partner never gives a word, drawn from the injected `RandomSource` only, `WORD_POOL_TOO_SMALL` with `required` = words plus decoys, no word in `toString`.
+- `SketchySaurusSessionTest` (42, engine + manual clock): phase flow and G8; draw/undo/clear touch only the sender's draft and publish nothing; `ALREADY_SUBMITTED` after a submit; `PAYLOAD_TOO_LARGE` with the draft unchanged (points and strokes); `[DG-14]` batch limits; early end with the last progress before the gallery; deadline fill and `empty` flags; `[C-6]` stale batch and submit after the deadline; G6; leaving and disconnecting in `SKETCH`; gallery order, snapshot equals event; the shared voting on `GALLERY`; `[SS-3]` caught impostor in all three settings (who gets `IMPOSTOR_GUESS_OPEN`, outcome, scores, `decoyWord`, G7 snapshot); escape in each setting; same shape for the unaware impostor; no word or decoy repeats; roles, words and decoys come from the injected source, not the session seed (D52); `WORD_POOL_TOO_SMALL` on start; the impostor leaving in `ROLE_REVEAL`/`SKETCH`/`GALLERY`/`GUESS`; an artist leaving in the gallery; `[C-1]` abort and finish; snapshots equal after a reconnect in `SKETCH`, `GALLERY` and `GUESS`; `RoundRecord`s with `decoyWord`, results, rematch.
+- `SketchySaurusSecrecyTest` (6, R35): whole games in the three settings (escaped, caught right, caught wrong, left in the gallery, left in `SKETCH`). Every event (public and private) and every viewer's snapshot at every step is searched for the strokes of a draft before `GALLERY`, the word, its category label and the decoy until `IMPOSTOR_ROUND_ENDED`, the impostor until the caught `IMPOSTOR_VOTE_CLOSED` or the round end, and vote targets until `IMPOSTOR_VOTE_CLOSED`; so are the messages of rejected commands. With `impostorKnows` off, the role events are one contiguous transition of one shape and `ARTIST`, the impostor receives the same private event types as an artist until the vote result, and their snapshots have the same keys and value types as an artist's at every step.
+- `SketchySaurusSnapshotSizeTest` (1, R36): ten full drawings at 1 000 points and 60 strokes with five-digit coordinates, plus 30 chat lines of 120 four-byte letters.
+- `DinoImpostorSessionTest`: `G8_…` (nicknames in the `ROLE_REVEAL` `PHASE_STARTED` of Dino Impostor). `GameApiIT`: five registered games.
+- `SketchySaurusIT` (6, real STOMP and PostgreSQL): a 5-player game from start to REST results and rematch in each of the three settings (reconnects in `SKETCH`, `GALLERY` and `GUESS`, G6, draft secrecy on every socket, a self-vote and drawing in `GALLERY` refused, a guess by an artist refused, leak check over every socket's traffic); leaving in `SKETCH`, `GALLERY` and `GUESS` down to fewer than 3; unauthorized commands (wrong phase, another room's member, a player who left, a stale phase id, a bad payload); a Sketchy room and a Dino Impostor room playing at the same time.
+
+### Measured sizes (D64, R36)
+
+Per-drawing budget 1 000 live points and 60 strokes (the first figure, 1 500 and 100, would be about 330 KB for ten drawings). Widest case: `SKETCHY_GALLERY_OPENED` 203 994 bytes; `GALLERY` snapshot with 30 chat lines 223 677; `ROUND_END` snapshot 226 772; one player's `SKETCH` snapshot 22 926; limit 262 144.
+
+Mutation spot check: making the unaware impostor's role `IMPOSTOR` makes `SketchySaurusSecrecyTest` fail (2 tests); the change was reverted.
+
+### Commands run (2026-10-26, Windows 11, JDK 21, Docker Desktop)
+
+`backend/mvnw spotless:apply`, then `backend/mvnw verify` (the wrapper lives in `backend/`, so `./mvnw -f backend …` from the repo root does not resolve; run from `backend/`): 599 unit tests and 281 integration tests, 0 failures, 0 errors, 0 skipped; the spotless check passed.
+
+### Defects found and fixed while testing
+
+- The first full `verify` failed three `GameApiIT` tests: the registry now lists `sketchy-saurus` (disabled), as the P9-02 note predicted. The expectations were updated (five games, key order `dino-impostor`, `draw-guess`, `sketchy-saurus`, `telephone`, `test-game`).
+- The second failed `SketchySaurusIT` once on my own check: the random word that round was "hat" and my chat line "that one is scaly" contains it. The IT's leak check now scans only payload text values (no keys, no ids), and the chat lines in the Sketchy tests have no letters. No production change.
+
+### Not verified / limitations
+
+- No frontend or browser check: no frontend change. The frontend still builds the draft limits from `canvasBudget` in the snapshot, but its fixtures (`frontend/src/features/impostor/sketchy/fixtures.ts`, `ImpostorPreviewPage.tsx`) still show 1 500 / 100; Antigravity should update them (P9-07).
+- Neither game is enabled (P9-08); `GET /games` lists `sketchy-saurus` with `enabled:false`.
+- Sketchy drafts are not saved (D64), so a server restart mid-round loses them, as for Telephone.
+- The ITs run in real time (about 6 minutes for `SketchySaurusIT`); the exhaustive leave/reconnect cases are in the manual-clock session tests.
