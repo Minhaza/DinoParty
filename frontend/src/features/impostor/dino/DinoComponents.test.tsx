@@ -18,7 +18,7 @@ describe('TurnStrip', () => {
     colors,
     drawerGuestId: seatOrder[2],
     currentGuestId: 'di-g1',
-    lap: 0,
+    lap: 1,
     laps: 2,
     turn: 2,
     totalTurns: 20,
@@ -57,9 +57,9 @@ describe('TurnStrip', () => {
     rerender(<TurnStrip {...props({ drawerGuestId: 'di-g1', turn: 9 })} />)
     expect(live()).toHaveTextContent(/^Your turn — add one stroke\. Turn 10\.$/)
 
-    rerender(<TurnStrip {...props({ drawerGuestId: seatOrder[0], turn: 10, lap: 1 })} />)
+    rerender(<TurnStrip {...props({ drawerGuestId: seatOrder[0], turn: 10, lap: 2 })} />)
     expect(live()).toHaveTextContent('')
-    rerender(<TurnStrip {...props({ drawerGuestId: 'di-g1', turn: 19, lap: 1 })} />)
+    rerender(<TurnStrip {...props({ drawerGuestId: 'di-g1', turn: 19, lap: 2 })} />)
     expect(live()).toHaveTextContent('Turn 20.')
   })
 })
@@ -81,6 +81,23 @@ describe('StrokeLegend', () => {
     expect(items[0]).toHaveTextContent(/^TTrixie$/)
     expect(items[9]).toHaveTextContent(/^REYou$/)
     expect(items[10]).toHaveTextContent(/\?A dino who left/)
+  })
+
+  it('shows the real nickname when known from snapshot for someone who left', () => {
+    const extendedMap = new Map<string, { nickname: string }>(playersById)
+    extendedMap.set('gone', { nickname: 'GhostDino' })
+    render(
+      <StrokeLegend
+        seatOrder={[...seatOrder, 'gone']}
+        playersById={extendedMap}
+        colors={{ ...colors, gone: '#123456' }}
+        currentGuestId="di-g1"
+      />,
+    )
+    const items = within(screen.getByRole('region', { name: /stroke colours/i })).getAllByRole(
+      'listitem',
+    )
+    expect(items[10]).toHaveTextContent(/^GGhostDino$/)
   })
 })
 

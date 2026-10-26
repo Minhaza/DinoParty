@@ -158,6 +158,10 @@ Where the build differs from the design above:
 
 **What P9-04 (Sketchy Saurus) reuses unchanged:** `ImpostorFamily` (declare `COMMANDS`, `PUBLIC_EVENTS`, `PRIVATE_EVENTS`; the registry accepts the identical declarations), `ImpostorVotes`, `ImpostorChat`, `ImpostorScoring`, `ImpostorScoreboard` and `ImpostorVoting` with `ImpostorRules("GALLERY", voteSeconds, guessSeconds, () -> impostorKnows || unawareGuess)` and its `decoyWord` constructor argument (the decoy shows in `IMPOSTOR_ROUND_ENDED` and in the `RoundRecord`). The game opens the gallery with `voting.open(...)`, routes `IMPOSTOR_CHAT`/`IMPOSTOR_VOTE`/`IMPOSTOR_GUESS`, `phase-end`, `impostor-vote-min` and leaves to it, and calls `track` on every returned transition. To add in P9-04: the unaware impostor's late role notice before `IMPOSTOR_GUESS_OPEN` (`ImpostorVoting.openGuess` is the place), and the decoy draw.
 
+### P9-06 status
+
+Built against fixtures (no live backend): G1–G4 fixes in the Dino Impostor client, and the Sketchy Saurus screens in `frontend/src/features/impostor/sketchy/` with `roomStore`/`GameStage`/`gameModules` wiring. Checked in a browser at 375 px and desktop via `/__dev/impostor`; see `docs/testing.md`. New contract requests G6–G8 are in `docs/contract-requests.md`. This section was edited by the frontend lane, outside its paths.
+
 ## 10. Tests that matter most
 
 - **Secrecy** (highest risk): one harness that records every frame each client receives over a full game of each and checks that before `ROUND_END` the word never reaches the impostor or spectators, and the impostor's ID never reaches anyone. SS: no other player gets your strokes while sketching; with `impostorKnows = false` the impostor's role event and snapshot can't be told apart from an artist's except by the word itself.

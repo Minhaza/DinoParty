@@ -88,8 +88,66 @@ describe('dinoImpostorStore', () => {
     expect(store().applyPhaseStarted(drawingStarted(0))).toBe(true)
     store().applySnapshot(drawingOtherTurnArtist)
     expect(store().applyPhaseStarted(drawingStarted(4))).toBe(false)
-    expect(store()).toMatchObject({ turn: 4, lap: 0, totalTurns: 20 })
+    expect(store()).toMatchObject({ turn: 4, lap: 1, totalTurns: 20 })
     expect(store().drawerGuestId).toBe(drawingStarted(4).drawerGuestId)
+  })
+
+  it('G1_takes seatOrder and colors on ROLE_REVEAL phase started', () => {
+    store().reset()
+    expect(store().colors).toEqual({})
+    store().applyPhaseStarted(roleRevealStarted)
+    expect(Object.keys(store().colors).length).toBeGreaterThan(0)
+    expect(store().seatOrder.length).toBeGreaterThan(0)
+    // Now that colors are known, drawingStarted does not ask for a snapshot
+    expect(store().applyPhaseStarted(drawingStarted(0))).toBe(false)
+  })
+
+  it('G2_retains snapshot nicknames and accumulates remembered nicknames', () => {
+    store().applySnapshot(drawingOtherTurnArtist)
+    expect(store().nicknames['di-g1']).toBe('Rexy')
+
+    store().rememberNicknames([
+      { guestId: 'di-g1', nickname: 'Rexy' },
+      { guestId: 'new-guest', nickname: 'Newbie' },
+    ])
+    expect(store().nicknames['new-guest']).toBe('Newbie')
+    expect(store().nicknames['di-g1']).toBe('Rexy')
+  })
+
+  it('G4_handles turnStroke on reconnect: open resumes, closed locks turn', () => {
+    // Open stroke: drawer resumes it
+    store().applySnapshot({
+      ...drawingMyTurnArtist,
+      strokes: [
+        {
+          strokeId: 'reconnect-stroke',
+          tool: 'PENCIL',
+          color: '#0072B2',
+          size: 2,
+          points: [
+            [1, 1],
+            [2, 2],
+          ],
+          closed: false,
+          authorGuestId: VIEWER_ARTIST,
+        },
+      ],
+      turnStroke: { strokeId: 'reconnect-stroke', nextBatchNo: 2, closed: false },
+    })
+    expect(store().resumeStroke).toEqual({
+      strokeId: 'reconnect-stroke',
+      nextBatchNo: 2,
+      pointCount: 2,
+    })
+    expect(store().localStrokeIds).toContain('reconnect-stroke')
+
+    // Closed stroke: turn is locked
+    store().applySnapshot({
+      ...drawingMyTurnArtist,
+      turnStroke: { strokeId: 'finished-stroke', nextBatchNo: 3, closed: true },
+    })
+    expect(store().lockedTurnPhaseId).toBe(drawingMyTurnArtist.phaseId)
+    expect(store().resumeStroke).toBeNull()
   })
 
   it('DI6_applies live batches with their author and dedupes them', () => {

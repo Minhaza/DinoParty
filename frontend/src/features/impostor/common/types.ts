@@ -163,8 +163,15 @@ interface DinoImpostorPhaseCommon extends PhaseStartedPayload {
   totalRounds: number
 }
 
+export interface DinoImpostorRoleRevealPhaseStarted extends DinoImpostorPhaseCommon {
+  phase: 'ROLE_REVEAL'
+  seatOrder: string[]
+  colors: Record<string, string>
+}
+
 export interface DinoImpostorDrawingPhaseStarted extends DinoImpostorPhaseCommon {
   phase: 'DRAWING'
+  /** 1-based (1..laps). */
   lap: number
   laps: number
   /** 0-based. */
@@ -180,11 +187,14 @@ export interface DinoImpostorGuessPhaseStarted extends DinoImpostorPhaseCommon {
 }
 
 export interface DinoImpostorOtherPhaseStarted extends DinoImpostorPhaseCommon {
-  phase: 'ROLE_REVEAL' | 'VOTE' | 'ROUND_END'
+  phase: 'VOTE' | 'ROUND_END'
 }
 
 export type DinoImpostorPhaseStartedPayload =
-  DinoImpostorDrawingPhaseStarted | DinoImpostorGuessPhaseStarted | DinoImpostorOtherPhaseStarted
+  | DinoImpostorRoleRevealPhaseStarted
+  | DinoImpostorDrawingPhaseStarted
+  | DinoImpostorGuessPhaseStarted
+  | DinoImpostorOtherPhaseStarted
 
 /** A stroke of the shared canvas with its author (`ImpostorStroke`). */
 export interface ImpostorStroke extends Stroke {
@@ -198,11 +208,15 @@ export interface DinoImpostorSnapshot extends GameSnapshotHeader {
   laps: number
   seatOrder: string[]
   colors: Record<string, string>
+  nicknames: Record<string, string>
+  /** 1-based (1..laps); DRAWING only. */
   lap: number | null
   turn: number | null
   totalTurns: number
   /** DRAWING only. */
   drawerGuestId: string | null
+  /** DRAWING only: the drawer's one stroke of this turn if it was started (G4); public. */
+  turnStroke: { strokeId: string; nextBatchNo: number; closed: boolean } | null
   /** Viewer only; `null` for spectators. */
   role: ImpostorRoleInfo | null
   strokes: ImpostorStroke[]

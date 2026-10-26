@@ -13,7 +13,7 @@ export interface TurnStripProps {
   colors: Record<string, string>
   drawerGuestId: string | null
   currentGuestId: string | null | undefined
-  /** 0-based, as `turn` (contract gap G3). */
+  /** 1-based (1..laps). */
   lap: number | null
   laps: number
   /** 0-based. */
@@ -56,7 +56,7 @@ export function TurnStrip({
         <p className="text-sm font-semibold">
           {lap !== null && turn !== null ? (
             <>
-              Lap {lap + 1}/{laps} · Turn {turn + 1}/{totalTurns}
+              Lap {lap}/{laps} · Turn {turn + 1}/{totalTurns}
             </>
           ) : (
             'Waiting for the first turn'

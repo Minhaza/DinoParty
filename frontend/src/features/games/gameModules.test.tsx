@@ -27,13 +27,13 @@ describe('frontend game modules', () => {
     expect(gameVisual('mystery').tone).toBe('neutral')
   })
 
-  it('has visuals for both impostor games but only Dino Impostor is playable (P9-05)', () => {
+  it('has visuals and playable modules for both impostor games (P9-06)', () => {
     expect(gameVisual('dino-impostor').tone).toBe('impostor')
     expect(gameVisual('sketchy-saurus').tone).toBe('impostor')
     expect(gameVisual('dino-impostor').Badge).not.toBe(gameVisual('sketchy-saurus').Badge)
     expect(gameVisual('dino-impostor').Badge).not.toBe(gameVisual('mystery').Badge)
     expect(gameModule('dino-impostor')).toEqual({ playable: true, lobbyPanelFields: [] })
-    expect(gameModule('sketchy-saurus')).toBeNull()
+    expect(gameModule('sketchy-saurus')).toEqual({ playable: true, lobbyPanelFields: [] })
   })
 
   it('draws the impostor badges when there is no painted banner', () => {

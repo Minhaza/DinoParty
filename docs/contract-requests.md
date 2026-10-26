@@ -46,3 +46,18 @@ Documented during implementation of **P9-05** (`dino-impostor` shared pieces & s
 - **Client behaviour (P9-05):** The client fixes stroke tool to `PENCIL` and `size: 2` for all players, preventing stroke thickness variations.
 - **Resolution:** no change. Note the premise was wrong: `DRAW_STROKE`-style batches allow `size` 1–4 (`api-contracts.md` §3.9, `StrokeBatch`); a fixed `size: 2` is valid.
 
+
+---
+
+## P9-06 — Sketchy Saurus (frontend, fixtures)
+
+Found while building the Sketchy Saurus screens against `api-contracts.md` §3.12. None blocks the client; each needs an answer before P9-07 (live wiring).
+
+### G6 — What a viewer's snapshot says about their own submitted drawing
+`draft` is `null` outside `SKETCH`, and with `submitted:true` the snapshot does not say whether `draft` still holds the submitted strokes. **Client behaviour:** after submitting it shows no drawing (as Telephone does), so either answer works. **Request:** state which it is. *Informational.*
+
+### G7 — A reconnecting unaware impostor in `GUESS`
+Their snapshot `role` stays `ARTIST` (by design, `[SS-3]`) and the snapshot has no `guessOpen` field, so the client works out "may guess now" from `voteClosed.caught && voteClosed.impostorGuestId === me`. **Request:** confirm that `voteClosed` names the impostor in their snapshot, or add `guessOpen` (with `category`) to the snapshot.
+
+### G8 — `nicknames` only on snapshots
+A client that never takes a snapshot gets no `nicknames`; the client remembers live-roster names as a workaround, so an artist who leaves before the gallery opens is named only if the client saw them earlier. **Request:** consider carrying `nicknames` in the `ROLE_REVEAL` `PHASE_STARTED` as well.
