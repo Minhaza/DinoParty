@@ -126,6 +126,7 @@ export const roleRevealStarted: SketchyRoleRevealPhaseStarted = {
   round: 1,
   totalRounds: 3,
   deadlineAt: FIXTURE_DEADLINE,
+  nicknames: Object.fromEntries(SS_PLAYERS.map((p) => [p.guestId, p.nickname])),
 }
 
 export const sketchStarted: SketchySketchPhaseStarted = {
@@ -285,7 +286,7 @@ export function sketchySnapshot(
       phase === 'SKETCH'
         ? {
             strokes: [sampleStroke(VIEWER_ARTIST, 'draft-s1')],
-            canvasBudget: { points: 3, maxPoints: 1500, strokes: 1, maxStrokes: 100 },
+            canvasBudget: { points: 3, maxPoints: 1000, strokes: 1, maxStrokes: 60 },
           }
         : null,
     submitted: false,

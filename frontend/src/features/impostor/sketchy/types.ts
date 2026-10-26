@@ -23,6 +23,7 @@ export interface SketchyRoleRevealPhaseStarted {
   round: number
   totalRounds: number
   deadlineAt: string
+  nicknames: Record<string, string>
 }
 
 export interface SketchySketchPhaseStarted {

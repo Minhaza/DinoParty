@@ -102,16 +102,12 @@ describe('dinoImpostorStore', () => {
     expect(store().applyPhaseStarted(drawingStarted(0))).toBe(false)
   })
 
-  it('G2_retains snapshot nicknames and accumulates remembered nicknames', () => {
-    store().applySnapshot(drawingOtherTurnArtist)
+  it('G8_names come from ROLE_REVEAL without a snapshot', () => {
+    store().reset()
+    expect(store().nicknames).toEqual({})
+    store().applyPhaseStarted(roleRevealStarted)
     expect(store().nicknames['di-g1']).toBe('Rexy')
-
-    store().rememberNicknames([
-      { guestId: 'di-g1', nickname: 'Rexy' },
-      { guestId: 'new-guest', nickname: 'Newbie' },
-    ])
-    expect(store().nicknames['new-guest']).toBe('Newbie')
-    expect(store().nicknames['di-g1']).toBe('Rexy')
+    expect(store().nicknames['di-g2']).toBe('Trixie')
   })
 
   it('G4_handles turnStroke on reconnect: open resumes, closed locks turn', () => {

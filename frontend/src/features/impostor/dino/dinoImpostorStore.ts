@@ -82,7 +82,6 @@ export interface DinoImpostorState extends DinoImpostorData {
   applyCommandError: (payload: GameErrorPayload, actionId?: string | null) => CommandErrorOutcome
   addLocalStroke: (stroke: ImpostorStroke) => void
   appendLocalPoints: (strokeId: string, points: [number, number][], isFinal: boolean) => void
-  rememberNicknames: (players: readonly { guestId: string; nickname: string }[]) => void
   reset: () => void
 }
 
@@ -183,6 +182,10 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
             payload.colors && Object.keys(payload.colors).length > 0
               ? { ...payload.colors }
               : state.colors,
+          nicknames:
+            payload.nicknames && Object.keys(payload.nicknames).length > 0
+              ? { ...state.nicknames, ...payload.nicknames }
+              : state.nicknames,
           lap: null,
           turn: null,
           drawerGuestId: null,
@@ -353,20 +356,6 @@ export const useDinoImpostorStore = create<DinoImpostorState>((set, get) => ({
           : s,
       ),
     }))
-  },
-
-  rememberNicknames: (players) => {
-    const current = get().nicknames
-    let updated: Record<string, string> | null = null
-    for (const p of players) {
-      if (p.guestId && p.nickname && current[p.guestId] !== p.nickname) {
-        if (!updated) updated = { ...current }
-        updated[p.guestId] = p.nickname
-      }
-    }
-    if (updated) {
-      set({ nicknames: updated })
-    }
   },
 
   reset: () => {

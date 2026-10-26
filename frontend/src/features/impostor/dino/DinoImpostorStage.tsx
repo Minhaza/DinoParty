@@ -46,11 +46,6 @@ export function DinoImpostorStage({ players, currentGuestId }: DinoImpostorStage
   const game = useDinoImpostorStore()
   const commands = useImpostorCommands(game.trackCommand)
 
-  const rememberNicknames = game.rememberNicknames
-  React.useEffect(() => {
-    rememberNicknames(players)
-  }, [players, rememberNicknames])
-
   const playersById = React.useMemo(
     () => rosterNames(players, game.nicknames),
     [players, game.nicknames],

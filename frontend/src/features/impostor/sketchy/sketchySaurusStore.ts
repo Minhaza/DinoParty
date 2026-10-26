@@ -76,7 +76,6 @@ export interface SketchySaurusState extends SketchySaurusData {
   appendLocalPoints: (strokeId: string, points: [number, number][], isFinal: boolean) => void
   undoLocalStroke: () => void
   clearLocalStrokes: () => void
-  rememberNicknames: (players: readonly { guestId: string; nickname: string }[]) => void
   reset: () => void
 }
 
@@ -134,6 +133,10 @@ export const useSketchySaurusStore = create<SketchySaurusState>((set, get) => ({
         set({
           ...commonForNewRound(state, payload.phaseId),
           ...common,
+          nicknames:
+            payload.nicknames && Object.keys(payload.nicknames).length > 0
+              ? { ...state.nicknames, ...payload.nicknames }
+              : state.nicknames,
           strokes: [],
           canvasFull: false,
           strokeRejection: null,
@@ -308,20 +311,6 @@ export const useSketchySaurusStore = create<SketchySaurusState>((set, get) => ({
 
   clearLocalStrokes: () => {
     set({ strokes: [], canvasFull: false })
-  },
-
-  rememberNicknames: (players) => {
-    const current = get().nicknames
-    let updated: Record<string, string> | null = null
-    for (const p of players) {
-      if (p.guestId && p.nickname && current[p.guestId] !== p.nickname) {
-        if (!updated) updated = { ...current }
-        updated[p.guestId] = p.nickname
-      }
-    }
-    if (updated) {
-      set({ nicknames: updated })
-    }
   },
 
   reset: () => {
