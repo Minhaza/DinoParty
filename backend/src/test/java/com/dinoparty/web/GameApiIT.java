@@ -35,7 +35,7 @@ class GameApiIT {
   void listsEveryRegisteredGameInKeyOrderWithoutAuthentication() throws Exception {
     mvc.perform(get("/api/v1/games"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(4))
+        .andExpect(jsonPath("$.length()").value(5))
         .andExpect(jsonPath("$[0].key").value("dino-impostor"))
         .andExpect(jsonPath("$[0].name").value("Dino Impostor"))
         .andExpect(jsonPath("$[0].minPlayers").value(4))
@@ -49,11 +49,16 @@ class GameApiIT {
         .andExpect(jsonPath("$[1].iconKey").value("draw-guess"))
         .andExpect(jsonPath("$[1].enabled").value(true))
         .andExpect(jsonPath("$[1].settingsSchema").doesNotExist())
-        .andExpect(jsonPath("$[2].key").value("telephone"))
-        .andExpect(jsonPath("$[2].name").value("Dino Telephone"))
+        .andExpect(jsonPath("$[2].key").value("sketchy-saurus"))
+        .andExpect(jsonPath("$[2].name").value("Sketchy Saurus"))
         .andExpect(jsonPath("$[2].minPlayers").value(4))
-        .andExpect(jsonPath("$[2].maxPlayers").value(8))
-        .andExpect(jsonPath("$[2].enabled").value(true));
+        .andExpect(jsonPath("$[2].maxPlayers").value(10))
+        .andExpect(jsonPath("$[2].enabled").value(false))
+        .andExpect(jsonPath("$[3].key").value("telephone"))
+        .andExpect(jsonPath("$[3].name").value("Dino Telephone"))
+        .andExpect(jsonPath("$[3].minPlayers").value(4))
+        .andExpect(jsonPath("$[3].maxPlayers").value(8))
+        .andExpect(jsonPath("$[3].enabled").value(true));
   }
 
   /**
@@ -63,10 +68,10 @@ class GameApiIT {
   @Test
   void aGameRegistersItselfThroughItsModuleAlone() throws Exception {
     mvc.perform(get("/api/v1/games"))
-        .andExpect(jsonPath("$[3].key").value(TestGameModule.KEY))
-        .andExpect(jsonPath("$[3].name").value("Test Game"))
-        .andExpect(jsonPath("$[3].minPlayers").value(2))
-        .andExpect(jsonPath("$[3].maxPlayers").value(6));
+        .andExpect(jsonPath("$[4].key").value(TestGameModule.KEY))
+        .andExpect(jsonPath("$[4].name").value("Test Game"))
+        .andExpect(jsonPath("$[4].minPlayers").value(2))
+        .andExpect(jsonPath("$[4].maxPlayers").value(6));
     mvc.perform(get("/api/v1/games/" + TestGameModule.KEY))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.settingsSchema.length()").value(0))
@@ -146,8 +151,8 @@ class GameApiIT {
     jdbc.update("UPDATE game_definition SET enabled = false WHERE key = 'telephone'");
 
     mvc.perform(get("/api/v1/games"))
-        .andExpect(jsonPath("$[2].key").value("telephone"))
-        .andExpect(jsonPath("$[2].enabled").value(false))
+        .andExpect(jsonPath("$[3].key").value("telephone"))
+        .andExpect(jsonPath("$[3].enabled").value(false))
         .andExpect(jsonPath("$[1].enabled").value(true));
     mvc.perform(get("/api/v1/games/telephone"))
         .andExpect(status().isOk())

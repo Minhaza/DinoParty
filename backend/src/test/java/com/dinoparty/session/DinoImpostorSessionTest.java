@@ -288,6 +288,19 @@ class DinoImpostorSessionTest {
   }
 
   @Test
+  void G8_theRoleRevealPhaseStartedCarriesTheNicknamesOfTheFrozenRoster() {
+    start(4);
+    Map<String, Object> reveal = lastPhase();
+
+    assertThat(reveal).containsEntry("phase", "ROLE_REVEAL");
+    @SuppressWarnings("unchecked")
+    Map<UUID, String> nicknames = (Map<UUID, String>) reveal.get("nicknames");
+    assertThat(nicknames).containsOnlyKeys(players);
+    assertThat(nicknames).isEqualTo(snapshot(players.get(1)).get("nicknames"));
+    assertThat(nicknames.values()).allMatch(n -> n.matches("P\\d"));
+  }
+
+  @Test
   void DI5_seatsArePublicTheImpostorIsNeverFirstAndEachRoundIsReshuffled() {
     start(5, Map.of("rounds", 5));
     Set<List<UUID>> seatOrders = new HashSet<>();
