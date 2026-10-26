@@ -152,7 +152,7 @@ class SketchySaurusSecrecyTest {
     }
     record();
     assertThat(d.phase()).isEqualTo("GALLERY");
-    d.chat(artists.getFirst(), "that one looks a bit scaly");
+    d.chat(artists.getFirst(), "11 22 33");
     record();
     provoke(artists.getFirst());
     switch (kind) {

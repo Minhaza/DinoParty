@@ -339,6 +339,32 @@ class SketchySaurusIT extends GameEngineSupport {
     return m.envelope().toString();
   }
 
+  private static final java.util.regex.Pattern UUID_TEXT =
+      java.util.regex.Pattern.compile(
+          "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+  /**
+   * The text values of a message payload, without keys and ids: what a player could read. A short
+   * word must not match a key name or the hex digits of an id, so those are left out.
+   */
+  private static String leakText(StompTestClient.Message m) {
+    StringBuilder text = new StringBuilder();
+    collectValues(m.payload(), text);
+    return text.toString();
+  }
+
+  private static void collectValues(JsonNode node, StringBuilder out) {
+    if (node.isString()) {
+      if (!UUID_TEXT.matcher(node.asString()).matches()) {
+        out.append(node.asString()).append(' ');
+      }
+    } else if (node.isObject()) {
+      node.properties().forEach(e -> collectValues(e.getValue(), out));
+    } else if (node.isArray()) {
+      node.forEach(child -> collectValues(child, out));
+    }
+  }
+
   // ------------------------------------------------------------------ whole games
 
   /**
@@ -385,10 +411,13 @@ class SketchySaurusIT extends GameEngineSupport {
       String word = r.word(rd);
       String decoy = r.decoy(rd);
       for (int i = start; i < all.size() && i < ended; i++) {
+        String readable = leakText(all.get(i));
         String text = json(all.get(i));
-        assertThat(text).as("word in %s", all.get(i).type()).doesNotContainIgnoringCase(word);
+        assertThat(readable).as("word in %s", all.get(i).type()).doesNotContainIgnoringCase(word);
         if (decoy != null) {
-          assertThat(text).as("decoy in %s", all.get(i).type()).doesNotContainIgnoringCase(decoy);
+          assertThat(readable)
+              .as("decoy in %s", all.get(i).type())
+              .doesNotContainIgnoringCase(decoy);
         }
         if (i < caught) {
           assertThat(text)
@@ -467,7 +496,11 @@ class SketchySaurusIT extends GameEngineSupport {
       assertThat(r.decoy(1)).isNull();
     }
     for (StompTestClient ws : r.sockets) {
-      assertThat(ws.onStream("ROOM", r.code).toString()).doesNotContain(r.word(1));
+      assertThat(
+              ws.onStream("ROOM", r.code).stream()
+                  .map(SketchySaurusIT::leakText)
+                  .collect(Collectors.joining(" ")))
+          .doesNotContainIgnoringCase(r.word(1));
     }
     String hostId = r.id(0);
 
@@ -533,7 +566,7 @@ class SketchySaurusIT extends GameEngineSupport {
         .isEqualTo("INVALID_PHASE");
     assertThat(r.refused(r.socketOf(n1), "SKETCHY_SUBMIT", galleryPhase1, "{}"))
         .isEqualTo("INVALID_PHASE");
-    r.accepted(r.socketOf(n1), "IMPOSTOR_CHAT", galleryPhase1, "{\"text\":\"that one is scaly\"}");
+    r.accepted(r.socketOf(n1), "IMPOSTOR_CHAT", galleryPhase1, "{\"text\":\"11 22 33\"}");
     for (StompTestClient ws : r.sockets) {
       JsonNode line = awaitLong(ws, m -> m.type().equals("IMPOSTOR_CHAT_MESSAGE")).payload();
       assertThat(line.get("guestId").asString()).isEqualTo(n1);
