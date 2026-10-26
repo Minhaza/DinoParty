@@ -545,8 +545,8 @@ Rules: `docs/game-rules.md` (`[SS-1]…[SS-3]` plus the shared `[DI-*]`). Game k
 
 | `type` | Stream | Payload |
 |---|---|---|
-| `SKETCHY_PROGRESS` | public | `{phaseId, submittedGuestIds:[guestId]}` |
-| `SKETCHY_GALLERY_OPENED` | public, after `PHASE_STARTED{GALLERY}` | `{round, drawings:[{guestId, strokes:Stroke[], empty:boolean}]}` in seat order of the roster (`order`), one per player not `LEFT` when `SKETCH` ended |
+| `SKETCHY_PROGRESS` | public | `{phaseId, submittedGuestIds:[guestId]}`: sent (empty) after `PHASE_STARTED{SKETCH}`, after every accepted submit and when a player becomes `LEFT` in `SKETCH`; the one sent by the last submit is a closing event of `SKETCH`, before `PHASE_STARTED{GALLERY}`. Players not `LEFT` only, in session order |
+| `SKETCHY_GALLERY_OPENED` | public, after `PHASE_STARTED{GALLERY}` | `{round, drawings:[{guestId, strokes:Stroke[], empty:boolean}]}` in seat order of the roster (`order`), one per player not `LEFT` when `SKETCH` ended; every stroke has `closed:true` (a stroke still open at the end is closed as it stands) |
 
 **Phase events.** `PHASE_STARTED` carries `round`, `totalRounds` and, in `ROLE_REVEAL`, `nicknames:{guestId:string}` (as §3.11, G8); Sketchy Saurus has no seats or colours.
 
@@ -560,7 +560,7 @@ Rules: `docs/game-rules.md` (`[SS-1]…[SS-3]` plus the shared `[DI-*]`). Game k
 SketchySaurusSnapshot { round, totalRounds, nicknames:{guestId:string} /* as DinoImpostorSnapshot */,
                         role:{role, category:{key, label}, word|null}|null /* viewer only */,
                         draft:{strokes:Stroke[], canvasBudget:{points, maxPoints:1000, strokes, maxStrokes:60}}|null /* SKETCH: viewer's own; after submitting it holds the submitted drawing until SKETCH ends (G6) */,
-                        submitted:boolean, submittedGuestIds:[guestId],
+                        submitted:boolean /* false outside SKETCH */, submittedGuestIds:[guestId] /* empty outside SKETCH */,
                         gallery:[{guestId, strokes:Stroke[], empty}]|null /* GALLERY onward */,
                         votedGuestIds, myVote, recentChat, voteClosed, roundEnd /* as DinoImpostorSnapshot */ }
 ```
@@ -632,3 +632,4 @@ Everything below is additive unless stated.
 | §3.6, `game-engine.md` §1.2 (P9-fix) | Registry: a command or event type may be declared by several modules of one family if every declaration is identical (D65) |
 | §3.11 (P9-03) | Clarified: module-enforced 10 s sliding window for chat and vote; `IMPOSTOR_VOTE_PROGRESS` also on opening and on a leave; `IMPOSTOR_LEFT` round-end `votes`; snapshot field lifetimes; second guess / closed stroke are in practice `STALE_ACTION`; stats count recorded rounds; `ScoreDelta` reasons |
 | §3.11 (P9-02) | Clarified: `lap` is 1-based; fixed seat order per round with `LEFT` seats skipped; colours uppercase and compared case-insensitively; an open stroke closed at the turn's end gets no event |
+| §3.12 (P9-04) | Clarified: per-drawing budget lowered to 1 000 live points and 60 strokes (D64, the first 1 500 and 100 did not fit 256 KiB); `SKETCHY_PROGRESS` timing; gallery strokes are all `closed`; `submitted`/`submittedGuestIds` only inside `SKETCH`; an unaware impostor learns their role from the existing private `IMPOSTOR_GUESS_OPEN` (no new event); an automatic start with `impostorKnows` off needs ten word/decoy pairs or is `WORD_POOL_TOO_SMALL` |
