@@ -13,25 +13,37 @@ import java.util.UUID;
  * Who is the impostor and what the word is in one round, and the only builder of what each player
  * is told about it ([DI-4], R35). Every role has the same keys in the same order, whoever receives
  * it, so the impostor cannot tell their role from the shape of a payload. Holds secrets: {@link
- * #toString()} prints neither the word nor the impostor.
+ * #toString()} prints neither the word, the decoy nor the impostor.
+ *
+ * @param decoy Sketchy Saurus without {@code impostorKnows} ([SS-3]): the word the unaware impostor
+ *     is given in place of the real one, as an ordinary {@code ARTIST}; {@code null} otherwise
  */
-record ImpostorRound(int round, UUID impostor, CategorizedWord word) {
+record ImpostorRound(int round, UUID impostor, CategorizedWord word, CategorizedWord decoy) {
 
   static final String ROLE_EVENT = ImpostorFamily.ROLE_EVENT;
   static final String ARTIST = "ARTIST";
   static final String IMPOSTOR = "IMPOSTOR";
 
+  ImpostorRound(int round, UUID impostor, CategorizedWord word) {
+    this(round, impostor, word, null);
+  }
+
   boolean isImpostor(UUID guest) {
     return impostor.equals(guest);
   }
 
-  /** The viewer's role as in the snapshot: {@code {role, category:{key, label}, word|null}}. */
+  /**
+   * The viewer's role as in the snapshot: {@code {role, category:{key, label}, word|null}}. An
+   * impostor who has a decoy is told {@code ARTIST} and the decoy ([SS-3]), the same fields as any
+   * artist's.
+   */
   Map<String, Object> role(UUID viewer) {
-    boolean isImpostor = isImpostor(viewer);
+    boolean knownImpostor = isImpostor(viewer) && decoy == null;
+    String text = isImpostor(viewer) ? (decoy == null ? null : decoy.text()) : word.text();
     Map<String, Object> role = new LinkedHashMap<>();
-    role.put("role", isImpostor ? IMPOSTOR : ARTIST);
+    role.put("role", knownImpostor ? IMPOSTOR : ARTIST);
     role.put("category", category());
-    role.put("word", isImpostor ? null : word.text());
+    role.put("word", text);
     return role;
   }
 
