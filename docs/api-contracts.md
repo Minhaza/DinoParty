@@ -495,7 +495,7 @@ Rejections leave state unchanged; `ACTION_ACK` follows accepted commands. Roles,
 
 | `type` | Stream | Payload |
 |---|---|---|
-| `PHASE_STARTED` | public | common fields plus `round`, `totalRounds`; `ROLE_REVEAL`: `seatOrder:[guestId]`, `colors:{guestId:"#RRGGBB"}` (P9 contract fix G1: a client that was in the room at the start never gets a snapshot, so it learns the round's seats and the session colours here); `DRAWING`: `lap` (1-based, 1…`laps`), `laps`, `turn` (0-based), `totalTurns`, `drawerGuestId`, `seatOrder:[guestId]`; `GUESS`: `impostorGuestId` |
+| `PHASE_STARTED` | public | common fields plus `round`, `totalRounds`; `ROLE_REVEAL`: `seatOrder:[guestId]`, `colors:{guestId:"#RRGGBB"}`, `nicknames:{guestId:string}` (the snapshot's map, G8) (P9 contract fix G1: a client that was in the room at the start never gets a snapshot, so it learns the round's seats and the session colours here); `DRAWING`: `lap` (1-based, 1…`laps`), `laps`, `turn` (0-based), `totalTurns`, `drawerGuestId`, `seatOrder:[guestId]`; `GUESS`: `impostorGuestId` |
 | `IMPOSTOR_ROLE` *(shared)* | private, every roster member not `LEFT`, in the `ROLE_REVEAL` transition | `{phaseId, round, role:"ARTIST"\|"IMPOSTOR", category:{key, label}, word:string\|null}` — same shape for everyone; see §3.12 for the unaware impostor |
 | `IMPOSTOR_DRAWING_UPDATED` | public | `{kind:"STROKE", authorGuestId, strokeId, batchNo, tool, color, size, points, final}` — each accepted batch unchanged plus its author; the drawer's client ignores its own echo |
 | `IMPOSTOR_CHAT_MESSAGE` *(shared)* | public | `{guestId, text, ts}` |
@@ -548,6 +548,10 @@ Rules: `docs/game-rules.md` (`[SS-1]…[SS-3]` plus the shared `[DI-*]`). Game k
 | `SKETCHY_PROGRESS` | public | `{phaseId, submittedGuestIds:[guestId]}` |
 | `SKETCHY_GALLERY_OPENED` | public, after `PHASE_STARTED{GALLERY}` | `{round, drawings:[{guestId, strokes:Stroke[], empty:boolean}]}` in seat order of the roster (`order`), one per player not `LEFT` when `SKETCH` ended |
 
+**Phase events.** `PHASE_STARTED` carries `round`, `totalRounds` and, in `ROLE_REVEAL`, `nicknames:{guestId:string}` (as §3.11, G8); Sketchy Saurus has no seats or colours.
+
+**Who may guess, after a reconnect (G7).** The snapshot's `voteClosed` is the public `IMPOSTOR_VOTE_CLOSED` payload, so in `GUESS` it names the caught impostor (`caught:true`, `impostorGuestId`) in every viewer's snapshot, the impostor's own included. A client decides "I may guess now" from `phase = GUESS && voteClosed.impostorGuestId = me`; `role` stays `ARTIST` for an unaware impostor and is not updated. The guess's `category` is `role.category`. No `guessOpen` field is added.
+
 **Unaware impostor** (`impostorKnows = false`, D63). Their `IMPOSTOR_ROLE` is `{role:"ARTIST", category, word:<decoy>}`: the same fields, types and transition as every artist's, and their snapshot's `role` likewise; nothing they receive before `IMPOSTOR_VOTE_CLOSED` differs in shape. When caught with `unawareGuess = true` they get `IMPOSTOR_GUESS_OPEN`; with `unawareGuess = false` the round goes from `GALLERY` straight to `ROUND_END` (`outcome:"CAUGHT"`). `IMPOSTOR_ROUND_ENDED.decoyWord` names the decoy.
 
 **`SketchySaurusSnapshot`**:
@@ -555,7 +559,7 @@ Rules: `docs/game-rules.md` (`[SS-1]…[SS-3]` plus the shared `[DI-*]`). Game k
 ```
 SketchySaurusSnapshot { round, totalRounds, nicknames:{guestId:string} /* as DinoImpostorSnapshot */,
                         role:{role, category:{key, label}, word|null}|null /* viewer only */,
-                        draft:{strokes:Stroke[], canvasBudget:{points, maxPoints:1500, strokes, maxStrokes:100}}|null /* SKETCH: viewer's own */,
+                        draft:{strokes:Stroke[], canvasBudget:{points, maxPoints:1500, strokes, maxStrokes:100}}|null /* SKETCH: viewer's own; after submitting it holds the submitted drawing until SKETCH ends (G6) */,
                         submitted:boolean, submittedGuestIds:[guestId],
                         gallery:[{guestId, strokes:Stroke[], empty}]|null /* GALLERY onward */,
                         votedGuestIds, myVote, recentChat, voteClosed, roundEnd /* as DinoImpostorSnapshot */ }
@@ -624,6 +628,7 @@ Everything below is additive unless stated.
 | §3.11 | New: shared impostor commands/events (`IMPOSTOR_*`), Dino Impostor commands, events, secrets, snapshot, results |
 | §3.12 | New: Sketchy Saurus commands/events (`SKETCHY_*`), unaware impostor, snapshot and size bound |
 | §3.11 (P9-fix) | Contract requests G1–G4 of P9-05 resolved: `ROLE_REVEAL` `PHASE_STARTED` carries `seatOrder` and `colors` (G1); snapshots carry `nicknames` (G2, also in `SketchySaurusSnapshot`); `lap` is 1-based, as written in P9-02 (G3; the P9-05 client assumed 0-based and must be fixed); `DinoImpostorSnapshot.turnStroke` (G4); stroke `size` stays 1–4 (G5: the client's fixed size 2 is valid, the "1 to 32" in the request was wrong) |
+| §3.11, §3.12 (P9-fix 2) | Contract requests G6–G8 of P9-06 resolved: Sketchy `draft` keeps the submitted drawing until `SKETCH` ends (G6); `voteClosed` in the snapshot is how a reconnecting impostor knows they may guess, no new field (G7); `ROLE_REVEAL` `PHASE_STARTED` carries `nicknames` in both games (G8) |
 | §3.6, `game-engine.md` §1.2 (P9-fix) | Registry: a command or event type may be declared by several modules of one family if every declaration is identical (D65) |
 | §3.11 (P9-03) | Clarified: module-enforced 10 s sliding window for chat and vote; `IMPOSTOR_VOTE_PROGRESS` also on opening and on a leave; `IMPOSTOR_LEFT` round-end `votes`; snapshot field lifetimes; second guess / closed stroke are in practice `STALE_ACTION`; stats count recorded rounds; `ScoreDelta` reasons |
 | §3.11 (P9-02) | Clarified: `lap` is 1-based; fixed seat order per round with `LEFT` seats skipped; colours uppercase and compared case-insensitively; an open stroke closed at the turn's end gets no event |

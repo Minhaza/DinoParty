@@ -56,8 +56,15 @@ Found while building the Sketchy Saurus screens against `api-contracts.md` §3.1
 ### G6 — What a viewer's snapshot says about their own submitted drawing
 `draft` is `null` outside `SKETCH`, and with `submitted:true` the snapshot does not say whether `draft` still holds the submitted strokes. **Client behaviour:** after submitting it shows no drawing (as Telephone does), so either answer works. **Request:** state which it is. *Informational.*
 
+**Resolution (P9 contract fix 2):** after submitting, the viewer's `draft` still holds the submitted drawing until `SKETCH` ends (`api-contracts.md` §3.12), so a refresh can show "your drawing". The current client (show nothing) is valid; showing it is optional.
+
 ### G7 — A reconnecting unaware impostor in `GUESS`
 Their snapshot `role` stays `ARTIST` (by design, `[SS-3]`) and the snapshot has no `guessOpen` field, so the client works out "may guess now" from `voteClosed.caught && voteClosed.impostorGuestId === me`. **Request:** confirm that `voteClosed` names the impostor in their snapshot, or add `guessOpen` (with `category`) to the snapshot.
 
+**Resolution:** confirmed, no new field. The snapshot's `voteClosed` is the public `IMPOSTOR_VOTE_CLOSED` payload and names the caught impostor in every snapshot, theirs included; the client's rule (`phase = GUESS && voteClosed.impostorGuestId = me`) is the intended one; the guess's category is `role.category` (§3.12).
+
 ### G8 — `nicknames` only on snapshots
 A client that never takes a snapshot gets no `nicknames`; the client remembers live-roster names as a workaround, so an artist who leaves before the gallery opens is named only if the client saw them earlier. **Request:** consider carrying `nicknames` in the `ROLE_REVEAL` `PHASE_STARTED` as well.
+
+**Resolution:** accepted. `ROLE_REVEAL`'s `PHASE_STARTED` carries `nicknames` in both games (§3.11, §3.12). The client can drop the remembered-roster workaround once P9-04 sends it (Dino Impostor's backend gains it in P9-04 too).
+
