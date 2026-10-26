@@ -687,6 +687,30 @@ class SketchySaurusSessionTest {
   }
 
   @Test
+  void SS3_D52_rolesWordsAndDecoysComeFromTheInjectedSourceNotTheSessionSeed() {
+    // The fixture's session seed is the same in every run; only the injected source differs.
+    List<List<Object>> runs = new java.util.ArrayList<>();
+    for (long secret : new long[] {1, 1, 2, 3, 4}) {
+      f = fixture(TestWords.service(), new SeededRandomSource(secret));
+      s = new SketchyDriver(f);
+      d = s.d;
+      s.start(6, Map.of("rounds", 3, "impostorKnows", false));
+      List<Object> run = new java.util.ArrayList<>();
+      for (int round = 1; round <= 3; round++) {
+        run.add(d.players.indexOf(s.impostor()));
+        run.add(s.word());
+        run.add(s.decoy());
+        s.toGallery();
+        d.advance(Duration.ofSeconds(60));
+        d.advance(ROUND_END);
+      }
+      runs.add(run);
+    }
+    assertThat(runs.get(0)).isEqualTo(runs.get(1));
+    assertThat(new HashSet<>(runs.subList(1, 5))).hasSizeGreaterThan(1);
+  }
+
+  @Test
   void SS3_aStartWhoseCategoriesCannotSupplyDecoysIsRejectedWithWordPoolTooSmall() {
     Catalog thin = new Catalog("a", "b", "c", "d", "e", "f");
     for (String c : List.of("a", "b", "c", "d", "e", "f")) {
