@@ -20,20 +20,16 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 
 /**
  * Sketchy Saurus over real STOMP (P9-04): whole 5-player games in the three settings from start to
  * results and rematch, reconnecting in {@code SKETCH}, {@code GALLERY} and {@code GUESS}, leaving
  * in every phase, unauthorized commands, and a Dino Impostor room playing at the same time (which
- * also proves that the shared declarations register). Both games are disabled in the catalog, so
- * each test enables them and switches them off again.
+ * also proves that the shared declarations register).
  */
 @RealtimeIntegrationTest
 class SketchySaurusIT extends GameEngineSupport {
@@ -42,19 +38,9 @@ class SketchySaurusIT extends GameEngineSupport {
 
   private static final Map<String, Object> FAST = Map.of("voteSeconds", 30, "guessSeconds", 15);
 
-  @Autowired JdbcTemplate catalog;
-
-  @BeforeEach
-  void enableTheGames() {
-    catalog.update(
-        "UPDATE game_definition SET enabled = true WHERE key IN ('sketchy-saurus', 'dino-impostor')");
-  }
-
   @AfterEach
-  void disableTheGames() {
+  void closeTheClients() {
     closeClients();
-    catalog.update(
-        "UPDATE game_definition SET enabled = false WHERE key IN ('sketchy-saurus', 'dino-impostor')");
   }
 
   private static Map<String, Object> settings(int rounds, Map<String, Object> extra) {

@@ -25,7 +25,7 @@ class GameApiIT {
   @Autowired MockMvc mvc;
   @Autowired JdbcTemplate jdbc;
 
-  /** Restores only the row a test switched off: unreleased games (V11) must stay disabled. */
+  /** Restores the row a test switched off. */
   @AfterEach
   void enableTelephoneAgain() {
     jdbc.update("UPDATE game_definition SET enabled = true WHERE key = 'telephone'");
@@ -40,7 +40,7 @@ class GameApiIT {
         .andExpect(jsonPath("$[0].name").value("Dino Impostor"))
         .andExpect(jsonPath("$[0].minPlayers").value(4))
         .andExpect(jsonPath("$[0].maxPlayers").value(10))
-        .andExpect(jsonPath("$[0].enabled").value(false))
+        .andExpect(jsonPath("$[0].enabled").value(true))
         .andExpect(jsonPath("$[1].key").value("draw-guess"))
         .andExpect(jsonPath("$[1].name").value("Draw & Guess"))
         .andExpect(jsonPath("$[1].tagline").value("Easy to learn • High energy"))
@@ -53,7 +53,7 @@ class GameApiIT {
         .andExpect(jsonPath("$[2].name").value("Sketchy Saurus"))
         .andExpect(jsonPath("$[2].minPlayers").value(4))
         .andExpect(jsonPath("$[2].maxPlayers").value(10))
-        .andExpect(jsonPath("$[2].enabled").value(false))
+        .andExpect(jsonPath("$[2].enabled").value(true))
         .andExpect(jsonPath("$[3].key").value("telephone"))
         .andExpect(jsonPath("$[3].name").value("Dino Telephone"))
         .andExpect(jsonPath("$[3].minPlayers").value(4))

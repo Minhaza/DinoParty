@@ -17,8 +17,8 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Migration V11 (P9-02): both impostor games exist in the catalog, disabled, with the defaults of
- * api-contracts §2.2. Sketchy Saurus has no module before P9-04, so its row is read directly.
+ * Migrations V11 (P9-02) and V12 (P9-08): both impostor games exist in the catalog, enabled, with
+ * the defaults of api-contracts §2.2.
  */
 @IntegrationTest
 class ImpostorCatalogIT {
@@ -40,13 +40,13 @@ class ImpostorCatalogIT {
   }
 
   @Test
-  void dinoImpostorRowIsDisabledWithTheContractDefaults() {
+  void dinoImpostorRowIsEnabledWithTheContractDefaults() {
     Map<String, Object> row = row("dino-impostor");
     assertThat(row)
         .containsEntry("name", "Dino Impostor")
         .containsEntry("min_players", 4)
         .containsEntry("max_players", 10)
-        .containsEntry("enabled", false);
+        .containsEntry("enabled", true);
     assertThat(settings(row))
         .containsExactlyInAnyOrderEntriesOf(
             Map.of(
@@ -59,13 +59,13 @@ class ImpostorCatalogIT {
   }
 
   @Test
-  void sketchySaurusRowIsDisabledWithTheContractDefaults() {
+  void sketchySaurusRowIsEnabledWithTheContractDefaults() {
     Map<String, Object> row = row("sketchy-saurus");
     assertThat(row)
         .containsEntry("name", "Sketchy Saurus")
         .containsEntry("min_players", 4)
         .containsEntry("max_players", 10)
-        .containsEntry("enabled", false);
+        .containsEntry("enabled", true);
     assertThat(settings(row))
         .containsExactlyInAnyOrderEntriesOf(
             Map.of(
@@ -80,10 +80,10 @@ class ImpostorCatalogIT {
 
   /** The module owns the defaults; the catalog row keeps a copy that must not drift. */
   @Test
-  void dinoImpostorIsListedDisabledAndItsModuleDefaultsEqualTheRow() throws Exception {
+  void dinoImpostorIsListedEnabledAndItsModuleDefaultsEqualTheRow() throws Exception {
     mvc.perform(get("/api/v1/games/dino-impostor"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.enabled").value(false))
+        .andExpect(jsonPath("$.enabled").value(true))
         .andExpect(jsonPath("$.defaultSettings.rounds").value(0))
         .andExpect(jsonPath("$.defaultSettings.laps").value(2))
         .andExpect(jsonPath("$.defaultSettings.turnSeconds").value(25))
@@ -97,7 +97,7 @@ class ImpostorCatalogIT {
   }
 
   @Test
-  void aDisabledImpostorGameCannotHostARoom() throws Exception {
+  void anEnabledImpostorGameCanHostARoom() throws Exception {
     ApiTestSupport api = new ApiTestSupport(mvc);
     TestGuest host = api.createGuest(ApiTestSupport.unique("Imp"));
     api.request(
@@ -105,7 +105,7 @@ class ImpostorCatalogIT {
                 "/api/v1/rooms"),
             host,
             "{\"gameKey\":\"dino-impostor\"}")
-        .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.code").value("GAME_NOT_FOUND"));
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.gameKey").value("dino-impostor"));
   }
 }
