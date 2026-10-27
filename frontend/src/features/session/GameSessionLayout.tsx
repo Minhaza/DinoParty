@@ -178,6 +178,8 @@ export function GameSessionLayout({
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-[minmax(0,1fr)] gap-4 sm:gap-6 min-h-0">
           {/* Main Game Stage */}
           <main
+            tabIndex={0}
+            aria-label="Game stage"
             className={cn(
               'lg:col-span-8 xl:col-span-9 flex flex-col min-h-0 lg:overflow-y-auto',
               mobileTab !== 'game' && 'hidden lg:flex',

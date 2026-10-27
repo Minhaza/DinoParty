@@ -66,7 +66,7 @@ export function SketchCanvas({
   }, [submitted, submitting, commands])
 
   return (
-    <div className="flex flex-col gap-3 max-w-4xl mx-auto w-full animate-in fade-in duration-200">
+    <div className="flex flex-col gap-3 max-w-4xl mx-auto w-full animate-in fade-in duration-200 motion-reduce:animate-none">
       {/* Header bar: Word prompt + Timer + Submit button */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl border border-border bg-card shadow-xs">
         <div className="flex flex-col">
@@ -99,7 +99,7 @@ export function SketchCanvas({
             size="lg"
             disabled={submitted || submitting}
             onClick={handleSubmit}
-            className="font-fredoka font-semibold px-5"
+            className="font-fredoka font-semibold px-5 bg-[#065f46] text-white hover:bg-[#064e3b]"
           >
             {submitting ? (
               <>

@@ -7,6 +7,7 @@ import {
   type Locator,
   type Page,
 } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 
 export interface Player {
   nickname: string
@@ -209,4 +210,56 @@ export async function secondsLeft(page: Page): Promise<number> {
   const match = /(\d+):(\d{2})/.exec(label ?? '')
   if (!match) throw new Error(`no countdown in "${label}"`)
   return Number(match[1]) * 60 + Number(match[2])
+}
+
+export interface AxeViolationRecord {
+  id: string
+  impact: string | null | undefined
+  description: string
+  nodes: number
+}
+
+export interface AxePhaseCheck {
+  game: string
+  phase: string
+  violations: AxeViolationRecord[]
+}
+
+/**
+ * Runs an accessibility smoke check (WCAG 2.1 A and AA rules).
+ * Asserts no new serious or critical violations are present.
+ */
+export async function checkA11y(
+  page: Page,
+  game: string,
+  phase: string,
+  collector?: AxePhaseCheck[],
+): Promise<void> {
+  // Allow entrance animations/transitions to settle so axe does not sample mid-fade opacity
+  await page.waitForTimeout(350)
+  const analysis = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze()
+
+  const seriousOrCritical = analysis.violations.filter(
+    (v) => v.impact === 'serious' || v.impact === 'critical',
+  )
+
+  if (collector) {
+    collector.push({
+      game,
+      phase,
+      violations: analysis.violations.map((v) => ({
+        id: v.id,
+        impact: v.impact,
+        description: v.description,
+        nodes: v.nodes.length,
+      })),
+    })
+  }
+
+  expect(
+    seriousOrCritical,
+    `Accessibility violations in ${game} [${phase}]: ${JSON.stringify(seriousOrCritical, null, 2)}`,
+  ).toEqual([])
 }

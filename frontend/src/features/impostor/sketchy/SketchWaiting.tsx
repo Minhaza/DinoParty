@@ -32,7 +32,7 @@ export function SketchWaiting({
   const submittedCount = players.filter((p) => submittedSet.has(p.guestId)).length
 
   return (
-    <div className="flex flex-col gap-4 max-w-2xl mx-auto w-full animate-in fade-in duration-200">
+    <div className="flex flex-col gap-4 max-w-2xl mx-auto w-full animate-in fade-in duration-200 motion-reduce:animate-none">
       {/* Status banner */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl border border-border bg-card shadow-xs">
         <div className="flex items-center gap-3">
