@@ -849,7 +849,7 @@ All 4 games enabled by Flyway migration `V12__enable_impostor_games.sql` merged 
 | `npm --prefix frontend test` | passed: 80 test files, 561 tests passed |
 | `npm --prefix frontend run build` | passed (production bundle built in 615ms) |
 | `npm --prefix frontend run e2e` | passed: 9 of 9 tests passed across all 4 games (6.3m) |
-| `npx playwright test e2e/dino-impostor.e2e.ts e2e/sketchy-saurus.e2e.ts --repeat-each=3` | passed: 18 of 18 test runs passed sequentially (12.0m, zero flakiness) |
+| `npx playwright test e2e/dino-impostor.e2e.ts e2e/sketchy-saurus.e2e.ts --repeat-each=3` | passed: 18 of 18 test runs passed sequentially (12.0m, no failures in 18 runs on one machine) |
 
 ### New Playwright E2E specs added
 
@@ -872,16 +872,15 @@ Automated WCAG 2.1 A and AA audit (`checkA11y` helper) runs on every phase trans
 - **Phases verified:**
   - Dino Impostor: `ROLE_REVEAL`, `DRAWING`, `VOTE`, `GUESS`, `ROUND_END`.
   - Sketchy Saurus: `ROLE_REVEAL`, `SKETCH`, `GALLERY`, `GUESS` (unaware guess variant), `ROUND_END`.
-- **Violations:** 0 serious, 0 critical violations across all phases.
-- **Mobile Keyboard navigation:** Verified keyboard-only voting on 375px mobile device (`Tab` to navigate candidate radio options, `Space` to select, `Enter` to submit vote button).
+- **Violations:** the gate fails only on serious or critical impact (none found); moderate and minor findings are not collected or gated.
+- **Mobile keyboard voting:** on a 375px device the spec focuses a candidate radio and selects it with `Space`; tab order is not tested.
 
 ### Accessibility bugs discovered and resolved during P9-08
 
 1. **`role-img-alt` on `DinoAvatar.tsx`:** When `alt=""`, passing `role="img"` violated axe rule. Resolved by omitting `role="img"` and applying `aria-hidden={true}` when `alt` is empty/decorative.
-2. **`scrollable-region-focusable` on `<main>` in `GameSessionLayout.tsx`:** Main stage content during game reveal was scrollable on smaller viewports without keyboard focus. Resolved by adding `tabIndex={0}` and `aria-label="Game stage"`.
+2. **`scrollable-region-focusable` on `<main>` in `GameSessionLayout.tsx`:** Main stage content during game reveal was scrollable on smaller viewports without keyboard focus. Resolved by adding `tabIndex={0}` with a `focus-visible` outline (one extra tab stop on the stage).
 3. **`definition-list` / `dlitem` on `RoundReveal.tsx`:** An intermediate `<div>` wrapping the impostor card inside a `<dl>` caused invalid definition list hierarchy. Resolved by structuring `<dt>` and `<dd>` as direct children of the definition container and nesting avatar inside `<dd>`.
 4. **`color-contrast` on `DrawingToolbar.tsx` and `ServerCountdown.tsx`:**
-   - Active drawing tool (`#065f46` with white text) and size label (`text-foreground` against ivory) updated to exceed 4.5:1 ratio.
-   - Normal countdown badge text updated to `#064e3b` (dark: `#a7f3d0`) to achieve > 8:1 contrast against warm ivory surfaces.
+   - The light `--primary` token darkened to `#065f46` so every primary surface (active tool, submit button, countdown badge text on `primary/10`) passes 4.5:1; no per-component colours. The size label uses `text-foreground`.
 5. **Axe mid-flight transition sampling in `support.ts`:**
-   - In rapid test execution, `AxeBuilder` could sample computed CSS intermediate opacity during entrance fade-in animations (`animate-in fade-in duration-200`). Resolved by adding entrance animation settlement in `checkA11y` and adding `motion-reduce:animate-none` to sketchy components.
+   - In rapid test execution, `AxeBuilder` could sample computed CSS intermediate opacity during entrance fade-in animations (`animate-in fade-in duration-200`). Resolved by waiting for finite animations to finish in `checkA11y` (no fixed sleep) and adding `motion-reduce:animate-none` to sketchy components.

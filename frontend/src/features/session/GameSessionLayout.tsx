@@ -179,8 +179,8 @@ export function GameSessionLayout({
           {/* Main Game Stage */}
           <main
             tabIndex={0}
-            aria-label="Game stage"
             className={cn(
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
               'lg:col-span-8 xl:col-span-9 flex flex-col min-h-0 lg:overflow-y-auto',
               mobileTab !== 'game' && 'hidden lg:flex',
             )}

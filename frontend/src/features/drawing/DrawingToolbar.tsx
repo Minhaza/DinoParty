@@ -43,7 +43,7 @@ export function DrawingToolbar({
           variant={tool === 'PENCIL' ? 'default' : 'ghost'}
           disabled={!canDraw}
           onClick={() => onSelectTool('PENCIL')}
-          className={`h-8 px-2.5 gap-1.5 text-xs font-semibold ${tool === 'PENCIL' ? 'bg-[#065f46] text-white hover:bg-[#064e3b]' : ''}`}
+          className="h-8 px-2.5 gap-1.5 text-xs font-semibold"
           aria-label="Pencil tool"
           aria-pressed={tool === 'PENCIL'}
         >
@@ -56,7 +56,7 @@ export function DrawingToolbar({
           variant={tool === 'ERASER' ? 'default' : 'ghost'}
           disabled={!canDraw}
           onClick={() => onSelectTool('ERASER')}
-          className={`h-8 px-2.5 gap-1.5 text-xs font-semibold ${tool === 'ERASER' ? 'bg-[#065f46] text-white hover:bg-[#064e3b]' : ''}`}
+          className="h-8 px-2.5 gap-1.5 text-xs font-semibold"
           aria-label="Eraser tool"
           aria-pressed={tool === 'ERASER'}
         >
@@ -78,7 +78,7 @@ export function DrawingToolbar({
             aria-pressed={size === s.size}
             className={`flex items-center justify-center size-7 rounded-md transition-all ${
               size === s.size
-                ? 'bg-[#065f46] text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'hover:bg-muted text-foreground'
             } disabled:opacity-40 disabled:pointer-events-none`}
           >

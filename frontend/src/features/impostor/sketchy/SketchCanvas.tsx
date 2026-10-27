@@ -99,7 +99,7 @@ export function SketchCanvas({
             size="lg"
             disabled={submitted || submitting}
             onClick={handleSubmit}
-            className="font-fredoka font-semibold px-5 bg-[#065f46] text-white hover:bg-[#064e3b]"
+            className="font-fredoka font-semibold px-5"
           >
             {submitting ? (
               <>

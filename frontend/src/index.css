@@ -13,7 +13,7 @@
   --foreground: #10213d; /* navy ink */
   --card: #fffdf8;
   --card-foreground: #10213d;
-  --primary: #087a58; /* deep green: AA contrast with white text */
+  --primary: #065f46; /* deep green: AA contrast with white text and on tinted primary/10 surfaces */
   --primary-foreground: #ffffff;
   --secondary: #fff3e3; /* cream surface */
   --secondary-foreground: #10213d;

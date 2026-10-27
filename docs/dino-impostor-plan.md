@@ -204,11 +204,12 @@ Split in two, because the E2E job in CI builds its database from the migrations 
 2. **E2E, accessibility, hardening (AG, completed).**
    - `frontend/e2e/dino-impostor.e2e.ts`: 3 scenarios (full round with caught guess & rematch, mid-turn refresh with stroke recovery, out-of-turn stroke rejection).
    - `frontend/e2e/sketchy-saurus.e2e.ts`: 3 scenarios (unaware impostor without guess, unaware impostor with guess, mid-sketch refresh).
-   - Automated WCAG 2.1 A and AA smoke checks across every phase of both games with `@axe-core/playwright` (0 serious/critical violations).
-   - Multi-device keyboard accessibility: Tab/Space radio voting verified on 375px mobile viewport.
-   - Zero flakiness verified via sequential `--repeat-each=3` (18 of 18 test runs passing).
+   - Automated WCAG 2.1 A and AA smoke checks across every phase of both games with `@axe-core/playwright` (no serious/critical violations; lesser impacts are not gated).
+   - Keyboard (focus + Space) radio voting on a 375px mobile viewport.
+   - `--repeat-each=3` run: 18 of 18 passing on one machine.
    - Full test suite verified passing (80 unit test files / 561 tests, 9 E2E specs across 4 games).
    - Record appended to `docs/testing.md`.
+
 ## 10. Tests that matter most
 
 - **Secrecy** (highest risk): one harness that records every frame each client receives over a full game of each and checks that before `ROUND_END` the word never reaches the impostor or spectators, and the impostor's ID never reaches anyone. SS: no other player gets your strokes while sketching; with `impostorKnows = false` the impostor's role event and snapshot can't be told apart from an artist's except by the word itself.

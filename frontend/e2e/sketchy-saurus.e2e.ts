@@ -1,15 +1,5 @@
 import { devices, expect, test, type APIRequestContext, type Browser } from '@playwright/test'
-import {
-  authHeaders,
-  canvasStats,
-  checkA11y,
-  drag,
-  newPlayer,
-  type AxePhaseCheck,
-  type Player,
-} from './support'
-
-export const a11yLog: AxePhaseCheck[] = []
+import { authHeaders, canvasStats, checkA11y, drag, newPlayer, type Player } from './support'
 
 /**
  * Sketchy Saurus E2E (P9-08):
@@ -129,7 +119,7 @@ test.describe('Sketchy Saurus', () => {
     // --- PHASE 1: ROLE_REVEAL ---
     await test.step('Role reveal: every player sees an artist card with a word; a11y check', async () => {
       await expect(host.page.getByRole('heading', { name: "You're an artist" })).toBeVisible()
-      await checkA11y(host.page, 'Sketchy Saurus', 'ROLE_REVEAL', a11yLog)
+      await checkA11y(host.page, 'Sketchy Saurus', 'ROLE_REVEAL')
 
       for (const p of players) {
         await expect(p.page.getByRole('heading', { name: "You're an artist" })).toBeVisible()
@@ -169,7 +159,7 @@ test.describe('Sketchy Saurus', () => {
       await expect(host.page.getByRole('button', { name: 'Submit sketch' })).toBeVisible({
         timeout: 10_000,
       })
-      await checkA11y(host.page, 'Sketchy Saurus', 'SKETCH', a11yLog)
+      await checkA11y(host.page, 'Sketchy Saurus', 'SKETCH')
 
       for (const p of players) {
         await drag(p, [0.2, 0.4], [0.8, 0.4])
@@ -187,7 +177,7 @@ test.describe('Sketchy Saurus', () => {
       await expect(host.page.getByText('The Gallery · Spot the Impostor!')).toBeVisible({
         timeout: 15_000,
       })
-      await checkA11y(host.page, 'Sketchy Saurus', 'GALLERY', a11yLog)
+      await checkA11y(host.page, 'Sketchy Saurus', 'GALLERY')
 
       // Gallery shows 4 drawings
       const drawings = host.page.getByRole('img', { name: /^Drawing by /i })
@@ -216,7 +206,7 @@ test.describe('Sketchy Saurus', () => {
       await expect(host.page.getByRole('heading', { name: 'Impostor caught!' })).toBeVisible({
         timeout: 25_000,
       })
-      await checkA11y(host.page, 'Sketchy Saurus', 'ROUND_END', a11yLog)
+      await checkA11y(host.page, 'Sketchy Saurus', 'ROUND_END')
 
       // The reveal shows the real word and the decoy word
       await expect(host.page.getByText("The impostor's decoy word")).toBeVisible()
@@ -301,7 +291,7 @@ test.describe('Sketchy Saurus', () => {
       await expect(
         unawareImpostor!.page.getByRole('heading', { name: 'You were the impostor!' }),
       ).toBeVisible({ timeout: 25_000 })
-      await checkA11y(unawareImpostor!.page, 'Sketchy Saurus', 'GUESS', a11yLog)
+      await checkA11y(unawareImpostor!.page, 'Sketchy Saurus', 'GUESS')
 
       await expect(
         unawareImpostor!.page.getByRole('heading', { name: 'You were caught — name the word!' }),

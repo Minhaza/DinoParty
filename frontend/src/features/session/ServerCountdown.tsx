@@ -56,7 +56,7 @@ export function ServerCountdown({
             ? 'bg-muted text-muted-foreground border border-border'
             : isUrgent
               ? 'bg-destructive/15 text-destructive border border-destructive/40 animate-pulse'
-              : 'bg-primary/10 text-[#064e3b] dark:text-[#a7f3d0] border border-primary/20',
+              : 'bg-primary/10 text-primary border border-primary/20',
         )}
         aria-label={`Time remaining: ${formattedTime}`}
       >
