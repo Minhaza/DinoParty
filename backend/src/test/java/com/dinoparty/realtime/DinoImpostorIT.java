@@ -19,34 +19,22 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 
 /**
  * Dino Impostor over real STOMP up to the end of the drawing turns (P9-02): roles only on private
  * streams, live strokes with their author, an out-of-turn stroke refused, and a reconnect in the
- * middle of a turn. The game is disabled in the catalog, so each test enables it and switches it
- * off again.
+ * middle of a turn.
  */
 @RealtimeIntegrationTest
 class DinoImpostorIT extends GameEngineSupport {
 
   private static final Duration LONG = Duration.ofSeconds(25);
 
-  @Autowired JdbcTemplate catalog;
-
-  @BeforeEach
-  void enableTheGame() {
-    catalog.update("UPDATE game_definition SET enabled = true WHERE key = 'dino-impostor'");
-  }
-
   @AfterEach
-  void disableTheGame() {
+  void closeTheClients() {
     closeClients();
-    catalog.update("UPDATE game_definition SET enabled = false WHERE key = 'dino-impostor'");
   }
 
   /** A Dino Impostor room; index 0 is the host. */

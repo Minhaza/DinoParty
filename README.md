@@ -1,6 +1,6 @@
 # DinoParty
 
-Browser party games for friends (Draw & Guess, Telephone Drawing). This repository currently contains the **Phase 1 foundation** plus **Phase 2 (guest identity and rooms)**: a Spring Boot backend with PostgreSQL + Flyway and a React frontend where players create a guest profile (nickname + dino, no account), create or join a room by code or invite link, and wait in a polled lobby. The backend now also has the realtime layer (Phase 3) and the shared game engine (Phase 4, tested with a test-only game; no real game is playable yet). See `docs/implementation-plan.md` for the roadmap and `AGENTS.md` for the working agreement.
+Browser party games for friends (Draw & Guess, Dino Telephone, Dino Impostor, Sketchy Saurus). This repository currently contains the **Phase 1 foundation** plus **Phase 2 (guest identity and rooms)**: a Spring Boot backend with PostgreSQL + Flyway and a React frontend where players create a guest profile (nickname + dino, no account), create or join a room by code or invite link, and wait in a polled lobby. The backend now also has the realtime layer (Phase 3) and the shared game engine (Phase 4, tested with a test-only game; no real game is playable yet). See `docs/implementation-plan.md` for the roadmap and `AGENTS.md` for the working agreement.
 
 ## Prerequisites
 
