@@ -830,3 +830,57 @@ Both games enabled in local PostgreSQL:
 - **Sketch secrecy:** During Sketchy Saurus `SKETCH` phase, no strokes or drawings were published on public topics. Drawings were revealed only upon `SKETCHY_GALLERY_OPENED` in `GALLERY`.
 - **Leave endpoint:** `POST /api/v1/rooms/{code}/leave` returns 204 No Content.
 - **Rate limiting:** Back-to-back guest creations (> 15/min) correctly return 429 `RATE_LIMITED`; client flows reuse authenticated guest sessions across room resets.
+
+
+## Phase 9 E2E and accessibility smoke verification record (P9-08, Impostor Games Hardening)
+
+Run 2026-10-27 on Windows 11, Node 22.18, Java 21, Spring Boot (dev profile), PostgreSQL container `dinoparty-dev-db-1`.
+Frontend branch: `feature/p9-08-impostor-e2e`.
+All 4 games enabled by Flyway migration `V12__enable_impostor_games.sql` merged in PR #42.
+
+### Automated verification commands executed
+
+| Check | Result |
+|---|---|
+| `npm --prefix frontend run format` | passed (Prettier write) |
+| `npm --prefix frontend run format:check` | passed (Prettier clean across all files) |
+| `npm --prefix frontend run lint` | passed (ESLint clean, 0 errors, 0 warnings) |
+| `npm --prefix frontend run typecheck` | passed (`tsc -b` clean, 0 errors) |
+| `npm --prefix frontend test` | passed: 80 test files, 561 tests passed |
+| `npm --prefix frontend run build` | passed (production bundle built in 615ms) |
+| `npm --prefix frontend run e2e` | passed: 9 of 9 tests passed across all 4 games (6.3m) |
+| `npx playwright test e2e/dino-impostor.e2e.ts e2e/sketchy-saurus.e2e.ts --repeat-each=3` | passed: 18 of 18 test runs passed sequentially (12.0m, no failures in 18 runs on one machine) |
+
+### New Playwright E2E specs added
+
+1. **`frontend/e2e/dino-impostor.e2e.ts` (3 multi-context tests):**
+   - `Dino Impostor -> full round, caught impostor guesses right, results and rematch`: 4 contexts (1 mobile Pixel 7 375px with touch/reduced-motion, 3 desktop 1280px). Role reveal -> 1 stroke per player in assigned colour -> mobile player navigates vote radio list with Tab/Space keyboard-only -> voting catches impostor -> caught impostor submits correct secret word guess (+2 pts, `GUESSED` outcome) -> completes to `ROUND_END`, rematch initiated by host.
+   - `Dino Impostor -> refresh mid-turn: drawer recovers turnStroke and watcher sees strokes`: active drawer reloads mid-turn and completes their single stroke; watcher reloads mid-turn and verifies stroke canvas ink and `StrokeLegend` seat/colour consistency.
+   - `Dino Impostor -> out-of-turn stroke refused: canvas remains unchanged`: non-drawer attempts to drag on canvas while another player has the turn; canvas ink remains 0 on both clients; valid turn stroke from active drawer succeeds afterwards.
+
+2. **`frontend/e2e/sketchy-saurus.e2e.ts` (3 multi-context tests):**
+   - `Sketchy Saurus -> impostorKnows off, unawareGuess off: caught directly to reveal with decoyWord`: all 4 players see identical artist cards with category and word (unaware impostor receives decoy word). Everyone sketches and submits in parallel. Gallery displays all 4 drawings with artist labels. Unaware impostor is caught in vote; no guess phase is offered; round reveal directly reveals the unaware impostor and `decoyWord` with `CAUGHT` outcome.
+   - `Sketchy Saurus -> impostorKnows off, unawareGuess on: caught impostor gets role notice, guesses, and reveal shows result`: unaware impostor receives decoy word and sketches; upon being voted as impostor, sees role explanation banner ("You were the Impostor!") and submits guess; round reveal shows correct guess outcome.
+   - `Sketchy Saurus -> refresh mid-sketch: draft restored and player can submit`: player reloads mid-sketch during `SKETCH` phase; local draft strokes are preserved on canvas and the player successfully submits.
+
+3. **Game Registry & Multi-game assertions:**
+   - Existing E2E suite (`telephone.e2e.ts`, `telephone-submit-recovery.e2e.ts`, `drawguess.e2e.ts`) verified with all 4 games enabled. `telephone.e2e.ts` dynamically verifies that `GET /api/v1/games` renders picker buttons for all 4 games (`Draw & Guess`, `Dino Telephone`, `Dino Impostor`, `Sketchy Saurus`).
+
+### Accessibility (a11y) smoke checks (`@axe-core/playwright` 4.13.0)
+
+Automated WCAG 2.1 A and AA audit (`checkA11y` helper) runs on every phase transition across both games:
+- **Phases verified:**
+  - Dino Impostor: `ROLE_REVEAL`, `DRAWING`, `VOTE`, `GUESS`, `ROUND_END`.
+  - Sketchy Saurus: `ROLE_REVEAL`, `SKETCH`, `GALLERY`, `GUESS` (unaware guess variant), `ROUND_END`.
+- **Violations:** the gate fails only on serious or critical impact (none found); moderate and minor findings are not collected or gated.
+- **Mobile keyboard voting:** on a 375px device the spec focuses a candidate radio and selects it with `Space`; tab order is not tested.
+
+### Accessibility bugs discovered and resolved during P9-08
+
+1. **`role-img-alt` on `DinoAvatar.tsx`:** When `alt=""`, passing `role="img"` violated axe rule. Resolved by omitting `role="img"` and applying `aria-hidden={true}` when `alt` is empty/decorative.
+2. **`scrollable-region-focusable` on `<main>` in `GameSessionLayout.tsx`:** Main stage content during game reveal was scrollable on smaller viewports without keyboard focus. Resolved by adding `tabIndex={0}` with a `focus-visible` outline (one extra tab stop on the stage).
+3. **`definition-list` / `dlitem` on `RoundReveal.tsx`:** An intermediate `<div>` wrapping the impostor card inside a `<dl>` caused invalid definition list hierarchy. Resolved by structuring `<dt>` and `<dd>` as direct children of the definition container and nesting avatar inside `<dd>`.
+4. **`color-contrast` on `DrawingToolbar.tsx` and `ServerCountdown.tsx`:**
+   - The light `--primary` token darkened to `#065f46` so every primary surface (active tool, submit button, countdown badge text on `primary/10`) passes 4.5:1; no per-component colours. The size label uses `text-foreground`.
+5. **Axe mid-flight transition sampling in `support.ts`:**
+   - In rapid test execution, `AxeBuilder` could sample computed CSS intermediate opacity during entrance fade-in animations (`animate-in fade-in duration-200`). Resolved by waiting for finite animations to finish in `checkA11y` (no fixed sleep) and adding `motion-reduce:animate-none` to sketchy components.

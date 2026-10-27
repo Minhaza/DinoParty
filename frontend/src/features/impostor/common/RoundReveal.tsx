@@ -70,15 +70,15 @@ export function RoundReveal({
       </p>
 
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2">
-          <DinoAvatar avatarKey={impostor?.avatarKey} size="sm" alt="" />
-          <div>
-            <dt className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <Drama aria-hidden="true" className="size-3.5" />
-              Impostor
-            </dt>
-            <dd className="font-bold">{name(roundEnd.impostorGuestId)}</dd>
-          </div>
+        <div className="rounded-xl bg-muted/50 px-3 py-2">
+          <dt className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <Drama aria-hidden="true" className="size-3.5" />
+            Impostor
+          </dt>
+          <dd className="flex items-center gap-2 font-bold mt-0.5">
+            <DinoAvatar avatarKey={impostor?.avatarKey} size="xs" alt="" />
+            <span>{name(roundEnd.impostorGuestId)}</span>
+          </dd>
         </div>
         <div className="rounded-xl bg-muted/50 px-3 py-2">
           <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

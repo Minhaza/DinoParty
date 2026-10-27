@@ -53,7 +53,7 @@ export function GalleryGrid({
     <fieldset
       disabled={!enabled}
       aria-describedby={hintId}
-      className="flex flex-col gap-4 w-full animate-in fade-in duration-200"
+      className="flex flex-col gap-4 w-full animate-in fade-in duration-200 motion-reduce:animate-none"
     >
       {/* Header with Title and Countdown */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl border border-border bg-card shadow-xs">
@@ -62,7 +62,7 @@ export function GalleryGrid({
             <Vote aria-hidden="true" className="size-5 text-primary" />
             The Gallery · Spot the Impostor!
           </legend>
-          <p id={hintId} className="text-sm text-muted-foreground mt-0.5">
+          <p id={hintId} className="text-sm text-foreground mt-0.5">
             {enabled
               ? 'Vote for the drawing that looks like the artist did not know the secret word.'
               : 'Only active players can vote. Watch the votes come in!'}
@@ -161,9 +161,7 @@ export function GalleryGrid({
               You voted for {selectedPlayer.nickname}.
             </span>
           ) : enabled ? (
-            <span className="text-muted-foreground">
-              You have not voted yet. Select a drawing above!
-            </span>
+            <span className="text-foreground">You have not voted yet. Select a drawing above!</span>
           ) : null}
         </p>
 

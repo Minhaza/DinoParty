@@ -7,6 +7,7 @@ import {
   type Locator,
   type Page,
 } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 
 export interface Player {
   nickname: string
@@ -117,6 +118,33 @@ export interface CanvasStats {
   scale: number
 }
 
+/** Inked pixels within a horizontal band of the canvas (fractions of its height). */
+export async function canvasInkInBand(
+  page: Page,
+  yFrom: number,
+  yTo: number,
+): Promise<{ ink: number }> {
+  return canvasOf(page).evaluate(
+    (node, band) => {
+      const canvas = node as HTMLCanvasElement
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('no 2d context')
+      const y0 = Math.floor(canvas.height * band[0])
+      const y1 = Math.floor(canvas.height * band[1])
+      const { data } = ctx.getImageData(0, y0, canvas.width, Math.max(1, y1 - y0))
+      const bg = [0xff, 0xfd, 0xf8] // CANVAS_BG_COLOR
+      let ink = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const d =
+          Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2])
+        if (d > 60) ink++
+      }
+      return { ink }
+    },
+    [yFrom, yTo],
+  )
+}
+
 /** Reads the canvas backing store; `rgb` selects which colour `matching` counts. */
 export async function canvasStats(
   page: Page,
@@ -209,4 +237,31 @@ export async function secondsLeft(page: Page): Promise<number> {
   const match = /(\d+):(\d{2})/.exec(label ?? '')
   if (!match) throw new Error(`no countdown in "${label}"`)
   return Number(match[1]) * 60 + Number(match[2])
+}
+
+/**
+ * Runs an accessibility smoke check (WCAG 2.1 A and AA rules).
+ * Fails on serious or critical violations only; moderate and minor ones are not gated.
+ */
+export async function checkA11y(page: Page, game: string, phase: string): Promise<void> {
+  // Let finite entrance animations finish so axe does not sample mid-fade opacity
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .every(
+        (a) => a.playState !== 'running' || a.effect?.getComputedTiming().iterations === Infinity,
+      ),
+  )
+  const analysis = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze()
+
+  const seriousOrCritical = analysis.violations.filter(
+    (v) => v.impact === 'serious' || v.impact === 'critical',
+  )
+
+  expect(
+    seriousOrCritical,
+    `Accessibility violations in ${game} [${phase}]: ${JSON.stringify(seriousOrCritical, null, 2)}`,
+  ).toEqual([])
 }

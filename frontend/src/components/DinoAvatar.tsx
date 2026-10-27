@@ -1,7 +1,6 @@
 import * as React from 'react'
 
 import { DinoArtwork } from '@/components/art/DinoArtwork'
-
 import { DEFAULT_AVATAR_KEY, DINO_AVATARS, type DinoAvatarKey } from '@/components/dinoAvatars'
 import { cn } from '@/lib/utils'
 
@@ -34,11 +33,13 @@ export function DinoAvatar({
   ) as DinoAvatarKey
 
   const meta = DINO_AVATARS.find((d) => d.key === normalizedKey) ?? DINO_AVATARS[0]
-  const accessibleLabel = alt ?? `${meta.name} dinosaur avatar`
+  const isDecorative = alt === ''
+  const accessibleLabel = isDecorative ? undefined : (alt ?? `${meta.name} dinosaur avatar`)
 
   return (
     <div
-      role="img"
+      role={isDecorative ? undefined : 'img'}
+      aria-hidden={isDecorative ? true : undefined}
       aria-label={accessibleLabel}
       className={cn(
         'relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full transition-transform',

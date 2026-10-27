@@ -67,9 +67,7 @@ export function DrawingToolbar({
 
       {/* Brush Size Selector */}
       <div className="flex items-center gap-1.5 bg-muted/40 px-2 py-1 rounded-lg">
-        <span className="text-xs font-medium text-muted-foreground hidden sm:inline mr-1">
-          Size:
-        </span>
+        <span className="text-xs font-semibold text-foreground hidden sm:inline mr-1">Size:</span>
         {BRUSH_SIZES.map((s) => (
           <button
             key={s.size}

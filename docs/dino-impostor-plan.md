@@ -196,12 +196,19 @@ Built and verified by the Antigravity frontend lane against live Spring Boot bac
   - *Decoy words (Sketchy Saurus):* Unaware impostors receiving decoy words in the same category (e.g. `cable car` vs `car`, `hand` vs `objects`) draw naturally, making spot-the-impostor voting challenging and fun.
   - *Mobile accessibility:* Native radio inputs with focus rings and Tab/Space keyboard voting navigate smoothly on 375px screens with `prefers-reduced-motion: reduce`.
 
-### P9-08 status (in progress)
+### P9-08 status (completed)
 
 Split in two, because the E2E job in CI builds its database from the migrations and cannot create a room for a disabled game:
 
-1. **Launch migration (CC, done first).** `V12__enable_impostor_games.sql` enables both games. Render deploys only from `main`, so merging this into `develop` launches nothing; the launch is the `develop` → `main` merge after part 2. The impostor ITs no longer switch the games on and off; `ImpostorCatalogIT` and `GameApiIT` now expect them enabled, and an impostor room can be created.
-2. **E2E and accessibility (AG).** `dino-impostor.e2e.ts`, `sketchy-saurus.e2e.ts`, axe smoke on every phase, the registry E2E (`telephone.e2e.ts` already asserts a picker button for every enabled game, so it covers the two new ones), `testing.md` record.
+1. **Launch migration (CC, done first).** `V12__enable_impostor_games.sql` enables both games (merged into develop in PR #42). The impostor ITs no longer switch the games on and off; `ImpostorCatalogIT` and `GameApiIT` expect them enabled, and impostor rooms can be created.
+2. **E2E, accessibility, hardening (AG, completed).**
+   - `frontend/e2e/dino-impostor.e2e.ts`: 3 scenarios (full round with caught guess & rematch, mid-turn refresh with stroke recovery, out-of-turn stroke rejection).
+   - `frontend/e2e/sketchy-saurus.e2e.ts`: 3 scenarios (unaware impostor without guess, unaware impostor with guess, mid-sketch refresh).
+   - Automated WCAG 2.1 A and AA smoke checks across every phase of both games with `@axe-core/playwright` (no serious/critical violations; lesser impacts are not gated).
+   - Keyboard (focus + Space) radio voting on a 375px mobile viewport.
+   - `--repeat-each=3` run: 18 of 18 passing on one machine.
+   - Full test suite verified passing (80 unit test files / 561 tests, 9 E2E specs across 4 games).
+   - Record appended to `docs/testing.md`.
 
 ## 10. Tests that matter most
 

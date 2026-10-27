@@ -66,7 +66,7 @@ export function SketchCanvas({
   }, [submitted, submitting, commands])
 
   return (
-    <div className="flex flex-col gap-3 max-w-4xl mx-auto w-full animate-in fade-in duration-200">
+    <div className="flex flex-col gap-3 max-w-4xl mx-auto w-full animate-in fade-in duration-200 motion-reduce:animate-none">
       {/* Header bar: Word prompt + Timer + Submit button */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl border border-border bg-card shadow-xs">
         <div className="flex flex-col">
