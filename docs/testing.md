@@ -777,6 +777,56 @@ Mutation spot check: making the unaware impostor's role `IMPOSTOR` makes `Sketch
 ### Not verified / limitations
 
 - No frontend or browser check: no frontend change. The frontend still builds the draft limits from `canvasBudget` in the snapshot, but its fixtures (`frontend/src/features/impostor/sketchy/fixtures.ts`, `ImpostorPreviewPage.tsx`) still show 1 500 / 100; Antigravity should update them (P9-07).
-- Neither game is enabled (P9-08); `GET /games` lists `sketchy-saurus` with `enabled:false`.
+- Neither game is enabled by default (P9-08; the P9-07 record below enables them in a local database only); `GET /games` lists `sketchy-saurus` with `enabled:false`.
 - Sketchy drafts are not saved (D64), so a server restart mid-round loses them, as for Telephone.
 - The ITs run in real time (about 6 minutes for `SketchySaurusIT`); the exhaustive leave/reconnect cases are in the manual-clock session tests.
+
+
+## Phase 9 integration verification record (P9-07, Impostor Games Live Wiring and Play Test)
+
+Run 2026-10-26 on Windows 11, Node 22.18, Java 21, Spring Boot (dev profile), PostgreSQL container `dinoparty-dev-db-1`.
+Frontend branch: `feature/p9-07-impostor-live`.
+Both games enabled in local PostgreSQL:
+`UPDATE game_definition SET enabled = true WHERE key IN ('dino-impostor', 'sketchy-saurus');`
+
+### Automated verification commands executed
+
+| Check | Result |
+|---|---|
+| `npm --prefix frontend run format` | passed (Prettier write) |
+| `npm --prefix frontend run format:check` | passed (Prettier clean across all files) |
+| `npm --prefix frontend run lint` | passed (ESLint clean, 0 errors, 0 warnings) |
+| `npm --prefix frontend run typecheck` | passed (`tsc -b` clean, 0 errors) |
+| `npm --prefix frontend test` | passed: 80 test files, 561 tests |
+| `npm --prefix frontend run build` | passed (production bundle built cleanly) |
+| `npm --prefix frontend run e2e` | passed: 3 of 3 tests passed (Draw & Guess, Telephone submit recovery, Telephone 4-player) |
+
+### New unit test suites (real recorded backend payloads)
+
+- `frontend/src/features/impostor/dino/dinoRealPayloads.test.ts` (15 tests): Tests all 5 live snapshots (`ROLE_REVEAL`, `DRAWING`, `VOTE`, `GUESS`, `ROUND_END`), all STOMP event types, G8 nickname population without snapshot, canvas budget rejection (`PAYLOAD_TOO_LARGE`), and RFC-4122 UUID actionId generation.
+- `frontend/src/features/impostor/sketchy/sketchyRealPayloads.test.ts` (15 tests): Tests all 5 live snapshots, all STOMP event types, G8 nickname population, Sketchy Saurus budget enforcement (1 000 live points, 60 strokes), and unaware impostor role payload shapes.
+
+### Live browser play test matrix (12 browser scenarios)
+
+| Game | Scenario | Viewport / Settings | Result |
+|---|---|---|---|
+| Dino Impostor | Full game, caught impostor guesses right | Desktop 1280x800 (Host) + Mobile 375x667 (reduced motion) | passed |
+| Dino Impostor | Caught impostor guesses wrong | 4 players, rounds: 3, turn: 15s, vote: 30s | passed (`outcome: CAUGHT`) |
+| Dino Impostor | Escape on a tie at top of vote | 2 votes for P1, 2 votes for P2 (15s window) | passed (`outcome: ESCAPED`) |
+| Dino Impostor | Mid-turn and mid-vote page reload | Active drawer & watcher reloads | passed (canvas and turn state recovered) |
+| Dino Impostor | Impostor leaving mid-round | `POST .../leave` during DRAWING | passed (`outcome: IMPOSTOR_LEFT`) |
+| Dino Impostor | Roster falling below 3 active players | 2 players leave room | passed (game ends with `INSUFFICIENT_PLAYERS`) |
+| Sketchy Saurus | Full game (`impostorKnows: true`), caught guesses right | Desktop 1280x800 + Mobile 375x667 | passed |
+| Sketchy Saurus | Unaware impostor (`impostorKnows: false, unawareGuess: false`) | Decoy word, no guess phase on catch | passed (`decoyWord` verified, direct to `ROUND_END`) |
+| Sketchy Saurus | Unaware impostor on tie (`unawareGuess: true`) | Tied vote in GALLERY | passed (`outcome: ESCAPED`) |
+| Sketchy Saurus | Mid-sketch refresh | Drawer reloads during SKETCH | passed (strokes restored on canvas) |
+| Sketchy Saurus | Player leaving mid-sketch | One player leaves during SKETCH | passed (`SKETCHY_PROGRESS` updates, active roster 3) |
+| Sketchy Saurus | Canvas budget exhaustion | 60 strokes drawn | passed (canvas full respected, further strokes blocked) |
+
+### Secrecy and protocol checks
+
+- **Impostor role secrecy:** `IMPOSTOR_ROLE` was verified to arrive solely on private destination `/user/queue/rooms/{code}`, never on public topic `/topic/rooms/{code}`.
+- **Guess open secrecy:** `IMPOSTOR_GUESS_OPEN` arrived exclusively on the private queue of the caught impostor.
+- **Sketch secrecy:** During Sketchy Saurus `SKETCH` phase, no strokes or drawings were published on public topics. Drawings were revealed only upon `SKETCHY_GALLERY_OPENED` in `GALLERY`.
+- **Leave endpoint:** `POST /api/v1/rooms/{code}/leave` returns 204 No Content.
+- **Rate limiting:** Back-to-back guest creations (> 15/min) correctly return 429 `RATE_LIMITED`; client flows reuse authenticated guest sessions across room resets.

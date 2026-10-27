@@ -45,11 +45,6 @@ export function SketchySaurusStage({ players, currentGuestId }: SketchySaurusSta
   const game = useSketchySaurusStore()
   const commands = useSketchyCommands(game.trackCommand)
 
-  const rememberNicknames = game.rememberNicknames
-  React.useEffect(() => {
-    rememberNicknames(players)
-  }, [players, rememberNicknames])
-
   const playersById = React.useMemo(
     () => rosterNames(players, game.nicknames),
     [players, game.nicknames],

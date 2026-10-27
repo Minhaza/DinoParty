@@ -409,6 +409,7 @@ export const roleRevealStarted: DinoImpostorRoleRevealPhaseStarted = {
   deadlineAt: '2099-01-01T00:00:05.000Z',
   seatOrder: seatOrderFor(DI_PLAYERS),
   colors: colorsFor(DI_PLAYERS),
+  nicknames: Object.fromEntries(DI_PLAYERS.map((p) => [p.guestId, p.nickname])),
 }
 
 export function drawingStarted(

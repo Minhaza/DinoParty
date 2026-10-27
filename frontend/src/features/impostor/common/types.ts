@@ -167,6 +167,7 @@ export interface DinoImpostorRoleRevealPhaseStarted extends DinoImpostorPhaseCom
   phase: 'ROLE_REVEAL'
   seatOrder: string[]
   colors: Record<string, string>
+  nicknames: Record<string, string>
 }
 
 export interface DinoImpostorDrawingPhaseStarted extends DinoImpostorPhaseCommon {

@@ -217,12 +217,12 @@ const SCENARIOS: Scenario[] = [
   },
   {
     id: 'ss-sketch-full',
-    label: 'SS · Sketch · canvas full (1 500 points)',
+    label: 'SS · Sketch · canvas full (1 000 points)',
     gameKey: 'sketchy-saurus',
     snapshot: sfx.sketchySnapshot('SKETCH', sfx.ARTIST_ROLE, {
       draft: {
         strokes: sfx.maxDrawing(sfx.VIEWER_ARTIST, 1).strokes,
-        canvasBudget: { points: 1500, maxPoints: 1500, strokes: 100, maxStrokes: 100 },
+        canvasBudget: { points: 1000, maxPoints: 1000, strokes: 60, maxStrokes: 60 },
       },
     }),
     viewer: sfx.VIEWER_ARTIST,

@@ -172,14 +172,35 @@ describe('sketchySaurusStore', () => {
     expect(store().roundEnd?.decoyWord).toBe('Trilobite')
   })
 
-  it('retains snapshot nicknames and updates with rememberNicknames', () => {
-    store().applySnapshot(sketchySnapshot('GALLERY'))
+  it('G8_names come from ROLE_REVEAL without a snapshot', () => {
+    store().reset()
+    expect(store().nicknames).toEqual({})
+    store().applyPhaseStarted(roleRevealStarted)
     expect(store().nicknames['ss-g1']).toBe('Rexy')
+    expect(store().nicknames['ss-g2']).toBe('Trixie')
+  })
 
-    store().rememberNicknames([
-      { guestId: 'ss-g1', nickname: 'Rexy' },
-      { guestId: 'ss-extra', nickname: 'ExtraDino' },
-    ])
-    expect(store().nicknames['ss-extra']).toBe('ExtraDino')
+  it('budget_canvas-full state at 1 000 points and 60 strokes comes from canvasBudget', () => {
+    store().reset()
+    expect(store().canvasFull).toBe(false)
+    store().applySnapshot(
+      sketchySnapshot('SKETCH', ARTIST_ROLE, {
+        draft: {
+          strokes: [],
+          canvasBudget: { points: 1000, maxPoints: 1000, strokes: 5, maxStrokes: 60 },
+        },
+      }),
+    )
+    expect(store().canvasFull).toBe(true)
+
+    store().applySnapshot(
+      sketchySnapshot('SKETCH', ARTIST_ROLE, {
+        draft: {
+          strokes: [],
+          canvasBudget: { points: 50, maxPoints: 1000, strokes: 60, maxStrokes: 60 },
+        },
+      }),
+    )
+    expect(store().canvasFull).toBe(true)
   })
 })

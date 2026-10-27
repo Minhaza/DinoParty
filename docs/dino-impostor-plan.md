@@ -178,6 +178,24 @@ Built against fixtures (no live backend): G1–G4 fixes in the Dino Impostor cli
 
 P9-06's requests G6–G8 are resolved in `api-contracts.md` §3.11–§3.12 (see `docs/contract-requests.md`). **Backend work added to P9-04:** Sketchy's `draft` keeps the submitted drawing until `SKETCH` ends (G6); `nicknames` in the `ROLE_REVEAL` `PHASE_STARTED` of **both** games (G8, a small change to `DinoImpostorViews` as well). G7 needs no change. **Frontend work added to P9-07:** read `nicknames` from `ROLE_REVEAL` and drop the remembered-roster workaround.
 
+### P9-07 status (built, wired and play-tested)
+
+Built and verified by the Antigravity frontend lane against live Spring Boot backend (dev profile + PostgreSQL):
+
+- **Local enablement:** both games enabled in local PostgreSQL via `UPDATE game_definition SET enabled = true WHERE key IN ('dino-impostor', 'sketchy-saurus');`.
+- **G8 implemented and verified:** `nicknames` delivered in `ROLE_REVEAL` `PHASE_STARTED` in both games; remembered-roster workarounds cleanly removed from `DinoImpostorStage`, `SketchySaurusStage`, and both store slices.
+- **Budget enforcement:** Sketchy Saurus canvas limits confirmed at 1 000 live points and 60 strokes. `PAYLOAD_TOO_LARGE` correctly marks `canvasFull` and halts drawing.
+- **Secrecy verification:** `IMPOSTOR_ROLE` and `IMPOSTOR_GUESS_OPEN` arrive exclusively on private `/user/queue/rooms/{code}`. Zero stroke leakage during Sketchy Saurus `SKETCH`.
+- **Live play test matrix (12 browser scenarios):**
+  - Dino Impostor: full game (caught guesses right), caught impostor guesses wrong, escape on a tie, mid-turn / mid-vote refresh, impostor leaving mid-round, room falling below 3 players.
+  - Sketchy Saurus: full game (`impostorKnows: true`), unaware impostor without guess (`impostorKnows: false, unawareGuess: false`), unaware impostor with guess on tie (`unawareGuess: true`), mid-sketch refresh, player leaving mid-sketch, canvas budget exhaustion (60 strokes / 1 000 points).
+- **Real payload test suite:** 30 Vitest tests fed by live recorded Spring Boot payloads (`dinoRealPayloads.test.ts` and `sketchyRealPayloads.test.ts`).
+- **Game-feel observations:**
+  - *Dino Impostor turns:* Releasing the pointer implicitly closes the single-stroke turn. This keeps 4+ player rounds brisk and responsive.
+  - *15-second voting window:* The `[DI-9]` minimum 15-second voting rule prevents accidental instant resolution when players vote quickly, leaving time for discussion in chat.
+  - *Decoy words (Sketchy Saurus):* Unaware impostors receiving decoy words in the same category (e.g. `cable car` vs `car`, `hand` vs `objects`) draw naturally, making spot-the-impostor voting challenging and fun.
+  - *Mobile accessibility:* Native radio inputs with focus rings and Tab/Space keyboard voting navigate smoothly on 375px screens with `prefers-reduced-motion: reduce`.
+
 ## 10. Tests that matter most
 
 - **Secrecy** (highest risk): one harness that records every frame each client receives over a full game of each and checks that before `ROUND_END` the word never reaches the impostor or spectators, and the impostor's ID never reaches anyone. SS: no other player gets your strokes while sketching; with `impostorKnows = false` the impostor's role event and snapshot can't be told apart from an artist's except by the word itself.
